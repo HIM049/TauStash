@@ -1,0 +1,17 @@
+[package]
+name = "picargo"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0"
+gpui-kit = "0.6.6"
+sea-orm = { version = "2.0.3", features = ["sqlx-sqlite", "runtime-tokio-rustls", "macros", "with-chrono", "with-json"] }
+tokio = { version = "1.40", features = ["full"] }
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.10", features = ["v7", "serde"] }
+blake3 = "1.8.7"
+mime_guess = "2.0.5"
+
