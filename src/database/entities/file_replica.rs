@@ -23,6 +23,9 @@ pub struct Model {
     pub uri: String,
     #[sea_orm(indexed)]
     pub state: ReplicaState,
+    pub file_name: String,
+    pub mtime: Option<i64>,
+    pub file_size: Option<i64>,
     pub last_verified_at: Option<DateTimeUtc>,
     pub deleted_at: Option<DateTimeUtc>,
 

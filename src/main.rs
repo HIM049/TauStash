@@ -1,4 +1,5 @@
 pub mod database;
+pub mod services;
 
 use gpui_kit::component::*;
 use gpui_kit::*;

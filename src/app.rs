@@ -6,14 +6,18 @@ use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::database::storage::{self, FileInfo};
+use crate::database::storage;
+use crate::services::importer::{self, FileInfo};
+use crate::services::scanner::{self, ScanReport};
 
 pub struct DebugApp {
     db: Arc<DatabaseConnection>,
     path_input: Entity<InputState>,
     tag_input: Entity<InputState>,
+    scan_dir_input: Entity<InputState>,
     current_file: Option<FileInfo>,
     file_list: Vec<FileInfo>,
+    is_scanning: bool,
     status_message: Option<(bool, String)>,
 }
 
@@ -25,13 +29,19 @@ impl DebugApp {
         let tag_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("输入标签名称 (例如: 发票, 工作)...")
         });
+        let scan_dir_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("输入待扫描源目录绝对路径 (例如: D:\\Photos)...")
+        });
 
         let mut app = Self {
             db,
             path_input,
             tag_input,
+            scan_dir_input,
             current_file: None,
             file_list: Vec::new(),
+            is_scanning: false,
             status_message: None,
         };
 
@@ -43,7 +53,7 @@ impl DebugApp {
     fn reload_files(&mut self, cx: &mut Context<Self>) {
         let db = self.db.clone();
         cx.spawn(async move |this, cx| {
-            let res = storage::list_files(&db).await;
+            let res = importer::list_all_files(&db).await;
             this.update(cx, |this, cx| {
                 if let Ok(files) = res {
                     this.file_list = files;
@@ -66,21 +76,77 @@ impl DebugApp {
 
         let db = self.db.clone();
         cx.spawn(async move |this, cx| {
-            let res = storage::import_file(&db, &trimmed_path, "local-device").await;
-            this.update(cx, |this, cx| {
-                match res {
-                    Ok(info) => {
-                        let msg = if info.is_duplicate {
-                            format!("发现相同哈希，已记录副本！(ID: {})", info.file_id)
+            let res = importer::import_file(&db, &trimmed_path, "local-device").await;
+            match res {
+                Ok((file_id, is_duplicate)) => {
+                    let detail_res = importer::get_file_detail(&db, file_id).await;
+                    this.update(cx, |this, cx| {
+                        let msg = if is_duplicate {
+                            format!("发现相同哈希，已记录副本！(ID: {})", file_id)
                         } else {
-                            format!("新文件导入成功！(ID: {})", info.file_id)
+                            format!("新文件导入成功！(ID: {})", file_id)
                         };
                         this.status_message = Some((false, msg));
-                        this.current_file = Some(info);
+                        if let Ok(Some(info)) = detail_res {
+                            this.current_file = Some(info);
+                        }
+                        this.reload_files(cx);
+                        cx.notify();
+                    })
+                    .ok();
+                }
+                Err(e) => {
+                    this.update(cx, |this, cx| {
+                        this.status_message = Some((true, format!("导入失败: {:#}", e)));
+                        cx.notify();
+                    })
+                    .ok();
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn on_scan_dir(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if self.is_scanning {
+            return;
+        }
+
+        let raw_path = self.scan_dir_input.read(cx).text().to_string();
+        let trimmed_path = raw_path.trim().trim_matches('"').to_string();
+        if trimmed_path.is_empty() {
+            self.status_message = Some((true, "请输入待扫描的源目录绝对路径".to_string()));
+            cx.notify();
+            return;
+        }
+
+        self.is_scanning = true;
+        self.status_message = Some((false, format!("正在扫描目录「{}」中...", trimmed_path)));
+        cx.notify();
+
+        let db = self.db.clone();
+        cx.spawn(async move |this, cx| {
+            let res = scanner::scan_directory(&db, &trimmed_path, "local-device").await;
+            this.update(cx, |this, cx| {
+                this.is_scanning = false;
+                match res {
+                    Ok(ScanReport {
+                        total_found,
+                        newly_imported,
+                        skipped_unchanged,
+                        marked_missing,
+                    }) => {
+                        this.status_message = Some((
+                            false,
+                            format!(
+                                "扫描完成！共发现 {} 项，快速跳过未修改 {} 项，新增导入 {} 项，标记丢失 {} 项",
+                                total_found, skipped_unchanged, newly_imported, marked_missing
+                            ),
+                        ));
                         this.reload_files(cx);
                     }
                     Err(e) => {
-                        this.status_message = Some((true, format!("导入失败: {:#}", e)));
+                        this.status_message = Some((true, format!("扫描失败: {:#}", e)));
                     }
                 }
                 cx.notify();
@@ -444,12 +510,14 @@ impl Render for DebugApp {
         };
 
         div()
+            .id("app-root-scroll-view")
             .v_flex()
             .gap_4()
             .size_full()
             .p_6()
             .bg(rgb(0x181a1f))
             .text_color(rgb(0xe5e7eb))
+            .overflow_y_scroll()
             .child(
                 div()
                     .v_flex()
@@ -464,11 +532,11 @@ impl Render for DebugApp {
                         div()
                             .text_xs()
                             .text_color(rgb(0x9ca3af))
-                            .child("本地文件导入、CAS 查重、标签解绑与已导入列表 (CRUD)"),
+                            .child("本地单文件导入、来源目录主动扫描与状态对齐、数据库查重与 CRUD"),
                     ),
             )
             .children(status_banner)
-            // 1. Import Card
+            // 1. Single File Import Card
             .child(
                 div()
                     .v_flex()
@@ -480,7 +548,7 @@ impl Render for DebugApp {
                         div()
                             .text_xs()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("1. 输入本地文件路径导入 (Create):"),
+                            .child("1. 输入本地单文件路径导入 (Single File Import):"),
                     )
                     .child(
                         div()
@@ -495,9 +563,40 @@ impl Render for DebugApp {
                             ),
                     ),
             )
-            // 2. Selected File Card (if any)
+            // 2. Source Directory Scan Card
+            .child(
+                div()
+                    .v_flex()
+                    .gap_2()
+                    .p_4()
+                    .bg(rgb(0x21252b))
+                    .rounded_md()
+                    .child(
+                        div()
+                            .text_xs()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("2. 来源目录主动递归扫描 (Active Reconciliation Scan):"),
+                    )
+                    .child(
+                        div()
+                            .h_flex()
+                            .gap_2()
+                            .child(div().flex_1().child(Input::new(&self.scan_dir_input)))
+                            .child(
+                                Button::new("scan-btn")
+                                    .label(if self.is_scanning {
+                                        "扫描中..."
+                                    } else {
+                                        "开始扫描"
+                                    })
+                                    .disabled(self.is_scanning)
+                                    .on_click(cx.listener(Self::on_scan_dir)),
+                            ),
+                    ),
+            )
+            // 3. Selected File Card (if any)
             .children(current_file_card)
-            // 3. File List Card
+            // 4. File List Card
             .child(
                 div()
                     .v_flex()
@@ -525,7 +624,16 @@ impl Render for DebugApp {
                                     .on_click(cx.listener(|this, _, _, cx| this.reload_files(cx))),
                             ),
                     )
-                    .child(div().v_flex().gap_2().children(file_list_rows)),
+                    .child(
+                        div()
+                            .id("file-list-scroll-view")
+                            .v_flex()
+                            .gap_2()
+                            .max_h(px(320.0))
+                            .overflow_y_scroll()
+                            .pr_1()
+                            .children(file_list_rows),
+                    ),
             )
     }
 }
