@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use anyhow::Result;
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait,
+    QueryFilter, QueryOrder, Set, Statement,
 };
 use uuid::Uuid;
 
@@ -34,7 +34,10 @@ pub struct UpsertReplicaParams<'a> {
 }
 
 /// Find a file record by its BLAKE3 hash
-pub async fn find_file_by_hash(db: &DatabaseConnection, hash: &str) -> Result<Option<file::Model>> {
+pub async fn find_file_by_hash(
+    db: &DatabaseConnection,
+    hash: &str,
+) -> anyhow::Result<Option<file::Model>> {
     let res = file::Entity::find()
         .filter(file::Column::Hash.eq(hash))
         .one(db)
@@ -50,7 +53,7 @@ pub async fn insert_file(
     size: i64,
     mime: Option<String>,
     ext: Option<String>,
-) -> Result<file::Model> {
+) -> anyhow::Result<file::Model> {
     let now = Utc::now();
     let new_file = file::ActiveModel {
         id: Set(id),
@@ -72,7 +75,7 @@ pub async fn find_replica(
     db: &DatabaseConnection,
     device_id: &str,
     uri: &str,
-) -> Result<Option<file_replica::Model>> {
+) -> anyhow::Result<Option<file_replica::Model>> {
     let res = file_replica::Entity::find()
         .filter(file_replica::Column::DeviceId.eq(device_id))
         .filter(file_replica::Column::Uri.eq(uri))
@@ -85,7 +88,7 @@ pub async fn find_replica(
 pub async fn upsert_replica(
     db: &DatabaseConnection,
     params: UpsertReplicaParams<'_>,
-) -> Result<file_replica::Model> {
+) -> anyhow::Result<file_replica::Model> {
     let now = Utc::now();
     let existing = find_replica(db, params.device_id, params.uri).await?;
 
@@ -122,7 +125,7 @@ pub async fn find_replicas_by_prefix(
     db: &DatabaseConnection,
     device_id: &str,
     uri_prefix: &str,
-) -> Result<Vec<file_replica::Model>> {
+) -> anyhow::Result<Vec<file_replica::Model>> {
     let replicas = file_replica::Entity::find()
         .filter(file_replica::Column::DeviceId.eq(device_id))
         .filter(file_replica::Column::Uri.starts_with(uri_prefix))
@@ -135,7 +138,7 @@ pub async fn find_replicas_by_prefix(
 pub async fn mark_replica_missing(
     db: &DatabaseConnection,
     replica: file_replica::Model,
-) -> Result<()> {
+) -> anyhow::Result<()> {
     let now = Utc::now();
     let mut active: file_replica::ActiveModel = replica.into();
     active.state = Set(ReplicaState::Missing);
@@ -148,7 +151,7 @@ pub async fn mark_replica_missing(
 pub async fn get_file_record_by_id(
     db: &DatabaseConnection,
     file_id: Uuid,
-) -> Result<Option<DbFileRecord>> {
+) -> anyhow::Result<Option<DbFileRecord>> {
     let Some(f) = file::Entity::find_by_id(file_id).one(db).await? else {
         return Ok(None);
     };
@@ -176,13 +179,184 @@ pub async fn get_file_record_by_id(
     }))
 }
 
-/// List all files in the database ordered by creation date descending
-pub async fn list_file_records(db: &DatabaseConnection) -> Result<Vec<DbFileRecord>> {
-    let files = file::Entity::find()
-        .order_by_desc(file::Column::CreatedAt)
+/// Tag filter options for database queries
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TagFilter {
+    All,
+    Untagged,
+    Tag {
+        namespace: TagNamespace,
+        name: String,
+    },
+}
+
+/// A tag summary item preserving its namespace, name, optional color, and file count
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TagSummaryItem {
+    pub namespace: TagNamespace,
+    pub name: String,
+    pub color: Option<String>,
+    pub count: usize,
+}
+
+/// Full aggregated statistics for the overview bar
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OverviewStats {
+    pub total_files: usize,
+    pub untagged_files: usize,
+    pub tags_summary: Vec<TagSummaryItem>,
+}
+
+/// tags statistics
+pub async fn get_tags_stats(db: &DatabaseConnection) -> anyhow::Result<OverviewStats> {
+    let tag_sql = r#"
+        SELECT
+            t.namespace,
+            t.name,
+            t.color,
+            COUNT(DISTINCT ft.file_id) AS file_count
+        FROM tag t
+        INNER JOIN file_tag ft ON t.id = ft.tag_id
+        INNER JOIN file f ON ft.file_id = f.id
+        INNER JOIN file_replica fr ON f.id = fr.file_id
+        WHERE fr.state != 'missing'
+        GROUP BY t.namespace, t.name, t.color
+        ORDER BY file_count DESC, t.name ASC
+    "#;
+    let tag_rows = db
+        .query_all_raw(Statement::from_string(DbBackend::Sqlite, tag_sql))
+        .await?;
+
+    let mut tags_summary = Vec::with_capacity(tag_rows.len());
+    for row in tag_rows {
+        let ns_str: String = row.try_get("", "namespace")?;
+        let name: String = row.try_get("", "name")?;
+        let color: Option<String> = row.try_get("", "color").ok();
+        let count_i64: i64 = row.try_get("", "file_count")?;
+
+        let namespace = match ns_str.as_str() {
+            "rule" => TagNamespace::Rule,
+            "ai" => TagNamespace::Ai,
+            _ => TagNamespace::User,
+        };
+
+        tags_summary.push(TagSummaryItem {
+            namespace,
+            name,
+            color,
+            count: count_i64 as usize,
+        });
+    }
+
+    let count_sql = r#"
+        SELECT
+            (
+                SELECT COUNT(DISTINCT f.id)
+                FROM file f
+                INNER JOIN file_replica fr ON f.id = fr.file_id
+                WHERE fr.state != 'missing'
+            ) AS total_files,
+            (
+                SELECT COUNT(DISTINCT f.id)
+                FROM file f
+                INNER JOIN file_replica fr ON f.id = fr.file_id
+                WHERE fr.state != 'missing'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM file_tag ft WHERE ft.file_id = f.id
+                  )
+            ) AS untagged_files
+    "#;
+
+    let count_row = db
+        .query_one_raw(Statement::from_string(DbBackend::Sqlite, count_sql))
+        .await?;
+
+    let (total_files, untagged_files) = if let Some(row) = count_row {
+        let total: i64 = row.try_get("", "total_files")?;
+        let untagged: i64 = row.try_get("", "untagged_files")?;
+        (total as usize, untagged as usize)
+    } else {
+        (0, 0)
+    };
+
+    Ok(OverviewStats {
+        total_files,
+        untagged_files,
+        tags_summary,
+    })
+}
+
+/// List file records filtered by tag criteria directly in database
+pub async fn list_file_records_by_filter(
+    db: &DatabaseConnection,
+    filter: &TagFilter,
+) -> anyhow::Result<Vec<DbFileRecord>> {
+    let target_file_ids: Option<Vec<Uuid>> = match filter {
+        TagFilter::All => None,
+        TagFilter::Untagged => {
+            let tagged_ids: Vec<Uuid> = file_tag::Entity::find()
+                .all(db)
+                .await?
+                .into_iter()
+                .map(|ft| ft.file_id)
+                .collect();
+            let untagged = file::Entity::find()
+                .filter(file::Column::Id.is_not_in(tagged_ids))
+                .all(db)
+                .await?;
+            Some(untagged.into_iter().map(|f| f.id).collect())
+        }
+        TagFilter::Tag { namespace, name } => {
+            let matched_tags = tag::Entity::find()
+                .filter(tag::Column::Namespace.eq(*namespace))
+                .filter(tag::Column::Name.eq(name.as_str()))
+                .all(db)
+                .await?;
+
+            // if cannot find target tag
+            if matched_tags.is_empty() {
+                anyhow::bail!("tag not found: namespace={namespace:?}, name={name}");
+            }
+
+            let matched_tag_ids: Vec<Uuid> = matched_tags.into_iter().map(|t| t.id).collect();
+            let links = file_tag::Entity::find()
+                .filter(file_tag::Column::TagId.is_in(matched_tag_ids))
+                .all(db)
+                .await?;
+            Some(links.into_iter().map(|l| l.file_id).collect())
+        }
+    };
+
+    let files = match target_file_ids {
+        Some(ids) => {
+            if ids.is_empty() {
+                return Ok(Vec::new());
+            }
+            file::Entity::find()
+                .filter(file::Column::Id.is_in(ids))
+                .order_by_desc(file::Column::CreatedAt)
+                .all(db)
+                .await?
+        }
+        None => {
+            // no filters
+            file::Entity::find()
+                .order_by_desc(file::Column::CreatedAt)
+                .all(db)
+                .await?
+        }
+    };
+
+    if files.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let file_ids: Vec<Uuid> = files.iter().map(|f| f.id).collect();
+    let replicas = file_replica::Entity::find()
+        .filter(file_replica::Column::FileId.is_in(file_ids))
         .all(db)
         .await?;
-    let replicas = file_replica::Entity::find().all(db).await?;
+
     let replica_map = replicas
         .into_iter()
         .filter(|r| r.state != ReplicaState::Missing)
@@ -211,11 +385,16 @@ pub async fn list_file_records(db: &DatabaseConnection) -> Result<Vec<DbFileReco
     Ok(result)
 }
 
+/// List all files in the database ordered by creation date descending
+pub async fn list_file_records(db: &DatabaseConnection) -> anyhow::Result<Vec<DbFileRecord>> {
+    list_file_records_by_filter(db, &TagFilter::All).await
+}
+
 /// Retrieve all tag names for multiple files in a single batch query
 pub async fn get_files_tags_batch(
     db: &DatabaseConnection,
     file_ids: &[Uuid],
-) -> Result<HashMap<Uuid, Vec<String>>> {
+) -> anyhow::Result<HashMap<Uuid, Vec<String>>> {
     if file_ids.is_empty() {
         return Ok(HashMap::new());
     }
@@ -251,7 +430,11 @@ pub async fn get_files_tags_batch(
 }
 
 /// Attach a tag to a file (create tag if not existing)
-pub async fn add_tag(db: &DatabaseConnection, file_id: Uuid, tag_name: &str) -> Result<tag::Model> {
+pub async fn add_tag(
+    db: &DatabaseConnection,
+    file_id: Uuid,
+    tag_name: &str,
+) -> anyhow::Result<tag::Model> {
     let clean_name = tag_name.trim();
     if clean_name.is_empty() {
         anyhow::bail!("Tag name cannot be empty");
@@ -299,7 +482,11 @@ pub async fn add_tag(db: &DatabaseConnection, file_id: Uuid, tag_name: &str) -> 
 }
 
 /// Detach a tag from a file
-pub async fn remove_tag(db: &DatabaseConnection, file_id: Uuid, tag_name: &str) -> Result<()> {
+pub async fn remove_tag(
+    db: &DatabaseConnection,
+    file_id: Uuid,
+    tag_name: &str,
+) -> anyhow::Result<()> {
     let clean_name = tag_name.trim();
     let existing_tag = tag::Entity::find()
         .filter(tag::Column::Namespace.eq(TagNamespace::User))
@@ -319,7 +506,7 @@ pub async fn remove_tag(db: &DatabaseConnection, file_id: Uuid, tag_name: &str) 
 }
 
 /// Delete a file and its associated tags and replicas from database
-// pub async fn delete_file(db: &DatabaseConnection, file_id: Uuid) -> Result<()> {
+// pub async fn delete_file(db: &DatabaseConnection, file_id: Uuid) -> anyhow::Result<()> {
 //     file_tag::Entity::delete_many()
 //         .filter(file_tag::Column::FileId.eq(file_id))
 //         .exec(db)
@@ -336,7 +523,7 @@ pub async fn remove_tag(db: &DatabaseConnection, file_id: Uuid, tag_name: &str) 
 // }
 
 /// Retrieve all tag names for a given file
-pub async fn get_file_tags(db: &DatabaseConnection, file_id: Uuid) -> Result<Vec<String>> {
+pub async fn get_file_tags(db: &DatabaseConnection, file_id: Uuid) -> anyhow::Result<Vec<String>> {
     let links = file_tag::Entity::find()
         .filter(file_tag::Column::FileId.eq(file_id))
         .all(db)
