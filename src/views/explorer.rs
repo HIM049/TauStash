@@ -1,5 +1,5 @@
 use gpui_kit::component::scroll::ScrollableElement;
-use gpui_kit::component::*;
+use gpui_kit::component::{ElementExt as _, *};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
@@ -14,6 +14,8 @@ pub struct OverallView {
     total_files_count: usize,
     untagged_files_count: usize,
     tags_summary: Vec<TagSummaryItem>,
+    selected_file_id: Option<uuid::Uuid>,
+    container_width: Pixels,
 }
 
 impl OverallView {
@@ -25,6 +27,8 @@ impl OverallView {
             total_files_count: 0,
             untagged_files_count: 0,
             tags_summary: Vec::new(),
+            selected_file_id: None,
+            container_width: px(800.0),
         };
         view.reload_all(cx);
         view
@@ -208,9 +212,8 @@ impl OverallView {
 }
 
 impl Render for OverallView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let viewport_width = window.viewport_size().width;
-        let available_width = (viewport_width - px(280.0)).max(px(152.0));
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let available_width = (self.container_width - px(48.0)).max(px(152.0));
         let cols = (available_width.as_f32() / 148.0).floor().max(1.0) as usize;
 
         let rows: Vec<Vec<FileInfo>> = self
@@ -220,12 +223,25 @@ impl Render for OverallView {
             .collect();
         let rows_count = rows.len();
 
+        let entity = cx.entity().clone();
+        let current_width = self.container_width;
+
         div()
             .v_flex()
             .size_full()
             .gap_3()
             .p_6()
             .pb_0()
+            .pr_0()
+            .on_prepaint(move |bounds, _, cx| {
+                let new_w = bounds.size.width;
+                if (new_w - current_width).abs() > px(2.0) {
+                    entity.update(cx, |this, cx| {
+                        this.container_width = new_w;
+                        cx.notify();
+                    });
+                }
+            })
             .child(
                 div()
                     .v_flex()
@@ -245,29 +261,60 @@ impl Render for OverallView {
                         .child("当前筛选下暂无匹配文件")
                 },
                 |d| {
+                    let entity = cx.entity().clone();
                     d.child(
                         uniform_list("file-grid-list", rows_count, {
                             let rows = rows.clone();
+                            let selected_id = self.selected_file_id;
                             move |visible_range, _, _cx| {
                                 visible_range
                                     .map(|row_idx| {
                                         let row_files = &rows[row_idx];
                                         div()
-                                            .h(px(162.0)) // 卡片 150px + gap 12px
+                                            .h(px(162.0)) // 150px + 12px
                                             .h_flex()
                                             .gap_3()
                                             .children(row_files.iter().map(|item| {
                                                 let extension = item
-                                                    .mime
-                                                    .split('/')
-                                                    .nth(1)
-                                                    .unwrap_or("file")
+                                                    .ext
+                                                    .as_deref()
+                                                    .unwrap_or_else(|| {
+                                                        item.mime
+                                                            .split('/')
+                                                            .nth(1)
+                                                            .unwrap_or("file")
+                                                    })
                                                     .to_uppercase();
+                                                let file_id = item.file_id;
+                                                let is_selected = selected_id == Some(file_id);
+                                                let file_path =
+                                                    SharedString::new(item.path.as_str());
+                                                let file_path_open = file_path.clone();
+                                                let entity_click = entity.clone();
+
                                                 components::file_card::FileCard::new(
+                                                    ElementId::Name(
+                                                        format!("file-card-{}", file_id).into(),
+                                                    ),
                                                     SharedString::new(item.file_name.as_str()),
                                                     extension,
                                                     item.size,
                                                 )
+                                                .path(file_path)
+                                                .hash(SharedString::new(item.hash.as_str()))
+                                                .selected(is_selected)
+                                                .on_click(move |_, _, cx| {
+                                                    entity_click.update(cx, |this, cx| {
+                                                        this.selected_file_id = Some(file_id);
+                                                        cx.notify();
+                                                    });
+                                                })
+                                                .on_double_click(move |_, _, _| {
+                                                    std::process::Command::new("explorer")
+                                                        .arg(file_path_open.as_ref())
+                                                        .spawn()
+                                                        .ok();
+                                                })
                                             }))
                                     })
                                     .collect()
