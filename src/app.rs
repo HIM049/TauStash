@@ -104,6 +104,6 @@ impl Render for MyApp {
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .child(self.render_sidebar(cx))
-            .child(div().size_full().p_6().child(main_content))
+            .child(div().h_full().flex_1().p_6().child(main_content))
     }
 }

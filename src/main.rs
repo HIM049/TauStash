@@ -6,6 +6,7 @@ use gpui_kit::*;
 use std::sync::Arc;
 
 mod app;
+mod components;
 mod sidebar;
 mod views;
 use app::MyApp;
@@ -34,7 +35,7 @@ fn main() {
 
         cx.set_global(global);
         let window_bounds =
-            WindowBounds::Windowed(Bounds::centered(None, size(px(980.0), px(680.0)), cx));
+            WindowBounds::Windowed(Bounds::centered(None, size(px(880.0), px(680.0)), cx));
 
         cx.spawn(async move |cx| {
             cx.open_window(

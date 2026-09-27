@@ -1,8 +1,10 @@
+use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::*;
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
-use crate::AppState;
 use crate::services::importer::{self, FileInfo};
+use crate::{AppState, components};
 
 pub struct OverallView {
     pub file_list: Vec<FileInfo>,
@@ -35,95 +37,48 @@ impl OverallView {
 
 impl Render for OverallView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // empty message
-        if self.file_list.is_empty() {
-            return div()
-                .size_full()
-                .h_flex()
-                .items_center()
-                .justify_center()
-                .p_8()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child("库中暂无文件记录")
-                .into_any_element();
-        }
-
         let grid_cards = self.file_list.iter().map(|item| {
             let extension = item.mime.split('/').nth(1).unwrap_or("file").to_uppercase();
-
-            div()
-                .v_flex()
-                .items_center()
-                .justify_between()
-                .w(px(140.0))
-                .h(px(150.0))
-                .p_3()
-                .bg(cx.theme().secondary)
-                .border_1()
-                .border_color(cx.theme().border)
-                .rounded(cx.theme().radius)
-                .child(
-                    div()
-                        .v_flex()
-                        .items_center()
-                        .justify_center()
-                        .flex_1()
-                        .gap_1p5()
-                        .child(
-                            div()
-                                .w_10()
-                                .h_10()
-                                .rounded_md()
-                                .bg(cx.theme().background)
-                                .h_flex()
-                                .items_center()
-                                .justify_center()
-                                .child(
-                                    Icon::new(IconName::File)
-                                        .size_5()
-                                        .text_color(cx.theme().primary),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(extension),
-                        ),
-                )
-                .child(
-                    div()
-                        .v_flex()
-                        .items_center()
-                        .w_full()
-                        .gap_0p5()
-                        .child(
-                            div()
-                                .text_xs()
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(cx.theme().foreground)
-                                .overflow_hidden()
-                                .text_ellipsis()
-                                .w_full()
-                                .text_center()
-                                .child(item.file_name.clone()),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(format!("{:.1} MB", item.size as f64 / 1024.0 / 1024.0)),
-                        ),
-                )
+            components::file_card::FileCard::new(
+                SharedString::new(item.file_name.as_str()),
+                extension,
+                item.size,
+            )
         });
 
         div()
-            .flex()
-            .flex_wrap()
-            .gap_3()
-            .w_full()
-            .children(grid_cards)
-            .into_any_element()
+            .v_flex()
+            .size_full()
+            .gap_2()
+            .child(div().text_xl().child("文件总览"))
+            .child(
+                div()
+                    .id("file-container")
+                    .size_full()
+                    .overflow_y_scrollbar()
+                    .when_else(
+                        self.file_list.is_empty(),
+                        |d| {
+                            d.size_full()
+                                .h_flex()
+                                .items_center()
+                                .justify_center()
+                                .p_8()
+                                .text_sm()
+                                .text_color(cx.theme().foreground)
+                                .child("库中暂无文件记录")
+                        },
+                        |d| {
+                            d.child(
+                                div()
+                                    .flex()
+                                    .flex_wrap()
+                                    .gap_3()
+                                    .w_full()
+                                    .children(grid_cards),
+                            )
+                        },
+                    ),
+            )
     }
 }
