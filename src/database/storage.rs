@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::Result;
 use chrono::Utc;
 use sea_orm::{
@@ -180,30 +182,69 @@ pub async fn list_file_records(db: &DatabaseConnection) -> Result<Vec<DbFileReco
         .order_by_desc(file::Column::CreatedAt)
         .all(db)
         .await?;
+    let replicas = file_replica::Entity::find().all(db).await?;
+    let replica_map = replicas
+        .into_iter()
+        .filter(|r| r.state != ReplicaState::Missing)
+        .map(|r| (r.file_id, r))
+        .collect::<HashMap<_, _>>();
 
-    let mut result = Vec::with_capacity(files.len());
-    for f in files {
-        let replica = file_replica::Entity::find()
-            .filter(file_replica::Column::FileId.eq(f.id))
-            .one(db)
-            .await?;
+    let result = files
+        .into_iter()
+        .filter_map(|f| {
+            let replica = replica_map.get(&f.id)?;
 
-        let (path, file_name) = match replica {
-            Some(r) => (r.uri, r.file_name),
-            None => ("(None)".to_string(), "unknown".to_string()),
-        };
+            Some(DbFileRecord {
+                file_id: f.id,
+                file_name: replica.file_name.clone(),
+                path: replica.uri.clone(),
+                hash: f.hash,
+                size: f.size,
+                mime: f
+                    .mime
+                    .unwrap_or_else(|| "application/octet-stream".to_string()),
+                ext: f.ext,
+            })
+        })
+        .collect();
 
-        result.push(DbFileRecord {
-            file_id: f.id,
-            file_name,
-            path,
-            hash: f.hash,
-            size: f.size,
-            mime: f
-                .mime
-                .unwrap_or_else(|| "application/octet-stream".to_string()),
-            ext: f.ext,
-        });
+    Ok(result)
+}
+
+/// Retrieve all tag names for multiple files in a single batch query
+pub async fn get_files_tags_batch(
+    db: &DatabaseConnection,
+    file_ids: &[Uuid],
+) -> Result<HashMap<Uuid, Vec<String>>> {
+    if file_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let links = file_tag::Entity::find()
+        .filter(file_tag::Column::FileId.is_in(file_ids.to_vec()))
+        .all(db)
+        .await?;
+
+    if links.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let tag_ids: Vec<Uuid> = links.iter().map(|l| l.tag_id).collect();
+    let tags = tag::Entity::find()
+        .filter(tag::Column::Id.is_in(tag_ids))
+        .all(db)
+        .await?;
+
+    let tag_map: HashMap<Uuid, String> = tags.into_iter().map(|t| (t.id, t.name)).collect();
+
+    let mut result: HashMap<Uuid, Vec<String>> = HashMap::new();
+    for link in links {
+        if let Some(tag_name) = tag_map.get(&link.tag_id) {
+            result
+                .entry(link.file_id)
+                .or_default()
+                .push(tag_name.clone());
+        }
     }
 
     Ok(result)
@@ -278,21 +319,21 @@ pub async fn remove_tag(db: &DatabaseConnection, file_id: Uuid, tag_name: &str) 
 }
 
 /// Delete a file and its associated tags and replicas from database
-pub async fn delete_file(db: &DatabaseConnection, file_id: Uuid) -> Result<()> {
-    file_tag::Entity::delete_many()
-        .filter(file_tag::Column::FileId.eq(file_id))
-        .exec(db)
-        .await?;
+// pub async fn delete_file(db: &DatabaseConnection, file_id: Uuid) -> Result<()> {
+//     file_tag::Entity::delete_many()
+//         .filter(file_tag::Column::FileId.eq(file_id))
+//         .exec(db)
+//         .await?;
 
-    file_replica::Entity::delete_many()
-        .filter(file_replica::Column::FileId.eq(file_id))
-        .exec(db)
-        .await?;
+//     file_replica::Entity::delete_many()
+//         .filter(file_replica::Column::FileId.eq(file_id))
+//         .exec(db)
+//         .await?;
 
-    file::Entity::delete_by_id(file_id).exec(db).await?;
+//     file::Entity::delete_by_id(file_id).exec(db).await?;
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 /// Retrieve all tag names for a given file
 pub async fn get_file_tags(db: &DatabaseConnection, file_id: Uuid) -> Result<Vec<String>> {

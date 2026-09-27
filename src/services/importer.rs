@@ -167,23 +167,26 @@ pub async fn get_file_detail(db: &DatabaseConnection, file_id: Uuid) -> Result<O
 /// List all files and formatted for UI
 pub async fn list_all_files(db: &DatabaseConnection) -> Result<Vec<FileInfo>> {
     let records = storage::list_file_records(db).await?;
-    let mut result = Vec::with_capacity(records.len());
+    let file_ids: Vec<uuid::Uuid> = records.iter().map(|r| r.file_id).collect();
+    let mut tags_by_file = storage::get_files_tags_batch(db, &file_ids).await?;
 
-    for r in records {
-        let tags = storage::get_file_tags(db, r.file_id).await?;
-
-        result.push(FileInfo {
-            file_id: r.file_id,
-            path: r.path,
-            file_name: r.file_name,
-            hash: r.hash,
-            size: r.size,
-            mime: r.mime,
-            ext: r.ext,
-            is_duplicate: false,
-            tags,
-        });
-    }
+    let result = records
+        .into_iter()
+        .map(|r| {
+            let tags = tags_by_file.remove(&r.file_id).unwrap_or_default();
+            FileInfo {
+                file_id: r.file_id,
+                path: r.path,
+                file_name: r.file_name,
+                hash: r.hash,
+                size: r.size,
+                mime: r.mime,
+                ext: r.ext,
+                is_duplicate: false,
+                tags,
+            }
+        })
+        .collect();
 
     Ok(result)
 }
