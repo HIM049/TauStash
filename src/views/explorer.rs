@@ -224,6 +224,8 @@ impl Render for OverallView {
             .v_flex()
             .size_full()
             .gap_3()
+            .p_6()
+            .pb_0()
             .child(
                 div()
                     .v_flex()
@@ -271,6 +273,7 @@ impl Render for OverallView {
                                     .collect()
                             }
                         })
+                        .pb_6()
                         .size_full()
                         .track_scroll(&self.scroll_handle),
                     )

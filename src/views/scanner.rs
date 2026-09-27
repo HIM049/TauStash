@@ -72,6 +72,7 @@ impl Render for ScannerView {
             .v_flex()
             .gap_4()
             .size_full()
+            .p_6()
             .child(
                 div()
                     .v_flex()
