@@ -8,6 +8,7 @@ use crate::database::{
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
+    prelude::DateTimeUtc,
 };
 use uuid::Uuid;
 
@@ -31,7 +32,8 @@ pub struct UpsertReplicaParams<'a> {
     pub device_id: &'a str,
     pub uri: &'a str,
     pub state: ReplicaState,
-    pub mtime: Option<i64>,
+    pub ctime: Option<DateTimeUtc>,
+    pub utime: Option<DateTimeUtc>,
     pub file_size: Option<i64>,
 }
 
@@ -47,16 +49,41 @@ pub async fn find_file_by_hash(
     Ok(res)
 }
 
+/// Content-intrinsic time aggregate over a set of replicas
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ContentTimes {
+    pub created_at: Option<DateTimeUtc>,
+    pub modified_at: Option<DateTimeUtc>,
+}
+
+/// Parameters for creating a file record
+#[derive(Debug, Clone)]
+pub struct CreateFileParams<'a> {
+    pub id: Uuid,
+    pub hash: &'a str,
+    pub size: i64,
+    pub mime: Option<String>,
+    pub ext: Option<String>,
+    pub state: FileState,
+    /// Seeded from the first replica; the maintenance job keeps it current
+    pub content_times: ContentTimes,
+}
+
 /// Insert a new file record
 pub async fn create_file(
     db: &DatabaseConnection,
-    id: Uuid,
-    hash: &str,
-    size: i64,
-    mime: Option<String>,
-    ext: Option<String>,
-    state: FileState,
+    params: CreateFileParams<'_>,
 ) -> anyhow::Result<file::Model> {
+    let CreateFileParams {
+        id,
+        hash,
+        size,
+        mime,
+        ext,
+        state,
+        content_times,
+    } = params;
+
     let now = Utc::now();
     let new_file = file::ActiveModel {
         id: Set(id),
@@ -66,7 +93,9 @@ pub async fn create_file(
         ext: Set(ext),
         media_meta: Set(None),
         state: Set(state),
-        content_created_at: Set(Some(now)),
+        content_created_at: Set(content_times.created_at),
+        content_modified_at: Set(content_times.modified_at),
+        exif_taken_at: Set(None),
         created_at: Set(now),
         updated_at: Set(now),
     };
@@ -103,7 +132,8 @@ pub async fn upsert_replica(
         active.file_id = Set(params.file_id);
         active.file_name = Set(params.file_name.to_string());
         active.state = Set(params.state);
-        active.mtime = Set(params.mtime);
+        active.ctime = Set(params.ctime);
+        active.utime = Set(params.utime);
         active.file_size = Set(params.file_size);
         active.last_verified_at = Set(Some(now));
         active.deleted_at = Set(None);
@@ -111,16 +141,16 @@ pub async fn upsert_replica(
         Ok(updated)
     } else {
         let replica = file_replica::ActiveModel {
-            active.file_id = Set(params.file_id),
+            file_id: Set(params.file_id),
             file_name: Set(params.file_name.to_string()),
             device_id: Set(params.device_id.to_string()),
             uri: Set(uri),
             state: Set(params.state),
-            mtime: Set(params.mtime),
+            ctime: Set(params.ctime),
+            utime: Set(params.utime),
             file_size: Set(params.file_size),
             last_verified_at: Set(Some(now)),
             deleted_at: Set(None),
-            file_id: Set(params.file_id),
             ..Default::default()
         };
         let inserted = replica.insert(db).await?;
@@ -290,6 +320,7 @@ pub async fn list_file_records_by_filter(
     }
 
     let file_ids: Vec<Uuid> = files.iter().map(|f| f.id).collect();
+    // TODO: read replica by order
     let replicas = file_replica::Entity::find()
         .filter(file_replica::Column::FileId.is_in(file_ids))
         .all(db)

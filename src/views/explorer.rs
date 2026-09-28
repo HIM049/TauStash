@@ -39,10 +39,15 @@ impl OverallView {
     /// refresh file list
     pub fn reload_files(&mut self, cx: &mut Context<Self>) {
         let db = cx.global::<AppState>().db.clone();
+        let rt = cx.global::<AppState>().rt.clone();
         let current_filter = self.selected_filter.clone();
 
         cx.spawn(async move |this, cx| {
-            let files_res = importer::list_files_filtered(&db, &current_filter).await;
+            let files_res = cx
+                .background_spawn(async move {
+                    rt.block_on(importer::list_files_filtered(&db, &current_filter))
+                })
+                .await;
 
             this.update(cx, |this, cx| {
                 if let Ok(files) = files_res {
@@ -58,9 +63,13 @@ impl OverallView {
     /// refresh tags stats
     pub fn reload_stats(&mut self, cx: &mut Context<Self>) {
         let db = cx.global::<AppState>().db.clone();
+        let rt = cx.global::<AppState>().rt.clone();
 
         cx.spawn(async move |this, cx| {
-            let Ok(stats) = storage::tag::get_tags_stats(&db).await else {
+            let stats_res = cx
+                .background_spawn(async move { rt.block_on(storage::tag::get_tags_stats(&db)) })
+                .await;
+            let Ok(stats) = stats_res else {
                 return;
             };
 

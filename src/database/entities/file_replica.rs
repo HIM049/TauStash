@@ -24,7 +24,9 @@ pub struct Model {
     #[sea_orm(indexed)]
     pub state: ReplicaState,
     pub file_name: String,
-    pub mtime: Option<i64>,
+    // Filesystem times, per path on this device
+    pub ctime: Option<DateTimeUtc>,
+    pub utime: Option<DateTimeUtc>,
     pub file_size: Option<i64>,
     pub last_verified_at: Option<DateTimeUtc>,
     pub deleted_at: Option<DateTimeUtc>,

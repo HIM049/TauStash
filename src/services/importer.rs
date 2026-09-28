@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use sea_orm::DatabaseConnection;
 use std::fs::File as StdFile;
 use std::io::Read;
@@ -7,7 +8,7 @@ use std::time::UNIX_EPOCH;
 use uuid::Uuid;
 
 use crate::database::entities::{FileState, ReplicaState};
-use crate::database::storage::file::UpsertReplicaParams;
+use crate::database::storage::file::{ContentTimes, CreateFileParams, UpsertReplicaParams};
 use crate::database::storage::{self};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,7 +17,10 @@ pub struct FileMetadata {
     pub size: i64,
     pub mime: String,
     pub ext: Option<String>,
-    pub mtime: Option<i64>,
+    /// Filesystem creation time
+    pub ctime: Option<DateTime<Utc>>,
+    /// Filesystem modification time
+    pub utime: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone)]
@@ -32,6 +36,13 @@ pub struct FileInfo {
     pub tags: Vec<String>,
 }
 
+/// Convert a filesystem timestamp, dropping values before the Unix epoch
+fn to_utc(time: std::time::SystemTime) -> Option<DateTime<Utc>> {
+    time.duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|d| DateTime::from_timestamp(d.as_secs() as i64, d.subsec_nanos()))
+}
+
 /// Compute file metadata and BLAKE3 hash
 pub fn compute_file_metadata(path: &Path) -> Result<FileMetadata> {
     let metadata = std::fs::metadata(path)
@@ -43,11 +54,8 @@ pub fn compute_file_metadata(path: &Path) -> Result<FileMetadata> {
         .and_then(|s| s.to_str())
         .map(|s| s.to_lowercase());
 
-    let mtime = metadata
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_secs() as i64);
+    let ctime = metadata.created().ok().and_then(to_utc);
+    let utime = metadata.modified().ok().and_then(to_utc);
 
     let mime = mime_guess::from_path(path)
         .first()
@@ -73,7 +81,8 @@ pub fn compute_file_metadata(path: &Path) -> Result<FileMetadata> {
         size,
         mime,
         ext,
-        mtime,
+        ctime,
+        utime,
     })
 }
 
@@ -101,7 +110,8 @@ pub async fn import_file(
         size,
         mime,
         ext,
-        mtime,
+        ctime,
+        utime,
     } = compute_file_metadata(path)?;
 
     // Deduplication check
@@ -116,7 +126,8 @@ pub async fn import_file(
                 device_id,
                 uri: &uri,
                 state: ReplicaState::Local,
-                mtime,
+                ctime,
+                utime,
                 file_size: Some(size),
             },
         )
@@ -124,8 +135,23 @@ pub async fn import_file(
         (existing.id, true)
     } else {
         let new_id = Uuid::now_v7();
-        storage::file::create_file(db, new_id, &hash, size, Some(mime), ext, FileState::Pending)
-            .await?;
+        // A single replica set: MIN/MAX over one element is that element
+        storage::file::create_file(
+            db,
+            CreateFileParams {
+                id: new_id,
+                hash: &hash,
+                size,
+                mime: Some(mime),
+                ext,
+                state: FileState::Pending,
+                content_times: ContentTimes {
+                    created_at: ctime,
+                    modified_at: utime,
+                },
+            },
+        )
+        .await?;
         storage::file::upsert_replica(
             db,
             UpsertReplicaParams {
@@ -134,7 +160,8 @@ pub async fn import_file(
                 device_id,
                 uri: &uri,
                 state: ReplicaState::Local,
-                mtime,
+                ctime,
+                utime,
                 file_size: Some(size),
             },
         )

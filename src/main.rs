@@ -15,6 +15,7 @@ use app::MyApp;
 struct AppState {
     db: Arc<sea_orm::DatabaseConnection>,
     device_id: SharedString,
+    rt: Arc<tokio::runtime::Runtime>,
 }
 
 impl Global for AppState {}
@@ -39,6 +40,7 @@ fn main() {
     let global = AppState {
         db: db.clone(),
         device_id: SharedString::from("1ec1f661-9da6-4ca9-a6d8-ce46c22719c6"),
+        rt: Arc::new(rt),
     };
 
     let app = gpui_kit::application().with_assets(gpui_kit::assets::Assets);

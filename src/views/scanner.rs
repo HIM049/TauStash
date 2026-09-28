@@ -70,12 +70,20 @@ impl ScannerView {
         }
 
         let db = cx.global::<AppState>().db.clone();
+        let rt = cx.global::<AppState>().rt.clone();
         let window_handle = window.window_handle();
         let input = self.scan_dir_input.clone();
 
         cx.spawn(async move |this, cx| {
-            let res =
-                scan_storage::create_scan(&db, PathBuf::from(&target), ScanMode::Manual).await;
+            let res = cx
+                .background_spawn(async move {
+                    rt.block_on(scan_storage::create_scan(
+                        &db,
+                        PathBuf::from(&target),
+                        ScanMode::Manual,
+                    ))
+                })
+                .await;
 
             this.update(cx, |this, cx| {
                 match res {
@@ -103,9 +111,14 @@ impl ScannerView {
     /// Remove a registered source directory
     fn on_delete_source(&mut self, source_id: i32, cx: &mut Context<Self>) {
         let db = cx.global::<AppState>().db.clone();
+        let rt = cx.global::<AppState>().rt.clone();
 
         cx.spawn(async move |this, cx| {
-            let res = scan_storage::delete_scan(&db, source_id).await;
+            let res = cx
+                .background_spawn(
+                    async move { rt.block_on(scan_storage::delete_scan(&db, source_id)) },
+                )
+                .await;
 
             this.update(cx, |this, cx| {
                 match res {
@@ -134,9 +147,14 @@ impl ScannerView {
 
         let db = cx.global::<AppState>().db.clone();
         let device_id = cx.global::<AppState>().device_id.clone();
+        let rt = cx.global::<AppState>().rt.clone();
 
         cx.spawn(async move |this, cx| {
-            let res = scanner::scan_all_sources(&db, &device_id).await;
+            let res = cx
+                .background_spawn(
+                    async move { rt.block_on(scanner::scan_all_sources(&db, &device_id)) },
+                )
+                .await;
 
             this.update(cx, |this, cx| {
                 this.is_scanning = false;
@@ -216,7 +234,7 @@ impl ScannerView {
                         )
                         .title(EmptyTitle::new().child("尚未登记扫描源"))
                         .description(EmptyDescription::new().child(
-                            "在上方填入要监控的目录绝对路径，扫描器会按 mtime 与大小做增量比对。",
+                            "在上方填入要监控的目录绝对路径，扫描器会按修改时间与大小做增量比对。",
                         )),
                 )
                 .into_any_element();
@@ -258,7 +276,7 @@ impl Render for ScannerView {
                         div()
                             .text_xs()
                             .text_color(muted)
-                            .child("按目录登记来源，扫描器按 mtime 与大小做增量比对。"),
+                            .child("按目录登记来源，扫描器按修改时间与大小做增量比对。"),
                     ),
             )
             .child(

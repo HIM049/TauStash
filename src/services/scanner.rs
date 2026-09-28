@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chrono::DateTime;
 use sea_orm::DatabaseConnection;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -89,18 +90,18 @@ pub async fn scan_directory(
         };
 
         let current_size = meta.len() as i64;
-        let current_mtime = meta
+        let current_utime = meta
             .modified()
             .ok()
             .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-            .map(|d| d.as_secs() as i64);
+            .and_then(|d| DateTime::from_timestamp(d.as_secs() as i64, d.subsec_nanos()));
 
         // try match with existing file
         if let Some(existing) = replica_map.get(&uri) {
-            let mtime_unchange = existing.mtime == current_mtime;
+            let utime_unchange = existing.utime == current_utime;
             let size_unchange = existing.file_size == Some(current_size);
 
-            if mtime_unchange && size_unchange && existing.state == ReplicaState::Local {
+            if utime_unchange && size_unchange && existing.state == ReplicaState::Local {
                 // skip unchanged
                 report.skipped_unchanged += 1;
                 continue;

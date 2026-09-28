@@ -27,8 +27,14 @@ pub struct Model {
     pub media_meta: Option<String>,
     #[sea_orm(indexed)]
     pub state: FileState,
+    /// Aggregated from replicas: MIN(replica.ctime)
     #[sea_orm(indexed)]
     pub content_created_at: Option<DateTimeUtc>,
+    /// Aggregated from replicas: MAX(replica.utime)
+    #[sea_orm(indexed)]
+    pub content_modified_at: Option<DateTimeUtc>,
+    /// Content-intrinsic time such as EXIF
+    pub exif_taken_at: Option<DateTimeUtc>,
     #[sea_orm(indexed)]
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
