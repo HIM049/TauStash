@@ -70,6 +70,7 @@ pub async fn scan_directory(
         })
         .filter_map(|e| e.ok())
     {
+        // is not file
         if !entry.file_type().is_file() {
             continue;
         }
@@ -94,11 +95,12 @@ pub async fn scan_directory(
             .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
             .map(|d| d.as_secs() as i64);
 
+        // try match with existing file
         if let Some(existing) = replica_map.get(&uri) {
-            let mtime_matched = existing.mtime == current_mtime;
-            let size_matched = existing.file_size == Some(current_size);
+            let mtime_unchange = existing.mtime == current_mtime;
+            let size_unchange = existing.file_size == Some(current_size);
 
-            if mtime_matched && size_matched && existing.state == ReplicaState::Local {
+            if mtime_unchange && size_unchange && existing.state == ReplicaState::Local {
                 // skip unchanged
                 report.skipped_unchanged += 1;
                 continue;

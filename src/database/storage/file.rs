@@ -2,13 +2,12 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::database::{
-    entities::{ReplicaState, TagNamespace, file, file_replica, file_tag, tag},
+    entities::{FileState, ReplicaState, TagNamespace, file, file_replica, file_tag, tag},
     utils,
 };
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait,
-    QueryFilter, QueryOrder, Set, Statement,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
 };
 use uuid::Uuid;
 
@@ -49,13 +48,14 @@ pub async fn find_file_by_hash(
 }
 
 /// Insert a new file record
-pub async fn insert_file(
+pub async fn create_file(
     db: &DatabaseConnection,
     id: Uuid,
     hash: &str,
     size: i64,
     mime: Option<String>,
     ext: Option<String>,
+    state: FileState,
 ) -> anyhow::Result<file::Model> {
     let now = Utc::now();
     let new_file = file::ActiveModel {
@@ -65,6 +65,7 @@ pub async fn insert_file(
         mime: Set(mime),
         ext: Set(ext),
         media_meta: Set(None),
+        state: Set(state),
         content_created_at: Set(Some(now)),
         created_at: Set(now),
         updated_at: Set(now),
@@ -99,6 +100,7 @@ pub async fn upsert_replica(
 
     if let Some(replica) = existing {
         let mut active: file_replica::ActiveModel = replica.into();
+        active.file_id = Set(params.file_id);
         active.file_name = Set(params.file_name.to_string());
         active.state = Set(params.state);
         active.mtime = Set(params.mtime);
@@ -109,6 +111,7 @@ pub async fn upsert_replica(
         Ok(updated)
     } else {
         let replica = file_replica::ActiveModel {
+            active.file_id = Set(params.file_id),
             file_name: Set(params.file_name.to_string()),
             device_id: Set(params.device_id.to_string()),
             uri: Set(uri),
@@ -161,6 +164,23 @@ pub async fn mark_replica_missing(
     Ok(())
 }
 
+pub async fn set_file_state(
+    db: &DatabaseConnection,
+    file_id: Uuid,
+    state: FileState,
+) -> anyhow::Result<()> {
+    let Some(file) = file::Entity::find_by_id(file_id).one(db).await? else {
+        anyhow::bail!("file not found");
+    };
+    let mut file: file::ActiveModel = file.into();
+
+    file.state = Set(state);
+    file.updated_at = Set(Utc::now());
+    file.update(db).await?;
+
+    Ok(())
+}
+
 /// Get detail of a single file by id
 pub async fn get_file_record_by_id(
     db: &DatabaseConnection,
@@ -202,101 +222,6 @@ pub enum TagFilter {
         namespace: TagNamespace,
         name: String,
     },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TagSummaryItem {
-    pub namespace: TagNamespace,
-    pub name: String,
-    pub color: Option<String>,
-    pub count: usize,
-}
-
-/// Full aggregated statistics for the overview bar
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct OverviewStats {
-    pub total_files: usize,
-    pub untagged_files: usize,
-    pub tags_summary: Vec<TagSummaryItem>,
-}
-
-/// tags statistics
-pub async fn get_tags_stats(db: &DatabaseConnection) -> anyhow::Result<OverviewStats> {
-    let tag_sql = r#"
-        SELECT
-            t.namespace,
-            t.name,
-            t.color,
-            COUNT(DISTINCT ft.file_id) AS file_count
-        FROM tag t
-        INNER JOIN file_tag ft ON t.id = ft.tag_id
-        INNER JOIN file f ON ft.file_id = f.id
-        INNER JOIN file_replica fr ON f.id = fr.file_id
-        WHERE fr.state != 'missing'
-        GROUP BY t.namespace, t.name, t.color
-        ORDER BY file_count DESC, t.name ASC
-    "#;
-    let tag_rows = db
-        .query_all_raw(Statement::from_string(DbBackend::Sqlite, tag_sql))
-        .await?;
-
-    let mut tags_summary = Vec::with_capacity(tag_rows.len());
-    for row in tag_rows {
-        let ns_str: String = row.try_get("", "namespace")?;
-        let name: String = row.try_get("", "name")?;
-        let color: Option<String> = row.try_get("", "color").ok();
-        let count_i64: i64 = row.try_get("", "file_count")?;
-
-        let namespace = match ns_str.as_str() {
-            "rule" => TagNamespace::Rule,
-            "ai" => TagNamespace::Ai,
-            _ => TagNamespace::User,
-        };
-
-        tags_summary.push(TagSummaryItem {
-            namespace,
-            name,
-            color,
-            count: count_i64 as usize,
-        });
-    }
-
-    let count_sql = r#"
-        SELECT
-            (
-                SELECT COUNT(DISTINCT f.id)
-                FROM file f
-                INNER JOIN file_replica fr ON f.id = fr.file_id
-                WHERE fr.state != 'missing'
-            ) AS total_files,
-            (
-                SELECT COUNT(DISTINCT f.id)
-                FROM file f
-                INNER JOIN file_replica fr ON f.id = fr.file_id
-                WHERE fr.state != 'missing'
-                  AND NOT EXISTS (
-                      SELECT 1 FROM file_tag ft WHERE ft.file_id = f.id
-                  )
-            ) AS untagged_files
-    "#;
-
-    let count_row = db
-        .query_one_raw(Statement::from_string(DbBackend::Sqlite, count_sql))
-        .await?;
-
-    let (total_files, untagged_files) = if let Some(row) = count_row {
-        let total: i64 = row.try_get("", "total_files")?;
-        let untagged: i64 = row.try_get("", "untagged_files")?;
-        (total as usize, untagged as usize)
-    } else {
-        (0, 0)
-    };
-
-    Ok(OverviewStats {
-        total_files,
-        untagged_files,
-        tags_summary,
-    })
 }
 
 /// List file records filtered by tag criteria directly in database

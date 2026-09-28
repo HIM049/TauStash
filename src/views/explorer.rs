@@ -3,7 +3,8 @@ use gpui_kit::component::{ElementExt as _, *};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
-use crate::database::storage::file::{TagFilter, TagSummaryItem};
+use crate::database::storage::file::TagFilter;
+use crate::database::storage::tag::TagSummaryItem;
 use crate::database::storage::{self};
 use crate::services::importer::{self, FileInfo};
 use crate::{AppState, components};
@@ -59,7 +60,7 @@ impl OverallView {
         let db = cx.global::<AppState>().db.clone();
 
         cx.spawn(async move |this, cx| {
-            let Ok(stats) = storage::file::get_tags_stats(&db).await else {
+            let Ok(stats) = storage::tag::get_tags_stats(&db).await else {
                 return;
             };
 

@@ -6,7 +6,7 @@ use std::path::Path;
 use std::time::UNIX_EPOCH;
 use uuid::Uuid;
 
-use crate::database::entities::ReplicaState;
+use crate::database::entities::{FileState, ReplicaState};
 use crate::database::storage::file::UpsertReplicaParams;
 use crate::database::storage::{self};
 
@@ -124,7 +124,8 @@ pub async fn import_file(
         (existing.id, true)
     } else {
         let new_id = Uuid::now_v7();
-        storage::file::insert_file(db, new_id, &hash, size, Some(mime), ext).await?;
+        storage::file::create_file(db, new_id, &hash, size, Some(mime), ext, FileState::Pending)
+            .await?;
         storage::file::upsert_replica(
             db,
             UpsertReplicaParams {
