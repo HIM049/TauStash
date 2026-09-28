@@ -37,7 +37,8 @@ pub async fn scan_directory(
     let root_str = canonical_root.to_string_lossy().to_string();
 
     // Preload all replicas by root prefix
-    let existing_replicas = storage::find_replicas_by_prefix(db, device_id, &root_str).await?;
+    let existing_replicas =
+        storage::file::find_replicas_by_prefix(db, device_id, &root_str).await?;
 
     let mut replica_map: HashMap<String, file_replica::Model> = existing_replicas
         .into_iter()
@@ -106,7 +107,9 @@ pub async fn scan_directory(
     for (uri, replica) in replica_map.drain() {
         if !observed_uris.contains(&uri)
             && replica.state != ReplicaState::Missing
-            && storage::mark_replica_missing(db, replica).await.is_ok()
+            && storage::file::mark_replica_missing(db, replica)
+                .await
+                .is_ok()
         {
             report.marked_missing += 1;
         }

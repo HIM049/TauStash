@@ -7,7 +7,8 @@ use std::time::UNIX_EPOCH;
 use uuid::Uuid;
 
 use crate::database::entities::ReplicaState;
-use crate::database::storage::{self, UpsertReplicaParams};
+use crate::database::storage::file::UpsertReplicaParams;
+use crate::database::storage::{self};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileMetadata {
@@ -104,10 +105,10 @@ pub async fn import_file(
     } = compute_file_metadata(path)?;
 
     // Deduplication check
-    let existing_file = storage::find_file_by_hash(db, &hash).await?;
+    let existing_file = storage::file::find_file_by_hash(db, &hash).await?;
 
     let (file_id, is_duplicate) = if let Some(existing) = existing_file {
-        storage::upsert_replica(
+        storage::file::upsert_replica(
             db,
             UpsertReplicaParams {
                 file_id: existing.id,
@@ -123,8 +124,8 @@ pub async fn import_file(
         (existing.id, true)
     } else {
         let new_id = Uuid::now_v7();
-        storage::insert_file(db, new_id, &hash, size, Some(mime), ext).await?;
-        storage::upsert_replica(
+        storage::file::insert_file(db, new_id, &hash, size, Some(mime), ext).await?;
+        storage::file::upsert_replica(
             db,
             UpsertReplicaParams {
                 file_id: new_id,
@@ -145,11 +146,11 @@ pub async fn import_file(
 
 /// Fetch full UI detail for a given file_id (including tags)
 pub async fn get_file_detail(db: &DatabaseConnection, file_id: Uuid) -> Result<Option<FileInfo>> {
-    let Some(record) = storage::get_file_record_by_id(db, file_id).await? else {
+    let Some(record) = storage::file::get_file_record_by_id(db, file_id).await? else {
         return Ok(None);
     };
 
-    let tags = storage::get_file_tags(db, file_id).await?;
+    let tags = storage::file::get_file_tags(db, file_id).await?;
 
     Ok(Some(FileInfo {
         file_id: record.file_id,
@@ -167,11 +168,11 @@ pub async fn get_file_detail(db: &DatabaseConnection, file_id: Uuid) -> Result<O
 /// List files filtered by tag criteria directly from database
 pub async fn list_files_filtered(
     db: &DatabaseConnection,
-    filter: &storage::TagFilter,
+    filter: &storage::file::TagFilter,
 ) -> Result<Vec<FileInfo>> {
-    let records = storage::list_file_records_by_filter(db, filter).await?;
+    let records = storage::file::list_file_records_by_filter(db, filter).await?;
     let file_ids: Vec<uuid::Uuid> = records.iter().map(|r| r.file_id).collect();
-    let mut tags_by_file = storage::get_files_tags_batch(db, &file_ids).await?;
+    let mut tags_by_file = storage::file::get_files_tags_batch(db, &file_ids).await?;
 
     let result = records
         .into_iter()
@@ -196,5 +197,5 @@ pub async fn list_files_filtered(
 
 /// List all files and formatted for UI
 pub async fn list_all_files(db: &DatabaseConnection) -> Result<Vec<FileInfo>> {
-    list_files_filtered(db, &storage::TagFilter::All).await
+    list_files_filtered(db, &storage::file::TagFilter::All).await
 }
