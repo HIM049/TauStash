@@ -20,6 +20,14 @@ pub async fn create_scan(
     let path = path.canonicalize()?.to_string_lossy().into_owned();
     let path = utils::standardize_path(path);
 
+    let already = scan_source::Entity::find()
+        .filter(scan_source::Column::Path.eq(&path))
+        .one(db)
+        .await?;
+    if already.is_some() {
+        anyhow::bail!("duplicated scan source: {path}");
+    }
+
     let now = Utc::now();
     let scan_source = entities::scan_source::ActiveModel {
         path: Set(path),
@@ -46,6 +54,16 @@ pub async fn get_scan_by_id(
 /// List every scan source, oldest first
 pub async fn list_scans(db: &DatabaseConnection) -> anyhow::Result<Vec<scan_source::Model>> {
     let sources = scan_source::Entity::find()
+        .order_by_asc(scan_source::Column::Id)
+        .all(db)
+        .await?;
+    Ok(sources)
+}
+
+/// List scan sources eligible for execution
+pub async fn list_active_scans(db: &DatabaseConnection) -> anyhow::Result<Vec<scan_source::Model>> {
+    let sources = scan_source::Entity::find()
+        .filter(scan_source::Column::IsActive.eq(true))
         .order_by_asc(scan_source::Column::Id)
         .all(db)
         .await?;

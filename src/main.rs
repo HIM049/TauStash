@@ -4,6 +4,7 @@ pub mod services;
 use gpui_kit::component::*;
 use gpui_kit::*;
 use std::sync::Arc;
+use tracing_subscriber::{EnvFilter, fmt, prelude::*, registry};
 
 mod app;
 mod components;
@@ -13,11 +14,19 @@ use app::MyApp;
 
 struct AppState {
     db: Arc<sea_orm::DatabaseConnection>,
+    device_id: SharedString,
 }
 
 impl Global for AppState {}
 
 fn main() {
+    // init tracing
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info,picloud=debug,sqlx=warn"));
+    registry().with(fmt::layer()).with(filter).init();
+
+    tracing::debug!("Debug log enabled");
+
     let rt = tokio::runtime::Runtime::new().expect("Failed to start Tokio runtime");
     let _guard = rt.enter();
 
@@ -27,7 +36,10 @@ fn main() {
             .expect("Failed to initialize database")
     });
     let db = Arc::new(db);
-    let global = AppState { db: db.clone() };
+    let global = AppState {
+        db: db.clone(),
+        device_id: SharedString::from("1ec1f661-9da6-4ca9-a6d8-ce46c22719c6"),
+    };
 
     let app = gpui_kit::application().with_assets(gpui_kit::assets::Assets);
     app.run(move |cx| {

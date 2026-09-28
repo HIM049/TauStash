@@ -442,7 +442,7 @@ pub async fn get_files_tags_batch(
     Ok(result)
 }
 
-/// Delete a file and its associated tags and replicas from database
+// /// Delete a file and its associated tags and replicas from database
 // pub async fn delete_file(db: &DatabaseConnection, file_id: Uuid) -> anyhow::Result<()> {
 //     file_tag::Entity::delete_many()
 //         .filter(file_tag::Column::FileId.eq(file_id))

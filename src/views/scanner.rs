@@ -1,62 +1,97 @@
+use std::path::PathBuf;
+
+use gpui_kit::component::alert::Alert;
 use gpui_kit::component::button::*;
+use gpui_kit::component::empty::{
+    Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyMediaVariant, EmptyTitle,
+};
 use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::*;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::AppState;
+use crate::database::entities::{ScanMode, scan_source};
+use crate::database::storage::scan_source as scan_storage;
 use crate::services::scanner;
 
 pub struct ScannerView {
-    is_scanning: bool,
+    sources: Vec<scan_source::Model>,
     scan_dir_input: Entity<InputState>,
-    status_message: Option<(bool, String)>,
+    /// Batch scan in progress, all controls are disabled
+    is_scanning: bool,
+    error_message: Option<String>,
 }
 
 impl ScannerView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let scan_dir_input = cx.new(|cx| InputState::new(window, cx));
-        Self {
-            is_scanning: false,
+        let scan_dir_input = cx.new(|cx| InputState::new(window, cx).placeholder("D:\\Pictures"));
+
+        let mut view = Self {
+            sources: Vec::new(),
             scan_dir_input,
-            status_message: None,
-        }
+            is_scanning: false,
+            error_message: None,
+        };
+        view.reload_sources(cx);
+        view
     }
 
-    fn on_scan_dir(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
-        if self.is_scanning {
-            return;
-        }
+    /// Reload registered scan sources
+    fn reload_sources(&mut self, cx: &mut Context<Self>) {
+        let db = cx.global::<AppState>().db.clone();
 
-        let raw_path = self.scan_dir_input.read(cx).text().to_string();
-        let trimmed_path = raw_path.trim().trim_matches('"').to_string();
-        if trimmed_path.is_empty() {
-            self.status_message = Some((true, "请输入待扫描的源目录绝对路径".to_string()));
-            cx.notify();
-            return;
-        }
+        cx.spawn(async move |this, cx| {
+            let Ok(sources) = scan_storage::list_scans(&db).await else {
+                return;
+            };
+            this.update(cx, |this, cx| {
+                this.sources = sources;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
 
-        self.is_scanning = true;
-        self.status_message = Some((false, format!("正在扫描目录「{}」中...", trimmed_path)));
+    fn fail(&mut self, message: String, cx: &mut Context<Self>) {
+        self.error_message = Some(message);
         cx.notify();
+    }
+
+    /// Register a new source directory
+    fn on_add_source(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let raw_path = self.scan_dir_input.read(cx).text().to_string();
+        let target = raw_path.trim().trim_matches('"').to_string();
+        if target.is_empty() {
+            self.fail("请填写要登记的源目录绝对路径".to_string(), cx);
+            return;
+        }
 
         let db = cx.global::<AppState>().db.clone();
+        let window_handle = window.window_handle();
+        let input = self.scan_dir_input.clone();
+
         cx.spawn(async move |this, cx| {
-            let res = scanner::scan_directory(&db, &trimmed_path, "local-device").await;
+            let res =
+                scan_storage::create_scan(&db, PathBuf::from(&target), ScanMode::Manual).await;
+
             this.update(cx, |this, cx| {
-                this.is_scanning = false;
                 match res {
-                    Ok(report) => {
-                        this.status_message = Some((
-                            false,
-                            format!(
-                                "扫描完成！共发现 {} 项，快速跳过未修改 {} 项，新增导入 {} 项，标记丢失 {} 项",
-                                report.total_found, report.skipped_unchanged, report.newly_imported, report.marked_missing
-                            ),
-                        ));
+                    Ok(_) => {
+                        // Clear the input so the same path is not submitted again
+                        window_handle
+                            .update(cx, |_, window, cx| {
+                                input.update(cx, |input, input_cx| {
+                                    input.set_value("", window, input_cx);
+                                });
+                            })
+                            .ok();
+                        this.error_message = None;
+                        this.reload_sources(cx);
                     }
-                    Err(e) => {
-                        this.status_message = Some((true, format!("扫描失败: {:#}", e)));
-                    }
+                    Err(_) => this.error_message = Some("添加扫描源失败".to_string()),
                 }
                 cx.notify();
             })
@@ -64,14 +99,150 @@ impl ScannerView {
         })
         .detach();
     }
+
+    /// Remove a registered source directory
+    fn on_delete_source(&mut self, source_id: i32, cx: &mut Context<Self>) {
+        let db = cx.global::<AppState>().db.clone();
+
+        cx.spawn(async move |this, cx| {
+            let res = scan_storage::delete_scan(&db, source_id).await;
+
+            this.update(cx, |this, cx| {
+                match res {
+                    Ok(()) => {
+                        this.error_message = None;
+                        this.reload_sources(cx);
+                    }
+                    Err(_) => this.error_message = Some("移除扫描源失败".to_string()),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Trigger a cross-source batch scan
+    fn on_scan_all(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if self.is_scanning {
+            return;
+        }
+
+        self.is_scanning = true;
+        self.error_message = None;
+        cx.notify();
+
+        let db = cx.global::<AppState>().db.clone();
+        let device_id = cx.global::<AppState>().device_id.clone();
+
+        cx.spawn(async move |this, cx| {
+            let res = scanner::scan_all_sources(&db, &device_id).await;
+
+            this.update(cx, |this, cx| {
+                this.is_scanning = false;
+                match res {
+                    Ok(report) if report.failed.is_empty() => {}
+                    Ok(report) => {
+                        this.error_message =
+                            Some(format!("以下源扫描失败: {}", report.failed.join("、")));
+                    }
+                    Err(_) => this.error_message = Some("扫描失败".to_string()),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn render_source_row(
+        &self,
+        source: &scan_source::Model,
+        has_divider: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let muted = cx.theme().muted_foreground;
+        let border = cx.theme().border;
+        let source_id = source.id;
+
+        let delete_entity = cx.entity().clone();
+        let delete_id = source_id;
+
+        div()
+            .h_flex()
+            .items_center()
+            .gap_3()
+            .px_3()
+            .py_2()
+            .when(has_divider, |d| d.border_t_1().border_color(border))
+            .child(
+                Icon::new(IconName::Folder)
+                    .size_4()
+                    .flex_none()
+                    .text_color(muted),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_sm()
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .child(SharedString::new(source.path.as_str())),
+            )
+            .child(
+                Button::new(SharedString::from(format!("scan-source-del-{source_id}")))
+                    .small()
+                    .ghost()
+                    .label("删除")
+                    .disabled(self.is_scanning)
+                    .on_click(move |_, _, cx| {
+                        delete_entity.update(cx, |this, cx| this.on_delete_source(delete_id, cx));
+                    }),
+            )
+            .into_any_element()
+    }
+
+    fn render_source_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.sources.is_empty() {
+            return Empty::new()
+                .h_full()
+                .header(
+                    EmptyHeader::new()
+                        .media(
+                            EmptyMedia::new()
+                                .with_variant(EmptyMediaVariant::Icon)
+                                .child(Icon::new(IconName::Inbox).size_5()),
+                        )
+                        .title(EmptyTitle::new().child("尚未登记扫描源"))
+                        .description(EmptyDescription::new().child(
+                            "在上方填入要监控的目录绝对路径，扫描器会按 mtime 与大小做增量比对。",
+                        )),
+                )
+                .into_any_element();
+        }
+
+        let rows: Vec<AnyElement> = self
+            .sources
+            .iter()
+            .enumerate()
+            .map(|(index, source)| self.render_source_row(source, index > 0, cx))
+            .collect();
+
+        v_flex().w_full().children(rows).into_any_element()
+    }
 }
 
 impl Render for ScannerView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let muted = cx.theme().muted_foreground;
+        let error = self.error_message.clone();
+        let busy = self.is_scanning;
+
         div()
             .v_flex()
-            .gap_4()
             .size_full()
+            .gap_4()
             .p_6()
             .child(
                 div()
@@ -81,13 +252,13 @@ impl Render for ScannerView {
                         div()
                             .text_base()
                             .font_weight(FontWeight::BOLD)
-                            .child("扫描中心 (Reconciliation Scanner)"),
+                            .child("扫描源"),
                     )
                     .child(
                         div()
                             .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("主动周期性递归扫描指定目录，根据 mtime/size 极速比对并对齐增删状态。"),
+                            .text_color(muted)
+                            .child("按目录登记来源，扫描器按 mtime 与大小做增量比对。"),
                     ),
             )
             .child(
@@ -103,24 +274,55 @@ impl Render for ScannerView {
                         div()
                             .text_xs()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("来源目录绝对路径:"),
+                            .child("源目录绝对路径"),
                     )
                     .child(
                         div()
                             .h_flex()
                             .gap_2()
-                            .child(div().flex_1().child(Input::new(&self.scan_dir_input)))
                             .child(
-                                Button::new("scan-btn")
-                                    .label(if self.is_scanning {
-                                        "扫描中..."
-                                    } else {
-                                        "开始扫描"
-                                    })
-                                    .disabled(self.is_scanning)
-                                    .on_click(cx.listener(Self::on_scan_dir)),
+                                div()
+                                    .flex_1()
+                                    .child(Input::new(&self.scan_dir_input).disabled(busy)),
+                            )
+                            .child(
+                                Button::new("scan-source-add")
+                                    .label("添加源")
+                                    .icon(IconName::Plus)
+                                    .disabled(busy)
+                                    .on_click(cx.listener(Self::on_add_source)),
                             ),
                     ),
             )
+            .child(
+                div()
+                    .h_flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(format!("已登记的源 ({})", self.sources.len())),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        Button::new("scan-source-scan-all")
+                            .label("开始扫描")
+                            .icon(IconName::RotateCw)
+                            // loading is already inert, do not also set disabled
+                            .loading(busy)
+                            .on_click(cx.listener(Self::on_scan_all)),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .overflow_y_scrollbar()
+                    .child(self.render_source_list(cx)),
+            )
+            .when_some(error, |this, message| {
+                this.child(Alert::error("scan-source-error", message))
+            })
     }
 }

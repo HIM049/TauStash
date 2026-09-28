@@ -1,3 +1,3 @@
 pub mod file;
-pub mod scan;
+pub mod scan_source;
 pub mod tag;

@@ -17,6 +17,13 @@ pub struct ScanReport {
     pub marked_missing: usize,
 }
 
+/// Outcome of a cross-source batch scan
+#[derive(Debug, Clone, Default)]
+pub struct BatchScanReport {
+    pub completed: usize,
+    pub failed: Vec<String>,
+}
+
 /// Scan a directory and import
 pub async fn scan_directory(
     db: &DatabaseConnection,
@@ -113,6 +120,27 @@ pub async fn scan_directory(
                 .is_ok()
         {
             report.marked_missing += 1;
+        }
+    }
+
+    Ok(report)
+}
+
+/// Scan every enabled scan source. A failing source does not abort the rest.
+pub async fn scan_all_sources(db: &DatabaseConnection, device_id: &str) -> Result<BatchScanReport> {
+    let sources = storage::scan_source::list_active_scans(db).await?;
+    if sources.is_empty() {
+        anyhow::bail!("no active scan source");
+    }
+
+    let mut report = BatchScanReport::default();
+    for source in sources {
+        match scan_directory(db, &source.path, device_id).await {
+            Ok(_) => report.completed += 1,
+            Err(e) => {
+                tracing::error!("Failed to scan directory {}: {}", source.path, e);
+                report.failed.push(source.path)
+            }
         }
     }
 
