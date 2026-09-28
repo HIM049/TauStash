@@ -1,6 +1,7 @@
 pub mod entities;
 pub mod schema;
 pub mod storage;
+pub mod utils;
 
 use sea_orm::{Database, DatabaseConnection, DbErr};
 use std::path::Path;

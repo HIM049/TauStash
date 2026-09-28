@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::database::entities::{ReplicaState, TagNamespace, file, file_replica, file_tag, tag};
+use crate::database::{
+    entities::{ReplicaState, TagNamespace, file, file_replica, file_tag, tag},
+    utils,
+};
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait,
@@ -90,7 +93,9 @@ pub async fn upsert_replica(
     params: UpsertReplicaParams<'_>,
 ) -> anyhow::Result<file_replica::Model> {
     let now = Utc::now();
-    let existing = find_replica(db, params.device_id, params.uri).await?;
+    let path = params.uri.to_string();
+    let uri = utils::standardize_path(path);
+    let existing = find_replica(db, params.device_id, &uri).await?;
 
     if let Some(replica) = existing {
         let mut active: file_replica::ActiveModel = replica.into();
@@ -106,7 +111,7 @@ pub async fn upsert_replica(
         let replica = file_replica::ActiveModel {
             file_name: Set(params.file_name.to_string()),
             device_id: Set(params.device_id.to_string()),
-            uri: Set(params.uri.to_string()),
+            uri: Set(uri),
             state: Set(params.state),
             mtime: Set(params.mtime),
             file_size: Set(params.file_size),

@@ -6,16 +6,10 @@ use sea_orm::{
     QueryOrder,
 };
 
-use crate::database::entities::{self, ScanMode, scan_source};
-
-fn standardize_path(path: String) -> String {
-    // "\\?\C:\Users\me\Pictures" "\\?\UNC\nas\media\photos"
-    if let Some(path) = path.strip_prefix(r"\\?\UNC\") {
-        format!(r"\\{path}")
-    } else {
-        path.strip_prefix(r"\\?\").unwrap_or(&path).to_string()
-    }
-}
+use crate::database::{
+    entities::{self, ScanMode, scan_source},
+    utils,
+};
 
 /// Register a directory to be scanned
 pub async fn create_scan(
@@ -24,7 +18,7 @@ pub async fn create_scan(
     mode: ScanMode,
 ) -> anyhow::Result<scan_source::Model> {
     let path = path.canonicalize()?.to_string_lossy().into_owned();
-    let path = standardize_path(path);
+    let path = utils::standardize_path(path);
 
     let now = Utc::now();
     let scan_source = entities::scan_source::ActiveModel {
@@ -111,7 +105,7 @@ pub async fn update_scan_path(
     path: PathBuf,
 ) -> anyhow::Result<scan_source::Model> {
     let path = path.canonicalize()?.to_string_lossy().into_owned();
-    let path = standardize_path(path);
+    let path = utils::standardize_path(path);
 
     let Some(existing) = get_scan_by_id(db, id).await? else {
         anyhow::bail!("Scan source not found: id={id}");

@@ -7,7 +7,7 @@ use walkdir::WalkDir;
 
 use super::importer;
 use crate::database::entities::{ReplicaState, file_replica};
-use crate::database::storage;
+use crate::database::{storage, utils};
 
 #[derive(Debug, Clone, Default)]
 pub struct ScanReport {
@@ -34,7 +34,7 @@ pub async fn scan_directory(
     let canonical_root = dir_path
         .canonicalize()
         .unwrap_or_else(|_| dir_path.to_path_buf());
-    let root_str = canonical_root.to_string_lossy().to_string();
+    let root_str = utils::standardize_path(canonical_root.to_string_lossy().to_string());
 
     // Preload all replicas by root prefix
     let existing_replicas =
@@ -70,7 +70,8 @@ pub async fn scan_directory(
         report.total_found += 1;
         let p = entry.path();
         let canonical_file = p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
-        let uri = canonical_file.to_string_lossy().to_string();
+        let path = canonical_file.to_string_lossy().to_string();
+        let uri = utils::standardize_path(path);
         observed_uris.insert(uri.clone());
 
         // check metadata
