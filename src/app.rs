@@ -1,3 +1,4 @@
+use gpui_fps::fps_monitor;
 use gpui_kit::component::sidebar::*;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -46,14 +47,9 @@ impl MyApp {
                 SidebarHeader::new().child(h_flex().items_center().gap_2().px_1().when(
                     !self.sidebar_collapsed,
                     |this| {
-                        this.child(
-                            v_flex().gap_0().child(
-                                div()
-                                    .font_weight(FontWeight::BOLD)
-                                    .text_sm()
-                                    .child("PiCargo"),
-                            ),
-                        )
+                        this.font_weight(FontWeight::BOLD)
+                            .text_sm()
+                            .child("PiCargo")
                     },
                 )),
             )
@@ -92,7 +88,7 @@ impl MyApp {
 }
 
 impl Render for MyApp {
-    fn render(&mut self, _w: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let main_content = match self.active_tab {
             NavTab::Explorer => self.explorer_view.clone().into_any_element(),
             NavTab::Scanner => self.scanner_view.clone().into_any_element(),
@@ -103,6 +99,9 @@ impl Render for MyApp {
             .size_full()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
+            .relative()
+            .size_full()
+            .when(true, |this| this.child(fps_monitor(window, cx)))
             .child(self.render_sidebar(cx))
             .child(div().h_full().flex_1().child(main_content))
     }

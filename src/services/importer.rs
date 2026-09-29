@@ -3,10 +3,11 @@ use chrono::{DateTime, Utc};
 use sea_orm::DatabaseConnection;
 use std::fs::File as StdFile;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 use uuid::Uuid;
 
+use super::scanner::scan_directory;
 use crate::database::entities::{FileState, ReplicaState};
 use crate::database::storage::file::{ContentTimes, CreateFileParams, UpsertReplicaParams};
 use crate::database::storage::{self};
@@ -86,11 +87,11 @@ pub fn compute_file_metadata(path: &Path) -> Result<FileMetadata> {
     })
 }
 
-/// Import a file into storage and Replica tables.
 pub async fn import_file(
     db: &DatabaseConnection,
     path: impl AsRef<Path>,
     device_id: &str,
+    default_state: FileState,
 ) -> Result<(Uuid, bool)> {
     let path = path.as_ref();
     if !path.exists() || !path.is_file() {
@@ -118,6 +119,15 @@ pub async fn import_file(
     let existing_file = storage::file::find_file_by_hash(db, &hash).await?;
 
     let (file_id, is_duplicate) = if let Some(existing) = existing_file {
+        // found duplicated file
+
+        // Upgrade state for pending or ignore file if wanna be managed by default
+        if default_state == FileState::Managed
+            && matches!(existing.state, FileState::Pending | FileState::Ignore)
+        {
+            storage::file::set_file_state(db, existing.id, default_state).await?;
+        }
+
         storage::file::upsert_replica(
             db,
             UpsertReplicaParams {
@@ -134,8 +144,10 @@ pub async fn import_file(
         .await?;
         (existing.id, true)
     } else {
+        // not found duplicated, new file
+        // create file record and replica for it
+
         let new_id = Uuid::now_v7();
-        // A single replica set: MIN/MAX over one element is that element
         storage::file::create_file(
             db,
             CreateFileParams {
@@ -144,7 +156,7 @@ pub async fn import_file(
                 size,
                 mime: Some(mime),
                 ext,
-                state: FileState::Pending,
+                state: default_state,
                 content_times: ContentTimes {
                     created_at: ctime,
                     modified_at: utime,
@@ -170,6 +182,44 @@ pub async fn import_file(
     };
 
     Ok((file_id, is_duplicate))
+}
+
+/// Outcome of inporting paths the user handed over directly
+#[derive(Debug, Clone, Default)]
+pub struct ImportReport {
+    pub imported: usize,
+    pub failed: Vec<String>,
+}
+
+/// Import from paths, can handle file or dir paths. Used to handle dragging input.
+pub async fn import_from_paths(
+    db: &DatabaseConnection,
+    paths: &[PathBuf],
+    device_id: &str,
+) -> Result<ImportReport> {
+    let mut report = ImportReport::default();
+
+    for path in paths {
+        let result = if path.is_dir() {
+            scan_directory(db, path, device_id, FileState::Managed)
+                .await
+                .map(|scan| scan.total_found)
+        } else {
+            import_file(db, path, device_id, FileState::Managed)
+                .await
+                .map(|_| 1)
+        };
+
+        match result {
+            Ok(count) => report.imported += count,
+            Err(err) => {
+                tracing::warn!(path = %path.display(), error = %err, "import failed");
+                report.failed.push(path.to_string_lossy().into_owned());
+            }
+        }
+    }
+
+    Ok(report)
 }
 
 /// Fetch full UI detail for a given file_id (including tags)

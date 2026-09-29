@@ -1,3 +1,6 @@
+use std::path::PathBuf;
+
+use gpui_kit::component::notification::Notification;
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::{ElementExt as _, *};
 use gpui_kit::prelude::FluentBuilder;
@@ -18,6 +21,9 @@ pub struct OverallView {
     tags_summary: Vec<TagSummaryItem>,
     selected_file_id: Option<uuid::Uuid>,
     container_width: Pixels,
+
+    importing: bool,
+    error_message: Option<String>,
 }
 
 impl OverallView {
@@ -31,9 +37,65 @@ impl OverallView {
             tags_summary: Vec::new(),
             selected_file_id: None,
             container_width: px(800.0),
+            importing: false,
+            error_message: None,
         };
         view.reload_all(cx);
         view
+    }
+
+    pub fn handle_drag(
+        &mut self,
+        window: &mut Window,
+        paths: Vec<PathBuf>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.importing || paths.is_empty() {
+            return;
+        }
+
+        self.importing = true;
+        self.error_message = None;
+        window.push_notification(Notification::new().message("正在导入文件"), cx);
+        cx.notify();
+
+        let db = cx.global::<AppState>().db.clone();
+        let rt = cx.global::<AppState>().rt.clone();
+        let device_id = cx.global::<AppState>().device_id.clone();
+
+        cx.spawn_in(window, async move |this, cx: &mut AsyncWindowContext| {
+            let res = cx
+                .background_spawn(async move {
+                    rt.block_on(importer::import_from_paths(&db, &paths, &device_id))
+                })
+                .await;
+
+            let msg = this
+                .update(cx, |this, cx| {
+                    this.importing = false;
+                    let message: SharedString = if let Ok(report) = res {
+                        if report.failed.is_empty() {
+                            format!("{} 个内容导入成功", report.imported).into()
+                        } else {
+                            format!("{} 内容径导入失败", report.failed.len()).into()
+                        }
+                    } else {
+                        "导入成功".into()
+                    };
+
+                    this.reload_all(cx);
+                    message
+                })
+                .ok();
+
+            if let Some(msg) = msg {
+                cx.update(|w, cx| {
+                    w.push_notification(Notification::new().message(msg), cx);
+                })
+                .unwrap();
+            }
+        })
+        .detach();
     }
 
     /// refresh file list
@@ -223,7 +285,7 @@ impl OverallView {
 }
 
 impl Render for OverallView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let available_width = (self.container_width - px(48.0)).max(px(152.0));
         let cols = (available_width.as_f32() / 148.0).floor().max(1.0) as usize;
 
@@ -238,6 +300,10 @@ impl Render for OverallView {
         let current_width = self.container_width;
 
         div()
+            .id("explorer-main")
+            .on_drop(cx.listener(|this, e: &ExternalPaths, w, cx| {
+                this.handle_drag(w, e.paths().to_vec(), cx);
+            }))
             .v_flex()
             .size_full()
             .gap_3()
@@ -257,7 +323,13 @@ impl Render for OverallView {
                 div()
                     .v_flex()
                     .gap_2()
-                    .child(div().text_xl().font_bold().child("文件总览"))
+                    .child(
+                        div()
+                            .h_flex()
+                            .items_center()
+                            .gap_2()
+                            .child(div().text_xl().font_bold().child("文件总览")),
+                    )
                     .child(self.render_tag_bar(cx)),
             )
             .child(div().relative().flex_1().size_full().when_else(

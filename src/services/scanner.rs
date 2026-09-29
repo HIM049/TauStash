@@ -7,7 +7,7 @@ use std::time::UNIX_EPOCH;
 use walkdir::WalkDir;
 
 use super::importer;
-use crate::database::entities::{ReplicaState, file_replica};
+use crate::database::entities::{FileState, ReplicaState, file_replica};
 use crate::database::{storage, utils};
 
 #[derive(Debug, Clone, Default)]
@@ -30,6 +30,7 @@ pub async fn scan_directory(
     db: &DatabaseConnection,
     dir_path: impl AsRef<Path>,
     device_id: &str,
+    default_state: FileState,
 ) -> Result<ScanReport> {
     let dir_path = dir_path.as_ref();
     if !dir_path.exists() || !dir_path.is_dir() {
@@ -109,7 +110,10 @@ pub async fn scan_directory(
         }
 
         // import new file
-        if importer::import_file(db, p, device_id).await.is_ok() {
+        if importer::import_file(db, p, device_id, default_state)
+            .await
+            .is_ok()
+        {
             report.newly_imported += 1;
         }
     }
@@ -138,7 +142,7 @@ pub async fn scan_all_sources(db: &DatabaseConnection, device_id: &str) -> Resul
 
     let mut report = BatchScanReport::default();
     for source in sources {
-        match scan_directory(db, &source.path, device_id).await {
+        match scan_directory(db, &source.path, device_id, FileState::Pending).await {
             Ok(_) => report.completed += 1,
             Err(e) => {
                 tracing::error!("Failed to scan directory {}: {}", source.path, e);

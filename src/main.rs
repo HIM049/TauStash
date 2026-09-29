@@ -12,10 +12,10 @@ mod sidebar;
 mod views;
 use app::MyApp;
 
-struct AppState {
-    db: Arc<sea_orm::DatabaseConnection>,
-    device_id: SharedString,
-    rt: Arc<tokio::runtime::Runtime>,
+pub struct AppState {
+    pub db: Arc<sea_orm::DatabaseConnection>,
+    pub device_id: SharedString,
+    pub rt: Arc<tokio::runtime::Runtime>,
 }
 
 impl Global for AppState {}
@@ -23,7 +23,7 @@ impl Global for AppState {}
 fn main() {
     // init tracing
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,picloud=debug,sqlx=warn"));
+        .unwrap_or_else(|_| EnvFilter::new("info,picargo=debug,sqlx=warn"));
     registry().with(fmt::layer()).with(filter).init();
 
     tracing::debug!("Debug log enabled");

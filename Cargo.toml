@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0"
-gpui-kit = "0.6.6"
+gpui-kit = "0.7.0"
 sea-orm = { version = "2.0.3", features = ["sqlx-sqlite", "runtime-tokio-rustls", "macros", "with-chrono", "with-json"] }
 tokio = { version = "1.40", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -18,3 +18,4 @@ walkdir = "2.5"
 log = "0.4.34"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "registry"] }
+gpui-fps = "0.7.0"
