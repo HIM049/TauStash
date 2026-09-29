@@ -258,6 +258,7 @@ pub enum TagFilter {
 pub async fn list_file_records_by_filter(
     db: &DatabaseConnection,
     filter: &TagFilter,
+    state: Option<FileState>,
 ) -> anyhow::Result<Vec<DbFileRecord>> {
     let target_file_ids: Option<Vec<Uuid>> = match filter {
         TagFilter::All => None,
@@ -295,25 +296,20 @@ pub async fn list_file_records_by_filter(
         }
     };
 
-    let files = match target_file_ids {
-        Some(ids) => {
-            if ids.is_empty() {
-                return Ok(Vec::new());
-            }
-            file::Entity::find()
-                .filter(file::Column::Id.is_in(ids))
-                .order_by_desc(file::Column::CreatedAt)
-                .all(db)
-                .await?
+    let mut query = file::Entity::find().order_by_desc(file::Column::CreatedAt);
+
+    if let Some(state) = state {
+        query = query.filter(file::Column::State.eq(state));
+    }
+
+    if let Some(ids) = target_file_ids {
+        if ids.is_empty() {
+            return Ok(Vec::new());
         }
-        None => {
-            // no filters
-            file::Entity::find()
-                .order_by_desc(file::Column::CreatedAt)
-                .all(db)
-                .await?
-        }
-    };
+        query = query.filter(file::Column::Id.is_in(ids));
+    }
+
+    let files = query.all(db).await?;
 
     if files.is_empty() {
         return Ok(Vec::new());
@@ -356,7 +352,7 @@ pub async fn list_file_records_by_filter(
 
 /// List all files ordered by create_at descending
 pub async fn list_file_records(db: &DatabaseConnection) -> anyhow::Result<Vec<DbFileRecord>> {
-    list_file_records_by_filter(db, &TagFilter::All).await
+    list_file_records_by_filter(db, &TagFilter::All, None).await
 }
 
 /// Retrieve all tag names for multiple files

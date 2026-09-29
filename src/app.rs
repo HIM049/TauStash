@@ -5,12 +5,14 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::views::explorer::OverallView;
+use crate::views::pending::PendingView;
 use crate::views::scanner::ScannerView;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NavTab {
     Explorer,
     Scanner,
+    Pending,
 }
 
 pub struct MyApp {
@@ -18,18 +20,21 @@ pub struct MyApp {
     sidebar_collapsed: bool,
     explorer_view: Entity<OverallView>,
     scanner_view: Entity<ScannerView>,
+    pending_view: Entity<PendingView>,
 }
 
 impl MyApp {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let explorer_view = cx.new(|cx| OverallView::new(cx));
         let scanner_view = cx.new(|cx| ScannerView::new(window, cx));
+        let pending_view = cx.new(|cx| PendingView::new(cx));
 
         Self {
             active_tab: NavTab::Explorer,
             sidebar_collapsed: false,
             explorer_view,
             scanner_view,
+            pending_view,
         }
     }
 
@@ -65,6 +70,14 @@ impl MyApp {
                                 })),
                         )
                         .child(
+                            SidebarMenuItem::new("审核队列")
+                                .icon(IconName::Check)
+                                .active(self.active_tab == NavTab::Pending)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.set_active_tab(NavTab::Pending, cx);
+                                })),
+                        )
+                        .child(
                             SidebarMenuItem::new("扫描状态")
                                 .icon(IconName::Search)
                                 .active(self.active_tab == NavTab::Scanner)
@@ -92,6 +105,7 @@ impl Render for MyApp {
         let main_content = match self.active_tab {
             NavTab::Explorer => self.explorer_view.clone().into_any_element(),
             NavTab::Scanner => self.scanner_view.clone().into_any_element(),
+            NavTab::Pending => self.pending_view.clone().into_any_element(),
         };
 
         div()

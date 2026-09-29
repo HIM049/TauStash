@@ -6,6 +6,7 @@ use gpui_kit::component::{ElementExt as _, *};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
+use crate::database::entities::FileState;
 use crate::database::storage::file::TagFilter;
 use crate::database::storage::tag::TagSummaryItem;
 use crate::database::storage::{self};
@@ -107,7 +108,11 @@ impl OverallView {
         cx.spawn(async move |this, cx| {
             let files_res = cx
                 .background_spawn(async move {
-                    rt.block_on(importer::list_files_filtered(&db, &current_filter))
+                    rt.block_on(importer::list_files_filtered(
+                        &db,
+                        &current_filter,
+                        Some(FileState::Managed),
+                    ))
                 })
                 .await;
 
@@ -129,7 +134,9 @@ impl OverallView {
 
         cx.spawn(async move |this, cx| {
             let stats_res = cx
-                .background_spawn(async move { rt.block_on(storage::tag::get_tags_stats(&db)) })
+                .background_spawn(async move {
+                    rt.block_on(storage::tag::get_tags_stats(&db, Some(FileState::Managed)))
+                })
                 .await;
             let Ok(stats) = stats_res else {
                 return;

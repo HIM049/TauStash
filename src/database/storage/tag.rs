@@ -1,8 +1,8 @@
-use crate::database::entities::{TagNamespace, file_tag, tag};
+use crate::database::entities::{FileState, TagNamespace, file_tag, tag};
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait,
-    QueryFilter, Set, Statement,
+    ActiveEnum as _, ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend,
+    EntityTrait, QueryFilter, Set, Statement, Value,
 };
 use uuid::Uuid;
 
@@ -98,9 +98,23 @@ pub struct OverviewStats {
     pub tags_summary: Vec<TagSummaryItem>,
 }
 
-/// tags statistics
-pub async fn get_tags_stats(db: &DatabaseConnection) -> anyhow::Result<OverviewStats> {
-    let tag_sql = r#"
+/// Aggregated tag statistics.
+pub async fn get_tags_stats(
+    db: &DatabaseConnection,
+    state: Option<FileState>,
+) -> anyhow::Result<OverviewStats> {
+    // Only the constant fragment is spliced into the SQL text; the value
+    // itself is bound to the `?` placeholder.
+    let state_clause = match state {
+        Some(_) => " AND f.state = ?",
+        None => "",
+    };
+    let state_values: Vec<Value> = state
+        .map(|s| vec![Value::from(s.to_value())])
+        .unwrap_or_default();
+
+    let tag_sql = format!(
+        r#"
         SELECT
             t.namespace,
             t.name,
@@ -110,12 +124,17 @@ pub async fn get_tags_stats(db: &DatabaseConnection) -> anyhow::Result<OverviewS
         INNER JOIN file_tag ft ON t.id = ft.tag_id
         INNER JOIN file f ON ft.file_id = f.id
         INNER JOIN file_replica fr ON f.id = fr.file_id
-        WHERE fr.state != 'missing'
+        WHERE fr.state != 'missing'{state_clause}
         GROUP BY t.namespace, t.name, t.color
         ORDER BY file_count DESC, t.name ASC
-    "#;
+    "#
+    );
     let tag_rows = db
-        .query_all_raw(Statement::from_string(DbBackend::Sqlite, tag_sql))
+        .query_all_raw(Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            &tag_sql,
+            state_values.clone(),
+        ))
         .await?;
 
     let mut tags_summary = Vec::with_capacity(tag_rows.len());
@@ -139,27 +158,33 @@ pub async fn get_tags_stats(db: &DatabaseConnection) -> anyhow::Result<OverviewS
         });
     }
 
-    let count_sql = r#"
+    let count_sql = format!(
+        r#"
         SELECT
             (
                 SELECT COUNT(DISTINCT f.id)
                 FROM file f
                 INNER JOIN file_replica fr ON f.id = fr.file_id
-                WHERE fr.state != 'missing'
+                WHERE fr.state != 'missing'{state_clause}
             ) AS total_files,
             (
                 SELECT COUNT(DISTINCT f.id)
                 FROM file f
                 INNER JOIN file_replica fr ON f.id = fr.file_id
-                WHERE fr.state != 'missing'
+                WHERE fr.state != 'missing'{state_clause}
                   AND NOT EXISTS (
                       SELECT 1 FROM file_tag ft WHERE ft.file_id = f.id
                   )
             ) AS untagged_files
-    "#;
+    "#
+    );
 
     let count_row = db
-        .query_one_raw(Statement::from_string(DbBackend::Sqlite, count_sql))
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            &count_sql,
+            state_values,
+        ))
         .await?;
 
     let (total_files, untagged_files) = if let Some(row) = count_row {

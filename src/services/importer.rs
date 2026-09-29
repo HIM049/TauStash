@@ -247,8 +247,9 @@ pub async fn get_file_detail(db: &DatabaseConnection, file_id: Uuid) -> Result<O
 pub async fn list_files_filtered(
     db: &DatabaseConnection,
     filter: &storage::file::TagFilter,
+    state: Option<FileState>,
 ) -> Result<Vec<FileInfo>> {
-    let records = storage::file::list_file_records_by_filter(db, filter).await?;
+    let records = storage::file::list_file_records_by_filter(db, filter, state).await?;
     let file_ids: Vec<uuid::Uuid> = records.iter().map(|r| r.file_id).collect();
     let mut tags_by_file = storage::file::get_files_tags_batch(db, &file_ids).await?;
 
@@ -275,5 +276,5 @@ pub async fn list_files_filtered(
 
 /// List all files and formatted for UI
 pub async fn list_all_files(db: &DatabaseConnection) -> Result<Vec<FileInfo>> {
-    list_files_filtered(db, &storage::file::TagFilter::All).await
+    list_files_filtered(db, &storage::file::TagFilter::All, None).await
 }
