@@ -10,19 +10,25 @@ use gpui_kit::*;
 use uuid::Uuid;
 
 use crate::database::entities::FileState;
-use crate::database::storage::file::TagFilter;
-use crate::database::storage::tag::TagSummaryItem;
-use crate::database::storage::{self};
+use crate::database::storage::query::{FileQueryer, TagFacetItem};
 use crate::services::importer::{self, FileInfo};
 use crate::{AppState, components};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum TagSelection {
+    #[default]
+    All,
+    Untagged,
+    Tag(Uuid),
+}
 
 pub struct OverallView {
     pub file_list: Vec<FileInfo>,
     scroll_handle: UniformListScrollHandle,
-    selected_filter: TagFilter,
+    selected_filter: TagSelection,
     total_files_count: usize,
     untagged_files_count: usize,
-    tags_summary: Vec<TagSummaryItem>,
+    tags_summary: Vec<TagFacetItem>,
     selected_files: HashSet<uuid::Uuid>,
     last_select: Option<Uuid>,
 
@@ -37,7 +43,7 @@ impl OverallView {
         let mut view = Self {
             file_list: Vec::new(),
             scroll_handle: UniformListScrollHandle::new(),
-            selected_filter: TagFilter::All,
+            selected_filter: TagSelection::All,
             total_files_count: 0,
             untagged_files_count: 0,
             tags_summary: Vec::new(),
@@ -110,16 +116,22 @@ impl OverallView {
     pub fn reload_files(&mut self, cx: &mut Context<Self>) {
         let db = cx.global::<AppState>().db.clone();
         let rt = cx.global::<AppState>().rt.clone();
-        let current_filter = self.selected_filter.clone();
+        let current_filter = self.selected_filter;
 
         cx.spawn(async move |this, cx| {
             let files_res = cx
                 .background_spawn(async move {
-                    rt.block_on(importer::list_files_filtered(
-                        &db,
-                        &current_filter,
-                        Some(FileState::Managed),
-                    ))
+                    let mut query = FileQueryer::new().state(FileState::Managed);
+                    match current_filter {
+                        TagSelection::All => {}
+                        TagSelection::Untagged => {
+                            query = query.untagged();
+                        }
+                        TagSelection::Tag(id) => {
+                            query = query.with_tag(id);
+                        }
+                    }
+                    rt.block_on(importer::list_files(&db, &query))
                 })
                 .await;
 
@@ -149,7 +161,8 @@ impl OverallView {
         cx.spawn(async move |this, cx| {
             let stats_res = cx
                 .background_spawn(async move {
-                    rt.block_on(storage::tag::get_tags_stats(&db, Some(FileState::Managed)))
+                    let query = FileQueryer::new().state(FileState::Managed);
+                    rt.block_on(query.query_stats(&db))
                 })
                 .await;
             let Ok(stats) = stats_res else {
@@ -173,7 +186,7 @@ impl OverallView {
         self.reload_stats(cx);
     }
 
-    fn set_filter(&mut self, filter: TagFilter, cx: &mut Context<Self>) {
+    fn set_filter(&mut self, filter: TagSelection, cx: &mut Context<Self>) {
         if self.selected_filter == filter {
             return;
         }
@@ -188,7 +201,7 @@ impl OverallView {
     fn render_tag_chip(
         &self,
         id_str: SharedString,
-        filter: TagFilter,
+        filter: TagSelection,
         label: impl Into<SharedString>,
         count: usize,
         cx: &mut Context<Self>,
@@ -232,7 +245,7 @@ impl OverallView {
                 }
             })
             .on_click(cx.listener(move |this, _, _, cx| {
-                this.set_filter(filter.clone(), cx);
+                this.set_filter(filter, cx);
             }))
             .child(label)
             .child(
@@ -262,13 +275,13 @@ impl OverallView {
 
         let mut chips = Vec::with_capacity(self.tags_summary.len() + 2);
         chips.push(
-            self.render_tag_chip("tag-all".into(), TagFilter::All, "全部", total_count, cx)
+            self.render_tag_chip("tag-all".into(), TagSelection::All, "全部", total_count, cx)
                 .into_any_element(),
         );
         chips.push(
             self.render_tag_chip(
                 "tag-untagged".into(),
-                TagFilter::Untagged,
+                TagSelection::Untagged,
                 "未标记",
                 self.untagged_files_count,
                 cx,
@@ -277,15 +290,11 @@ impl OverallView {
         );
 
         for tag_item in &self.tags_summary {
-            let id_str: SharedString =
-                format!("tag-{:?}-{}", tag_item.namespace, tag_item.name).into();
+            let id_str: SharedString = format!("tag-{}", tag_item.tag_id).into();
             chips.push(
                 self.render_tag_chip(
                     id_str,
-                    TagFilter::Tag {
-                        namespace: tag_item.namespace,
-                        name: tag_item.name.clone(),
-                    },
+                    TagSelection::Tag(tag_item.tag_id),
                     SharedString::new(tag_item.name.clone()),
                     tag_item.count,
                     cx,

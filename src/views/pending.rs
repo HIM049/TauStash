@@ -5,7 +5,7 @@ use gpui_kit::component::*;
 use gpui_kit::*;
 
 use crate::database::entities::FileState;
-use crate::database::storage::file::TagFilter;
+use crate::database::storage::query::FileQueryer;
 use crate::database::storage::{self};
 use crate::services::importer::{self, FileInfo};
 use crate::{AppState, components};
@@ -46,11 +46,8 @@ impl PendingView {
         cx.spawn(async move |this, cx| {
             let files_res = cx
                 .background_spawn(async move {
-                    rt.block_on(importer::list_files_filtered(
-                        &db,
-                        &TagFilter::All,
-                        Some(FileState::Pending),
-                    ))
+                    let query = FileQueryer::new().state(FileState::Pending);
+                    rt.block_on(importer::list_files(&db, &query))
                 })
                 .await;
 

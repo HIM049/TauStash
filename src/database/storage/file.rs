@@ -2,12 +2,12 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::database::{
-    entities::{FileState, ReplicaState, TagNamespace, file, file_replica, file_tag, tag},
+    entities::{FileState, ReplicaState, file, file_replica, file_tag, tag},
     utils,
 };
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set,
     prelude::DateTimeUtc,
 };
 use uuid::Uuid;
@@ -241,118 +241,6 @@ pub async fn get_file_record_by_id(
             .unwrap_or_else(|| "application/octet-stream".to_string()),
         ext: f.ext,
     }))
-}
-
-/// Tag filter options for database queries
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TagFilter {
-    All,
-    Untagged,
-    Tag {
-        namespace: TagNamespace,
-        name: String,
-    },
-}
-
-/// List file records filtered by tag criteria directly in database
-pub async fn list_file_records_by_filter(
-    db: &DatabaseConnection,
-    filter: &TagFilter,
-    state: Option<FileState>,
-) -> anyhow::Result<Vec<DbFileRecord>> {
-    let target_file_ids: Option<Vec<Uuid>> = match filter {
-        TagFilter::All => None,
-        TagFilter::Untagged => {
-            let tagged_ids: Vec<Uuid> = file_tag::Entity::find()
-                .all(db)
-                .await?
-                .into_iter()
-                .map(|ft| ft.file_id)
-                .collect();
-            let untagged = file::Entity::find()
-                .filter(file::Column::Id.is_not_in(tagged_ids))
-                .all(db)
-                .await?;
-            Some(untagged.into_iter().map(|f| f.id).collect())
-        }
-        TagFilter::Tag { namespace, name } => {
-            let matched_tags = tag::Entity::find()
-                .filter(tag::Column::Namespace.eq(*namespace))
-                .filter(tag::Column::Name.eq(name.as_str()))
-                .all(db)
-                .await?;
-
-            // if cannot find target tag
-            if matched_tags.is_empty() {
-                anyhow::bail!("tag not found: namespace={namespace:?}, name={name}");
-            }
-
-            let matched_tag_ids: Vec<Uuid> = matched_tags.into_iter().map(|t| t.id).collect();
-            let links = file_tag::Entity::find()
-                .filter(file_tag::Column::TagId.is_in(matched_tag_ids))
-                .all(db)
-                .await?;
-            Some(links.into_iter().map(|l| l.file_id).collect())
-        }
-    };
-
-    let mut query = file::Entity::find().order_by_desc(file::Column::CreatedAt);
-
-    if let Some(state) = state {
-        query = query.filter(file::Column::State.eq(state));
-    }
-
-    if let Some(ids) = target_file_ids {
-        if ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        query = query.filter(file::Column::Id.is_in(ids));
-    }
-
-    let files = query.all(db).await?;
-
-    if files.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let file_ids: Vec<Uuid> = files.iter().map(|f| f.id).collect();
-    // TODO: read replica by order
-    let replicas = file_replica::Entity::find()
-        .filter(file_replica::Column::FileId.is_in(file_ids))
-        .all(db)
-        .await?;
-
-    let replica_map = replicas
-        .into_iter()
-        .filter(|r| r.state != ReplicaState::Missing)
-        .map(|r| (r.file_id, r))
-        .collect::<HashMap<_, _>>();
-
-    let result = files
-        .into_iter()
-        .filter_map(|f| {
-            let replica = replica_map.get(&f.id)?;
-
-            Some(DbFileRecord {
-                file_id: f.id,
-                file_name: replica.file_name.clone(),
-                path: replica.uri.clone(),
-                hash: f.hash,
-                size: f.size,
-                mime: f
-                    .mime
-                    .unwrap_or_else(|| "application/octet-stream".to_string()),
-                ext: f.ext,
-            })
-        })
-        .collect();
-
-    Ok(result)
-}
-
-/// List all files ordered by create_at descending
-pub async fn list_file_records(db: &DatabaseConnection) -> anyhow::Result<Vec<DbFileRecord>> {
-    list_file_records_by_filter(db, &TagFilter::All, None).await
 }
 
 /// Retrieve all tag names for multiple files

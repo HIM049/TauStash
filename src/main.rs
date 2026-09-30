@@ -8,7 +8,6 @@ use tracing_subscriber::{EnvFilter, fmt, prelude::*, registry};
 
 mod app;
 mod components;
-mod sidebar;
 mod views;
 use app::MyApp;
 
