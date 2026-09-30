@@ -5,22 +5,7 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
-fn format_file_size(bytes: i64) -> String {
-    const KB: f64 = 1024.0;
-    const MB: f64 = KB * 1024.0;
-    const GB: f64 = MB * 1024.0;
-
-    let b = bytes as f64;
-    if b >= GB {
-        format!("{:.2} GB", b / GB)
-    } else if b >= MB {
-        format!("{:.1} MB", b / MB)
-    } else if b >= KB {
-        format!("{:.1} KB", b / KB)
-    } else {
-        format!("{} B", bytes)
-    }
-}
+use crate::components::utils::{format_file_size, open_path, reveal_in_file_manager};
 
 pub type FileCardClickListener = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
@@ -207,22 +192,14 @@ impl RenderOnce for FileCard {
                             PopupMenuItem::new("打开")
                                 .icon(IconName::ExternalLink)
                                 .on_click(move |_, _, _| {
-                                    std::process::Command::new("explorer")
-                                        .arg(open_p.as_ref())
-                                        .spawn()
-                                        .ok();
+                                    open_path(open_p.as_ref());
                                 }),
                         )
                         .item(
                             PopupMenuItem::new("在文件管理器中显示")
                                 .icon(IconName::Folder)
                                 .on_click(move |_, _, _| {
-                                    let win_path = reveal_p.replace('/', "\\");
-                                    std::process::Command::new("explorer")
-                                        .arg("/select,")
-                                        .arg(&win_path)
-                                        .spawn()
-                                        .ok();
+                                    reveal_in_file_manager(reveal_p.as_ref());
                                 }),
                         )
                         .separator()

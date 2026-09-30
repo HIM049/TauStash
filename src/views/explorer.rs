@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use gpui_kit::component::button::Button;
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::{ElementExt as _, *};
@@ -293,18 +294,10 @@ impl OverallView {
 
 impl Render for OverallView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let available_width = (self.container_width - px(48.0)).max(px(152.0));
-        let cols = (available_width.as_f32() / 148.0).floor().max(1.0) as usize;
-
-        let rows: Vec<Vec<FileInfo>> = self
-            .file_list
-            .chunks(cols)
-            .map(|chunk| chunk.to_vec())
-            .collect();
-        let rows_count = rows.len();
-
-        let entity = cx.entity().clone();
+        let width_entity = cx.entity().clone();
         let current_width = self.container_width;
+
+        let select_entity = cx.entity().clone();
 
         div()
             .id("explorer-main")
@@ -320,7 +313,7 @@ impl Render for OverallView {
             .on_prepaint(move |bounds, _, cx| {
                 let new_w = bounds.size.width;
                 if (new_w - current_width).abs() > px(2.0) {
-                    entity.update(cx, |this, cx| {
+                    width_entity.update(cx, |this, cx| {
                         this.container_width = new_w;
                         cx.notify();
                     });
@@ -329,93 +322,33 @@ impl Render for OverallView {
             .child(
                 div()
                     .v_flex()
-                    .gap_2()
+                    .gap_4()
                     .child(
                         div()
                             .h_flex()
                             .items_center()
                             .gap_2()
-                            .child(div().text_xl().font_bold().child("文件总览")),
+                            .child(div().text_xl().font_bold().child("文件总览"))
+                            .child(
+                                Button::new("refresh")
+                                    .icon(IconName::RefreshCw)
+                                    .on_click(cx.listener(|this, _, _, cx| this.reload_all(cx))),
+                            ),
                     )
                     .child(self.render_tag_bar(cx)),
             )
-            .child(div().relative().flex_1().size_full().when_else(
-                rows_count == 0,
-                |d| {
-                    d.h_flex()
-                        .items_center()
-                        .justify_center()
-                        .size_full()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child("当前筛选下暂无匹配文件")
-                },
-                |d| {
-                    let entity = cx.entity().clone();
-                    d.child(
-                        uniform_list("file-grid-list", rows_count, {
-                            let rows = rows.clone();
-                            let selected_id = self.selected_file_id;
-                            move |visible_range, _, _cx| {
-                                visible_range
-                                    .map(|row_idx| {
-                                        let row_files = &rows[row_idx];
-                                        div()
-                                            .h(px(162.0)) // 150px + 12px
-                                            .h_flex()
-                                            .gap_3()
-                                            .children(row_files.iter().map(|item| {
-                                                let extension = item
-                                                    .ext
-                                                    .as_deref()
-                                                    .unwrap_or_else(|| {
-                                                        item.mime
-                                                            .split('/')
-                                                            .nth(1)
-                                                            .unwrap_or("file")
-                                                    })
-                                                    .to_uppercase();
-                                                let file_id = item.file_id;
-                                                let is_selected = selected_id == Some(file_id);
-                                                let file_path =
-                                                    SharedString::new(item.path.as_str());
-                                                let file_path_open = file_path.clone();
-                                                let entity_click = entity.clone();
-
-                                                components::file_card::FileCard::new(
-                                                    ElementId::Name(
-                                                        format!("file-card-{}", file_id).into(),
-                                                    ),
-                                                    SharedString::new(item.file_name.as_str()),
-                                                    extension,
-                                                    item.size,
-                                                )
-                                                .path(file_path)
-                                                .hash(SharedString::new(item.hash.as_str()))
-                                                .selected(is_selected)
-                                                .on_click(move |_, _, cx| {
-                                                    entity_click.update(cx, |this, cx| {
-                                                        this.selected_file_id = Some(file_id);
-                                                        cx.notify();
-                                                    });
-                                                })
-                                                .on_double_click(move |_, _, _| {
-                                                    std::process::Command::new("explorer")
-                                                        .arg(file_path_open.as_ref())
-                                                        .spawn()
-                                                        .ok();
-                                                })
-                                            }))
-                                    })
-                                    .collect()
-                            }
-                        })
-                        .pb_6()
-                        .size_full()
-                        .track_scroll(&self.scroll_handle),
-                    )
-                    .vertical_scrollbar(&self.scroll_handle)
-                },
-            ))
+            .child(
+                components::file_grid::FileGrid::new(self.file_list.clone())
+                    .container_width(self.container_width)
+                    .selected_file_id(self.selected_file_id)
+                    .scroll_handle(&self.scroll_handle)
+                    .on_select(move |file_id, _, cx| {
+                        select_entity.update(cx, |this, cx| {
+                            this.selected_file_id = Some(file_id);
+                            cx.notify();
+                        });
+                    })
+                    .on_open(|path, _, _| components::utils::open_path(path)),
+            )
     }
 }
