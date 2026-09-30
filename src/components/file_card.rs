@@ -96,17 +96,11 @@ impl RenderOnce for FileCard {
             .w(px(140.0))
             .h(px(150.0))
             .p_3()
-            .when(is_selected, |s| s.bg(cx.theme().accent.opacity(0.9)))
-            .border_1()
-            .border_color(cx.theme().border)
             .rounded(cx.theme().radius)
             .cursor_pointer()
-            .hover(|style| {
-                if !is_selected {
-                    style.bg(cx.theme().accent.opacity(0.4))
-                } else {
-                    style
-                }
+            .when(is_selected, |s| s.bg(cx.theme().accent.opacity(0.9)))
+            .when(!is_selected, |d| {
+                d.hover(|style| style.bg(cx.theme().accent.opacity(0.4)))
             })
             .child(
                 div()

@@ -115,8 +115,8 @@ impl Render for MyApp {
             .text_color(cx.theme().foreground)
             .relative()
             .size_full()
-            .when(true, |this| this.child(fps_monitor(window, cx)))
             .child(self.render_sidebar(cx))
             .child(div().h_full().flex_1().child(main_content))
+            .when(true, |this| this.child(fps_monitor(window, cx)))
     }
 }

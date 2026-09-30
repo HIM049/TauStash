@@ -10,9 +10,9 @@ use crate::components;
 use crate::services::importer::FileInfo;
 
 /// Width one card occupies, including the gap that follows it.
-const CARD_SLOT: f32 = 148.0;
+const CARD_SLOT: f32 = 142.0;
 /// Height of one grid row: the 150px card plus the 12px gap.
-const ROW_HEIGHT: f32 = 162.0;
+const ROW_HEIGHT: f32 = 154.0;
 
 pub type FileGridSelectListener = Rc<dyn Fn(Uuid, &mut Window, &mut App) + 'static>;
 pub type FileGridOpenListener = Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>;
@@ -145,7 +145,7 @@ fn render_row(
     div()
         .h(px(ROW_HEIGHT))
         .h_flex()
-        .gap_3()
+        .gap_1()
         .children(row_files.iter().map(|item| {
             let extension = item
                 .ext
