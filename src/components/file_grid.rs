@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use gpui_kit::component::scroll::ScrollableElement;
@@ -16,12 +17,18 @@ const ROW_HEIGHT: f32 = 162.0;
 pub type FileGridSelectListener = Rc<dyn Fn(Uuid, &mut Window, &mut App) + 'static>;
 pub type FileGridOpenListener = Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>;
 
+/// Number of cards that fit on one row at the given width.
+fn columns_for(width: Pixels) -> usize {
+    let available = (width - px(48.0)).max(px(152.0));
+    (available.as_f32() / CARD_SLOT).floor().max(1.0) as usize
+}
+
 /// Virtualized grid of file cards.
 #[derive(IntoElement)]
 pub struct FileGrid {
     file_list: Vec<FileInfo>,
     container_width: Pixels,
-    selected_file_id: Option<Uuid>,
+    selected_files: HashSet<Uuid>,
     scroll_handle: UniformListScrollHandle,
     on_select: Option<FileGridSelectListener>,
     on_open: Option<FileGridOpenListener>,
@@ -32,7 +39,7 @@ impl FileGrid {
         Self {
             file_list,
             container_width: px(800.0),
-            selected_file_id: None,
+            selected_files: HashSet::new(),
             scroll_handle: UniformListScrollHandle::new(),
             on_select: None,
             on_open: None,
@@ -45,8 +52,8 @@ impl FileGrid {
         self
     }
 
-    pub fn selected_file_id(mut self, id: Option<Uuid>) -> Self {
-        self.selected_file_id = id;
+    pub fn selected_files(mut self, files: HashSet<Uuid>) -> Self {
+        self.selected_files = files;
         self
     }
 
@@ -65,12 +72,6 @@ impl FileGrid {
         self.on_open = Some(Rc::new(listener));
         self
     }
-
-    /// Number of cards that fit on one row at the current width.
-    fn columns(&self) -> usize {
-        let available = (self.container_width - px(48.0)).max(px(152.0));
-        (available.as_f32() / CARD_SLOT).floor().max(1.0) as usize
-    }
 }
 
 impl RenderOnce for FileGrid {
@@ -79,7 +80,16 @@ impl RenderOnce for FileGrid {
         _: &mut gpui_kit::Window,
         cx: &mut gpui_kit::App,
     ) -> impl gpui_kit::prelude::IntoElement {
-        if self.file_list.is_empty() {
+        let FileGrid {
+            file_list,
+            container_width,
+            selected_files,
+            scroll_handle,
+            on_select,
+            on_open,
+        } = self;
+
+        if file_list.is_empty() {
             return div()
                 .h_flex()
                 .items_center()
@@ -91,15 +101,9 @@ impl RenderOnce for FileGrid {
                 .into_any_element();
         }
 
-        let cols = self.columns();
-        let rows: Vec<Vec<FileInfo>> = self
-            .file_list
-            .chunks(cols)
-            .map(|chunk| chunk.to_vec())
-            .collect();
-        let rows_count = rows.len();
-        let selected_file_id = self.selected_file_id;
-        let scroll_handle = self.scroll_handle;
+        let cols = columns_for(container_width);
+        let rows_count = file_list.len().div_ceil(cols);
+        let total = file_list.len();
 
         div()
             .relative()
@@ -107,12 +111,17 @@ impl RenderOnce for FileGrid {
             .size_full()
             .child(
                 uniform_list("file-grid-list", rows_count, {
-                    let on_select = self.on_select;
-                    let on_open = self.on_open;
                     move |visible_range, _, _| {
                         visible_range
-                            .map(|row_idx| {
-                                render_row(&rows[row_idx], selected_file_id, &on_select, &on_open)
+                            .map(|row| {
+                                let start = row * cols;
+                                let end = (start + cols).min(total);
+                                render_row(
+                                    &file_list[start..end],
+                                    &selected_files,
+                                    &on_select,
+                                    &on_open,
+                                )
                             })
                             .collect()
                     }
@@ -129,7 +138,7 @@ impl RenderOnce for FileGrid {
 /// One row of cards. Takes owned rows so the result carries no borrow.
 fn render_row(
     row_files: &[FileInfo],
-    selected_file_id: Option<Uuid>,
+    selected_files: &HashSet<Uuid>,
     on_select: &Option<FileGridSelectListener>,
     on_open: &Option<FileGridOpenListener>,
 ) -> AnyElement {
@@ -144,7 +153,7 @@ fn render_row(
                 .unwrap_or_else(|| item.mime.split('/').nth(1).unwrap_or("file"))
                 .to_uppercase();
             let file_id = item.file_id;
-            let is_selected = selected_file_id == Some(file_id);
+            let is_selected = selected_files.contains(&file_id);
             let file_path = SharedString::new(item.path.as_str());
             let path_open = file_path.clone();
             let hash = SharedString::new(item.hash.as_str());
@@ -161,6 +170,7 @@ fn render_row(
             .hash(hash)
             .selected(is_selected)
             .on_click(move |_, window, cx| {
+                cx.stop_propagation();
                 if let Some(listener) = &select {
                     listener(file_id, window, cx);
                 }

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use gpui_kit::component::button::Button;
@@ -6,6 +7,7 @@ use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::{ElementExt as _, *};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
+use uuid::Uuid;
 
 use crate::database::entities::FileState;
 use crate::database::storage::file::TagFilter;
@@ -21,7 +23,9 @@ pub struct OverallView {
     total_files_count: usize,
     untagged_files_count: usize,
     tags_summary: Vec<TagSummaryItem>,
-    selected_file_id: Option<uuid::Uuid>,
+    selected_files: HashSet<uuid::Uuid>,
+    last_select: Option<Uuid>,
+
     container_width: Pixels,
 
     importing: bool,
@@ -37,7 +41,9 @@ impl OverallView {
             total_files_count: 0,
             untagged_files_count: 0,
             tags_summary: Vec::new(),
-            selected_file_id: None,
+            selected_files: HashSet::new(),
+            last_select: None,
+
             container_width: px(800.0),
             importing: false,
             error_message: None,
@@ -126,6 +132,13 @@ impl OverallView {
             .unwrap();
         })
         .detach();
+    }
+
+    /// Position of a file inside the currently loaded and filtered list.
+    fn index_of(&self, file_id: Uuid) -> Option<usize> {
+        self.file_list
+            .iter()
+            .position(|item| item.file_id == file_id)
     }
 
     /// refresh tags stats
@@ -301,9 +314,6 @@ impl Render for OverallView {
 
         div()
             .id("explorer-main")
-            .on_drop(cx.listener(|this, e: &ExternalPaths, w, cx| {
-                this.handle_drag(w, e.paths().to_vec(), cx);
-            }))
             .v_flex()
             .size_full()
             .gap_3()
@@ -319,6 +329,13 @@ impl Render for OverallView {
                     });
                 }
             })
+            .on_drop(cx.listener(|this, e: &ExternalPaths, w, cx| {
+                this.handle_drag(w, e.paths().to_vec(), cx);
+            }))
+            .on_click(cx.listener(|this, _, _, _| {
+                this.last_select = None;
+                this.selected_files.clear();
+            }))
             .child(
                 div()
                     .v_flex()
@@ -340,11 +357,48 @@ impl Render for OverallView {
             .child(
                 components::file_grid::FileGrid::new(self.file_list.clone())
                     .container_width(self.container_width)
-                    .selected_file_id(self.selected_file_id)
+                    .selected_files(self.selected_files.clone())
                     .scroll_handle(&self.scroll_handle)
-                    .on_select(move |file_id, _, cx| {
+                    .on_select(move |file_id, window, cx| {
+                        let modifiers = window.modifiers();
+                        let is_ctrl = modifiers.control || modifiers.platform;
+                        let is_shift = modifiers.shift;
+
                         select_entity.update(cx, |this, cx| {
-                            this.selected_file_id = Some(file_id);
+                            if is_ctrl {
+                                if this.selected_files.contains(&file_id) {
+                                    this.selected_files.remove(&file_id);
+                                } else {
+                                    this.selected_files.insert(file_id);
+                                }
+                                this.last_select = Some(file_id);
+
+                                cx.notify();
+                                return;
+                            }
+                            if is_shift {
+                                let anchor = this.last_select;
+                                let (from, to) = (
+                                    anchor.and_then(|a| this.index_of(a)),
+                                    this.index_of(file_id),
+                                );
+                                if let (Some(a), Some(b)) = (from, to) {
+                                    let (start, end) = (a.min(b), a.max(b));
+                                    this.selected_files.clear();
+                                    this.selected_files.extend(
+                                        this.file_list[start..=end].iter().map(|item| item.file_id),
+                                    );
+
+                                    cx.notify();
+                                    return;
+                                }
+                            }
+
+                            // normal select
+                            this.selected_files.clear();
+                            this.selected_files.insert(file_id);
+                            this.last_select = Some(file_id);
+
                             cx.notify();
                         });
                     })

@@ -12,6 +12,8 @@ mod sidebar;
 mod views;
 use app::MyApp;
 
+actions!([Select, BatchSelect]);
+
 pub struct AppState {
     pub db: Arc<sea_orm::DatabaseConnection>,
     pub device_id: SharedString,
@@ -50,6 +52,9 @@ fn main() {
         cx.set_global(global);
         let window_bounds =
             WindowBounds::Windowed(Bounds::centered(None, size(px(880.0), px(680.0)), cx));
+
+        cx.bind_keys([KeyBinding::new("ctrl", Select, None)]);
+        cx.bind_keys([KeyBinding::new("shift", BatchSelect, None)]);
 
         cx.spawn(async move |cx| {
             cx.open_window(
