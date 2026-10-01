@@ -1,8 +1,9 @@
 pub mod importer;
 pub mod scanner;
+pub mod tags_applier;
+pub mod tags_queryer;
 
-pub use importer::{
-    FileInfo, FileMetadata, ImportReport, compute_file_metadata, get_file_detail, import_file,
-    import_from_paths, list_files,
-};
-pub use scanner::{BatchScanReport, ScanReport, scan_all_sources, scan_directory};
+pub use importer::*;
+pub use scanner::*;
+pub use tags_applier::*;
+pub use tags_queryer::*;

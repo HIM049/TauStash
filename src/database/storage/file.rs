@@ -8,7 +8,7 @@ use crate::database::{
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set,
-    prelude::DateTimeUtc,
+    prelude::DateTimeUtc, sea_query::Expr,
 };
 use uuid::Uuid;
 
@@ -207,6 +207,26 @@ pub async fn set_file_state(
     file.state = Set(state);
     file.updated_at = Set(Utc::now());
     file.update(db).await?;
+
+    Ok(())
+}
+
+/// Set the review state of many files in one statement.
+pub async fn set_file_states(
+    db: &DatabaseConnection,
+    file_ids: &[Uuid],
+    state: FileState,
+) -> anyhow::Result<()> {
+    if file_ids.is_empty() {
+        return Ok(());
+    }
+
+    file::Entity::update_many()
+        .col_expr(file::Column::State, Expr::value(state))
+        .col_expr(file::Column::UpdatedAt, Expr::value(Utc::now()))
+        .filter(file::Column::Id.is_in(file_ids.iter().copied()))
+        .exec(db)
+        .await?;
 
     Ok(())
 }
