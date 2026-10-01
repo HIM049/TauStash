@@ -4,10 +4,12 @@ use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
+use sea_orm::ActiveEnum;
+
 use crate::database::entities::FileState;
-use crate::database::storage::query::FileQueryer;
-use crate::database::storage::{self};
 use crate::services::importer::{self, FileInfo};
+use crate::services::tags_applier::UnifiedTagApply;
+use crate::services::tags_queryer::{MacroTag, UnifiedTagService};
 use crate::{AppState, components};
 
 /// Review queue for newly scanned files.
@@ -46,7 +48,9 @@ impl PendingView {
         cx.spawn(async move |this, cx| {
             let files_res = cx
                 .background_spawn(async move {
-                    let query = FileQueryer::new().state(FileState::Pending);
+                    let query = UnifiedTagService::new()
+                        .tag(MacroTag::FileState(FileState::Pending.to_value()))
+                        .build()?;
                     rt.block_on(importer::list_files(&db, &query))
                 })
                 .await;
@@ -83,7 +87,11 @@ impl PendingView {
         cx.spawn_in(window, async move |this, cx: &mut AsyncWindowContext| {
             let res = cx
                 .background_spawn(async move {
-                    rt.block_on(storage::file::set_file_state(&db, file_id, state))
+                    rt.block_on(UnifiedTagApply::apply(
+                        &db,
+                        &[file_id],
+                        &MacroTag::FileState(state.to_value()),
+                    ))
                 })
                 .await;
 

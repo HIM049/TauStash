@@ -7,11 +7,13 @@ use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::{ElementExt as _, *};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
+use sea_orm::ActiveEnum;
 use uuid::Uuid;
 
 use crate::database::entities::FileState;
-use crate::database::storage::query::{FileQueryer, TagFacetItem};
+use crate::database::storage::query::TagFacetItem;
 use crate::services::importer::{self, FileInfo};
+use crate::services::tags_queryer::{MacroTag, UnifiedTagService};
 use crate::{AppState, components};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -121,16 +123,20 @@ impl OverallView {
         cx.spawn(async move |this, cx| {
             let files_res = cx
                 .background_spawn(async move {
-                    let mut query = FileQueryer::new().state(FileState::Managed);
+                    let mut tag_service = UnifiedTagService::new()
+                        .tag(MacroTag::FileState(FileState::Managed.to_value()));
+
                     match current_filter {
                         TagSelection::All => {}
                         TagSelection::Untagged => {
-                            query = query.untagged();
+                            tag_service = tag_service.tag(MacroTag::Untagged);
                         }
                         TagSelection::Tag(id) => {
-                            query = query.with_tag(id);
+                            tag_service = tag_service.tag(MacroTag::StandardTag(id));
                         }
                     }
+
+                    let query = tag_service.build()?;
                     rt.block_on(importer::list_files(&db, &query))
                 })
                 .await;
@@ -161,7 +167,9 @@ impl OverallView {
         cx.spawn(async move |this, cx| {
             let stats_res = cx
                 .background_spawn(async move {
-                    let query = FileQueryer::new().state(FileState::Managed);
+                    let query = UnifiedTagService::new()
+                        .tag(MacroTag::FileState(FileState::Managed.to_value()))
+                        .build()?;
                     rt.block_on(query.query_stats(&db))
                 })
                 .await;
