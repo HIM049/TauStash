@@ -75,6 +75,9 @@ pub struct FileQueryer {
     pub tag_criteria: Vec<TagCriterion>,
     pub search_term: Option<String>,
     pub extensions: Option<Vec<String>>, // Whitelist
+    pub mime_prefixes: Option<Vec<String>>,
+    pub replica_count: Option<u32>,
+    pub deleted_since: Option<DateTimeUtc>,
     pub size_range: (Option<i64>, Option<i64>),
     pub date_range: Option<(Option<DateTimeUtc>, Option<DateTimeUtc>)>,
     pub sort_field: FileSortField,
@@ -123,6 +126,18 @@ impl FileQueryer {
         self
     }
 
+    /// Filter by exact active replica count
+    pub fn replica_count(mut self, count: u32) -> Self {
+        self.replica_count = Some(count);
+        self
+    }
+
+    /// Filter by soft deleted timestamp
+    pub fn deleted_since(mut self, since: DateTimeUtc) -> Self {
+        self.deleted_since = Some(since);
+        self
+    }
+
     /// Basic search by filename
     pub fn search(mut self, term: impl Into<String>) -> Self {
         let s = term.into().trim().to_string();
@@ -142,6 +157,32 @@ impl FileQueryer {
             .filter(|s| !s.is_empty())
             .collect();
         self.extensions = if list.is_empty() { None } else { Some(list) };
+        self
+    }
+
+    /// MIME prefix filter (e.g. "image", "video")
+    pub fn mime_prefixes<I, S>(mut self, prefixes: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let list: Vec<String> = prefixes
+            .into_iter()
+            .map(|s| s.as_ref().trim().to_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect();
+        self.mime_prefixes = if list.is_empty() { None } else { Some(list) };
+        self
+    }
+
+    /// Add a single MIME prefix filter (e.g. "image")
+    pub fn mime_prefix(mut self, prefix: impl Into<String>) -> Self {
+        let p = prefix.into().trim().to_lowercase();
+        if !p.is_empty() {
+            self.mime_prefixes
+                .get_or_insert_with(Vec::new)
+                .push(p);
+        }
         self
     }
 
@@ -339,6 +380,42 @@ fn build_filter_conditions(spec: &FileQueryer) -> sea_orm::Condition {
     // EXT filter
     if let Some(ref exts) = spec.extensions {
         cond = cond.add(file::Column::Ext.is_in(exts.clone()));
+    }
+
+    // MIME PREFIX filter
+    if let Some(ref prefixes) = spec.mime_prefixes {
+        let mut mime_cond = sea_orm::Condition::any();
+        for prefix in prefixes {
+            let pattern = format!("{prefix}/%");
+            mime_cond = mime_cond.add(file::Column::Mime.like(&pattern));
+        }
+        cond = cond.add(mime_cond);
+    }
+
+    // REPLICA COUNT filter
+    if let Some(target_count) = spec.replica_count {
+        let replica_count_subquery = Query::select()
+            .column(file_replica::Column::FileId)
+            .from(file_replica::Entity)
+            .and_where(Expr::col(file_replica::Column::State).ne("missing"))
+            .group_by_col(file_replica::Column::FileId)
+            .and_having(
+                Expr::expr(Func::count(Expr::col(file_replica::Column::Id))).eq(target_count as i32),
+            )
+            .to_owned();
+
+        cond = cond.add(Expr::col(file::Column::Id).in_subquery(replica_count_subquery));
+    }
+
+    // DELETED filter (replicas marked deleted)
+    if let Some(since) = spec.deleted_since {
+        let deleted_subquery = Query::select()
+            .column(file_replica::Column::FileId)
+            .from(file_replica::Entity)
+            .and_where(Expr::col(file_replica::Column::DeletedAt).gte(since))
+            .to_owned();
+
+        cond = cond.add(Expr::col(file::Column::Id).in_subquery(deleted_subquery));
     }
 
     // SIZE filter

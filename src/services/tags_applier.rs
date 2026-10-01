@@ -56,7 +56,12 @@ impl UnifiedTagApply {
                 let state = parse_state(name)?;
                 file_store::set_file_states(db, file_ids, state).await
             }
-            MacroTag::Ext(_) => anyhow::bail!("Ext cannot be written"),
+            MacroTag::Deleted(date_time) => {
+                file_store::mark_files_deleted(db, file_ids, *date_time).await
+            }
+            _ => {
+                anyhow::bail!("Read-only macro tag cannot be written to files")
+            }
         }
     }
 

@@ -231,6 +231,32 @@ pub async fn set_file_states(
     Ok(())
 }
 
+/// Soft delete files and mark replicas as deleted at the given timestamp.
+pub async fn mark_files_deleted(
+    db: &DatabaseConnection,
+    file_ids: &[Uuid],
+    deleted_at: DateTimeUtc,
+) -> anyhow::Result<()> {
+    if file_ids.is_empty() {
+        return Ok(());
+    }
+
+    file::Entity::update_many()
+        .col_expr(file::Column::State, Expr::value(FileState::Blocked))
+        .col_expr(file::Column::UpdatedAt, Expr::value(deleted_at))
+        .filter(file::Column::Id.is_in(file_ids.iter().copied()))
+        .exec(db)
+        .await?;
+
+    file_replica::Entity::update_many()
+        .col_expr(file_replica::Column::DeletedAt, Expr::value(deleted_at))
+        .filter(file_replica::Column::FileId.is_in(file_ids.iter().copied()))
+        .exec(db)
+        .await?;
+
+    Ok(())
+}
+
 /// Get detail of a single file by id
 pub async fn get_file_record_by_id(
     db: &DatabaseConnection,

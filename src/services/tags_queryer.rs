@@ -1,3 +1,4 @@
+use sea_orm::entity::prelude::DateTimeUtc;
 use sea_orm::{ActiveEnum, Iterable};
 use uuid::Uuid;
 
@@ -7,9 +8,12 @@ use crate::database::storage::query::{FileQueryer, MatchMode};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MacroTag {
     StandardTag(Uuid),
+    Untagged,
     Ext(String),
+    MediaType(String),
     FileState(String),
-    // TODO: and more...
+    HasReplica(u32),
+    Deleted(DateTimeUtc),
 }
 
 /// Collects tags and turns them into a [`FileQueryer`].
@@ -50,18 +54,27 @@ impl UnifiedTagService {
         let Self { tags, mode } = self;
         let mut query = FileQueryer::new();
         let mut extensions: Vec<String> = Vec::new();
+        let mut mime_prefixes: Vec<String> = Vec::new();
         let mut named: Vec<Uuid> = Vec::new();
 
         for tag in tags {
             match tag {
                 MacroTag::Ext(name) => extensions.push(name),
+                MacroTag::MediaType(prefix) => mime_prefixes.push(prefix),
                 MacroTag::FileState(name) => query = query.state(parse_state(&name)?),
+                MacroTag::HasReplica(count) => query = query.replica_count(count),
                 MacroTag::StandardTag(uuid) => named.push(uuid),
+                MacroTag::Untagged => query = query.untagged(),
+                MacroTag::Deleted(time) => query = query.deleted_since(time),
             }
         }
 
         if !extensions.is_empty() {
             query = query.extensions(extensions);
+        }
+
+        if !mime_prefixes.is_empty() {
+            query = query.mime_prefixes(mime_prefixes);
         }
 
         query = query.include_tags(named, mode);
@@ -78,6 +91,9 @@ pub fn parse_state(value: &str) -> anyhow::Result<FileState> {
 
 impl MacroTag {
     pub fn is_writable(&self) -> bool {
-        !matches!(self, MacroTag::Ext(_))
+        matches!(
+            self,
+            MacroTag::StandardTag(_) | MacroTag::FileState(_) | MacroTag::Deleted(_)
+        )
     }
 }
