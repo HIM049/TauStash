@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use super::scanner::scan_directory;
 use crate::database::entities::{FileState, ReplicaState};
-use crate::database::storage::file::{ContentTimes, CreateFileParams, UpsertReplicaParams};
+use crate::database::storage::file::{ContentTimes, CreateFileParams, TagRef, UpsertReplicaParams};
 use crate::database::storage::query::FileQueryer;
 use crate::database::storage::{self};
 
@@ -35,7 +35,7 @@ pub struct FileInfo {
     pub mime: String,
     pub ext: Option<String>,
     pub is_duplicate: bool,
-    pub tags: Vec<String>,
+    pub tags: Vec<TagRef>,
 }
 
 /// Convert a filesystem timestamp, dropping values before the Unix epoch

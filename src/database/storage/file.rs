@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::database::{
-    entities::{FileState, ReplicaState, file, file_replica, file_tag, tag},
+    entities::{FileState, ReplicaState, TagNamespace, file, file_replica, file_tag, tag},
     utils,
 };
 use chrono::Utc;
@@ -35,6 +35,23 @@ pub struct UpsertReplicaParams<'a> {
     pub ctime: Option<DateTimeUtc>,
     pub utime: Option<DateTimeUtc>,
     pub file_size: Option<i64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TagRef {
+    pub id: Uuid,
+    pub name: String,
+    pub namespace: TagNamespace,
+}
+
+impl TagRef {
+    pub fn from_tag(tag: tag::Model) -> Self {
+        Self {
+            id: tag.id,
+            name: tag.name,
+            namespace: tag.namespace,
+        }
+    }
 }
 
 /// Find a file record by its BLAKE3 hash
@@ -293,7 +310,7 @@ pub async fn get_file_record_by_id(
 pub async fn get_files_tags_batch(
     db: &DatabaseConnection,
     file_ids: &[Uuid],
-) -> anyhow::Result<HashMap<Uuid, Vec<String>>> {
+) -> anyhow::Result<HashMap<Uuid, Vec<TagRef>>> {
     if file_ids.is_empty() {
         return Ok(HashMap::new());
     }
@@ -313,15 +330,15 @@ pub async fn get_files_tags_batch(
         .all(db)
         .await?;
 
-    let tag_map: HashMap<Uuid, String> = tags.into_iter().map(|t| (t.id, t.name)).collect();
+    let tag_map: HashMap<_, _> = tags
+        .into_iter()
+        .map(|t| (t.id, TagRef::from_tag(t)))
+        .collect();
 
-    let mut result: HashMap<Uuid, Vec<String>> = HashMap::new();
+    let mut result: HashMap<Uuid, Vec<TagRef>> = HashMap::new();
     for link in links {
-        if let Some(tag_name) = tag_map.get(&link.tag_id) {
-            result
-                .entry(link.file_id)
-                .or_default()
-                .push(tag_name.clone());
+        if let Some(tr) = tag_map.get(&link.tag_id) {
+            result.entry(link.file_id).or_default().push(tr.clone());
         }
     }
 
@@ -346,7 +363,7 @@ pub async fn get_files_tags_batch(
 // }
 
 /// Retrieve all tag names for a given file
-pub async fn get_file_tags(db: &DatabaseConnection, file_id: Uuid) -> anyhow::Result<Vec<String>> {
+pub async fn get_file_tags(db: &DatabaseConnection, file_id: Uuid) -> anyhow::Result<Vec<TagRef>> {
     let links = file_tag::Entity::find()
         .filter(file_tag::Column::FileId.eq(file_id))
         .all(db)
@@ -362,5 +379,5 @@ pub async fn get_file_tags(db: &DatabaseConnection, file_id: Uuid) -> anyhow::Re
         .all(db)
         .await?;
 
-    Ok(tags.into_iter().map(|t| t.name).collect())
+    Ok(tags.into_iter().map(|t| TagRef::from_tag(t)).collect())
 }

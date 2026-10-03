@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::database::entities::FileState;
 use crate::database::storage::query::{FileQueryer, MatchMode};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum MacroTag {
     StandardTag(Uuid),
     Untagged,

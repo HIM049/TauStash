@@ -1,4 +1,6 @@
 pub mod file_card;
 pub mod file_grid;
 pub mod file_row;
+pub mod tag_chip;
+pub mod tag_filter_bar;
 pub mod utils;
