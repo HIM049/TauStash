@@ -8,9 +8,11 @@ use gpui_kit::*;
 use sea_orm::ActiveEnum;
 use uuid::Uuid;
 
+use crate::components::tag_batch_editor::{TagBatchEditor, TagDeltaBatch};
 use crate::components::tag_filter_bar::TagFilterBar;
-use crate::database::entities::FileState;
-use crate::services::importer::{self, FileInfo};
+use crate::database::entities::{FileState, TagNamespace};
+use crate::services::importer::{self, FileInfo, TagRef};
+use crate::services::tags_applier::UnifiedTagApply;
 use crate::services::tags_queryer::{MacroTag, UnifiedTagService};
 use crate::{AppState, components};
 
@@ -18,6 +20,8 @@ pub struct OverallView {
     pub file_list: Vec<FileInfo>,
     scroll_handle: UniformListScrollHandle,
     filter_bar: Entity<TagFilterBar>,
+    batch_editor: Option<Entity<TagBatchEditor>>,
+    last_editor_selection: HashSet<uuid::Uuid>,
     current_filter_tags: Vec<MacroTag>,
     selected_files: HashSet<uuid::Uuid>,
     last_select: Option<Uuid>,
@@ -41,6 +45,8 @@ impl OverallView {
             file_list: Vec::new(),
             scroll_handle: UniformListScrollHandle::new(),
             filter_bar,
+            batch_editor: None,
+            last_editor_selection: HashSet::new(),
             current_filter_tags: Vec::new(),
             selected_files: HashSet::new(),
             last_select: None,
@@ -169,10 +175,62 @@ impl OverallView {
         self.reload_files(cx);
         self.filter_bar.update(cx, |bar, cx| bar.reload_stats(cx));
     }
+
+    fn commit_tag_delta(
+        &mut self,
+        delta: TagDeltaBatch,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.batch_editor = None;
+        self.last_editor_selection.clear();
+        if delta.is_empty() {
+            self.selected_files.clear();
+            cx.notify();
+            return;
+        }
+
+        let db = cx.global::<AppState>().db.clone();
+        let rt = cx.global::<AppState>().rt.clone();
+        let file_ids: Vec<Uuid> = self.selected_files.iter().copied().collect();
+
+        cx.spawn_in(window, async move |this, cx| {
+            let res = cx
+                .background_spawn(async move {
+                    rt.block_on(async {
+                        for new_name in &delta.to_create_and_attach {
+                            UnifiedTagApply::attach_by_name(
+                                &db,
+                                &file_ids,
+                                TagNamespace::User,
+                                new_name.clone(),
+                            )
+                            .await?;
+                        }
+                        UnifiedTagApply::attach(&db, &file_ids, &delta.to_attach).await?;
+                        UnifiedTagApply::detach(&db, &file_ids, &delta.to_detach).await?;
+
+                        Ok::<(), anyhow::Error>(())
+                    })
+                })
+                .await;
+
+            this.update(cx, |this, cx| {
+                if let Err(e) = res {
+                    tracing::error!("批量应用标签失败: {:#}", e);
+                }
+                this.selected_files.clear();
+                this.last_editor_selection.clear();
+                this.reload_all(cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
 }
 
 impl Render for OverallView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let width_entity = cx.entity().clone();
         let current_width = self.container_width;
 
@@ -186,6 +244,16 @@ impl Render for OverallView {
             .p_6()
             .pb_0()
             .pr_0()
+            .on_click(cx.listener(|this, _, _window, cx| {
+                if let Some(editor) = &this.batch_editor {
+                    let has_changes = editor.read(cx).has_changes();
+                    if has_changes {
+                        this.batch_editor = None;
+                    }
+                }
+                this.last_select = None;
+                this.selected_files.clear();
+            }))
             .on_prepaint(move |bounds, _, cx| {
                 let new_w = bounds.size.width;
                 if (new_w - current_width).abs() > px(2.0) {
@@ -198,12 +266,9 @@ impl Render for OverallView {
             .on_drop(cx.listener(|this, e: &ExternalPaths, w, cx| {
                 this.handle_drag(w, e.paths().to_vec(), cx);
             }))
-            .on_click(cx.listener(|this, _, _, _| {
-                this.last_select = None;
-                this.selected_files.clear();
-            }))
             .child(
                 div()
+                    .id("explorer-top-bar")
                     .v_flex()
                     .gap_4()
                     .child(
@@ -218,7 +283,65 @@ impl Render for OverallView {
                                     .on_click(cx.listener(|this, _, _, cx| this.reload_all(cx))),
                             ),
                     )
-                    .child(self.filter_bar.clone()),
+                    .child(if self.selected_files.is_empty() {
+                        self.batch_editor = None;
+                        self.last_editor_selection.clear();
+                        self.filter_bar.clone().into_any_element()
+                    } else {
+                        if self.last_editor_selection != self.selected_files {
+                            self.last_editor_selection = self.selected_files.clone();
+                            self.batch_editor = None;
+                        }
+
+                        let selected_items: Vec<FileInfo> = self
+                            .file_list
+                            .iter()
+                            .filter(|f| self.selected_files.contains(&f.file_id))
+                            .cloned()
+                            .collect();
+
+                        let popular_tags: Vec<TagRef> = self
+                            .filter_bar
+                            .read(cx)
+                            .tags_summary()
+                            .iter()
+                            .take(8)
+                            .map(|s| TagRef {
+                                id: s.tag_id,
+                                namespace: TagNamespace::User,
+                                name: s.name.clone(),
+                            })
+                            .collect();
+
+                        let editor = self.batch_editor.get_or_insert_with(|| {
+                            let overall_entity = cx.entity().clone();
+                            cx.new(|cx| {
+                                let mut editor =
+                                    TagBatchEditor::new(&selected_items, &popular_tags, window, cx);
+
+                                let entity = overall_entity.clone();
+                                editor.on_commit(move |delta, window, cx| {
+                                    entity.update(cx, |this, cx| {
+                                        this.commit_tag_delta(delta.clone(), window, cx);
+                                    });
+                                });
+
+                                let entity = overall_entity.clone();
+                                editor.on_cancel(move |_window, cx| {
+                                    entity.update(cx, |this, cx| {
+                                        this.selected_files.clear();
+                                        this.batch_editor = None;
+                                        this.last_editor_selection.clear();
+                                        cx.notify();
+                                    });
+                                });
+
+                                editor
+                            })
+                        });
+
+                        editor.clone().into_any_element()
+                    }),
             )
             .child(
                 components::file_grid::FileGrid::new(self.file_list.clone())
@@ -231,6 +354,12 @@ impl Render for OverallView {
                         let is_shift = modifiers.shift;
 
                         select_entity.update(cx, |this, cx| {
+                            if let Some(editor) = &this.batch_editor {
+                                if editor.read(cx).has_changes() {
+                                    this.batch_editor = None;
+                                }
+                            }
+
                             if is_ctrl {
                                 if this.selected_files.contains(&file_id) {
                                     this.selected_files.remove(&file_id);

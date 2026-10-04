@@ -50,6 +50,10 @@ impl TagFilterBar {
         self.reload_stats(cx);
     }
 
+    pub fn tags_summary(&self) -> &[TagFacetItem] {
+        &self.tags_summary
+    }
+
     pub fn reload_stats(&mut self, cx: &mut Context<Self>) {
         if self.loading {
             return;

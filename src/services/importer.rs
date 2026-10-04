@@ -9,7 +9,8 @@ use uuid::Uuid;
 
 use super::scanner::scan_directory;
 use crate::database::entities::{FileState, ReplicaState};
-use crate::database::storage::file::{ContentTimes, CreateFileParams, TagRef, UpsertReplicaParams};
+pub use crate::database::storage::file::TagRef;
+use crate::database::storage::file::{ContentTimes, CreateFileParams, UpsertReplicaParams};
 use crate::database::storage::query::FileQueryer;
 use crate::database::storage::{self};
 

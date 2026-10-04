@@ -37,7 +37,7 @@ pub struct UpsertReplicaParams<'a> {
     pub file_size: Option<i64>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TagRef {
     pub id: Uuid,
     pub name: String,

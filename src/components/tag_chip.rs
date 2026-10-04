@@ -25,6 +25,7 @@ pub struct TagChip {
     count: Option<usize>,
     color: Option<Hsla>,
     state: TagChipState,
+    squared: bool,
     on_click: Option<Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
 }
 
@@ -37,8 +38,14 @@ impl TagChip {
             count: None,
             color: None,
             state: TagChipState::Default,
+            squared: false,
             on_click: None,
         }
+    }
+
+    pub fn squared(mut self) -> Self {
+        self.squared = true;
+        self
     }
 
     pub fn icon(mut self, icon: impl Into<Option<Icon>>) -> Self {
@@ -73,13 +80,7 @@ impl TagChip {
 impl TagChip {
     fn get_theme(&self, theme: &Theme) -> (Hsla, Hsla, Hsla, Option<Icon>, bool) {
         match self.state {
-            TagChipState::Default => (
-                theme.secondary,
-                theme.foreground,
-                theme.border,
-                None,
-                false,
-            ),
+            TagChipState::Default => (theme.secondary, theme.foreground, theme.border, None, false),
             TagChipState::Active => (
                 theme.primary,
                 theme.primary_foreground,
@@ -88,24 +89,36 @@ impl TagChip {
                 false,
             ),
             TagChipState::NoneSelected => (
-                theme.secondary.opacity(0.4),
+                theme.secondary.opacity(0.3),
                 theme.muted_foreground,
-                theme.border.opacity(0.5),
-                None,
+                theme.border.opacity(0.4),
+                Some(
+                    Icon::new(IconName::Close)
+                        .size_3()
+                        .text_color(theme.muted_foreground),
+                ),
                 true,
             ),
             TagChipState::PartialSelected => (
-                theme.secondary,
+                theme.primary.opacity(0.15),
                 theme.foreground,
                 theme.primary,
-                Some(Icon::new(IconName::Minus).size_3()),
+                Some(
+                    Icon::new(IconName::Minus)
+                        .size_3()
+                        .text_color(theme.primary),
+                ),
                 false,
             ),
             TagChipState::Selected => (
                 theme.primary,
                 theme.primary_foreground,
                 theme.primary,
-                Some(Icon::new(IconName::Check).size_3()),
+                Some(
+                    Icon::new(IconName::Check)
+                        .size_3()
+                        .text_color(theme.primary_foreground),
+                ),
                 false,
             ),
         }
@@ -126,13 +139,17 @@ impl RenderOnce for TagChip {
             .gap_1p5()
             .px_3()
             .py_1()
-            .rounded_full()
             .text_xs()
-            .cursor_pointer()
             .border_1()
             .border_color(border_color)
             .bg(bg_color)
             .text_color(text_color)
+            .h(px(34.0))
+            .when_else(
+                self.squared,
+                |this| this.rounded_md(),
+                |this| this.rounded_full(),
+            )
             .when(is_dimmed, |this| this.opacity(0.6))
             .hover(|style| match self.state {
                 TagChipState::Active | TagChipState::Selected => style,
@@ -148,9 +165,7 @@ impl RenderOnce for TagChip {
             .child(div().child(self.name))
             .when_some(self.count, |this, cnt| {
                 let badge_bg = match self.state {
-                    TagChipState::Active | TagChipState::Selected => {
-                        theme.background.opacity(0.2)
-                    }
+                    TagChipState::Active | TagChipState::Selected => theme.background.opacity(0.2),
                     _ => theme.background,
                 };
                 let badge_text = match self.state {
