@@ -105,32 +105,36 @@ impl RenderOnce for FileGrid {
         let rows_count = file_list.len().div_ceil(cols);
         let total = file_list.len();
 
-        div()
-            .relative()
+        components::lru_image_cache::lru_image_cache_default("file-grid-image-cache")
             .flex_1()
             .size_full()
             .child(
-                uniform_list("file-grid-list", rows_count, {
-                    move |visible_range, _, _| {
-                        visible_range
-                            .map(|row| {
-                                let start = row * cols;
-                                let end = (start + cols).min(total);
-                                render_row(
-                                    &file_list[start..end],
-                                    &selected_files,
-                                    &on_select,
-                                    &on_open,
-                                )
-                            })
-                            .collect()
-                    }
-                })
-                .pb_6()
-                .size_full()
-                .track_scroll(&scroll_handle),
+                div()
+                    .relative()
+                    .size_full()
+                    .child(
+                        uniform_list("file-grid-list", rows_count, {
+                            move |visible_range, _, _| {
+                                visible_range
+                                    .map(|row| {
+                                        let start = row * cols;
+                                        let end = (start + cols).min(total);
+                                        render_row(
+                                            &file_list[start..end],
+                                            &selected_files,
+                                            &on_select,
+                                            &on_open,
+                                        )
+                                    })
+                                    .collect()
+                            }
+                        })
+                        .pb_6()
+                        .size_full()
+                        .track_scroll(&scroll_handle),
+                    )
+                    .vertical_scrollbar(&scroll_handle),
             )
-            .vertical_scrollbar(&scroll_handle)
             .into_any_element()
     }
 }
@@ -157,6 +161,7 @@ fn render_row(
             let file_path = SharedString::new(item.path.as_str());
             let path_open = file_path.clone();
             let hash = SharedString::new(item.hash.as_str());
+            let mime = SharedString::new(item.mime.as_str());
             let select = on_select.clone();
             let open = on_open.clone();
 
@@ -168,6 +173,7 @@ fn render_row(
             )
             .path(file_path)
             .hash(hash)
+            .mime(mime)
             .selected(is_selected)
             .on_click(move |_, window, cx| {
                 cx.stop_propagation();

@@ -17,6 +17,7 @@ pub struct FileCard {
     path: Option<SharedString>,
     hash: Option<SharedString>,
     size: i64,
+    mime: Option<SharedString>,
     selected: bool,
     on_click: Option<FileCardClickListener>,
     on_double_click: Option<FileCardClickListener>,
@@ -36,6 +37,7 @@ impl FileCard {
             path: None,
             hash: None,
             size,
+            mime: None,
             selected: false,
             on_click: None,
             on_double_click: None,
@@ -49,6 +51,11 @@ impl FileCard {
 
     pub fn hash(mut self, hash: impl Into<SharedString>) -> Self {
         self.hash = Some(hash.into());
+        self
+    }
+
+    pub fn mime(mut self, mime: impl Into<SharedString>) -> Self {
+        self.mime = Some(mime.into());
         self
     }
 
@@ -88,6 +95,19 @@ impl RenderOnce for FileCard {
         let path_for_menu = self.path.clone();
         let hash_for_menu = self.hash.clone();
 
+        let is_image = self
+            .mime
+            .as_ref()
+            .map(|m| m.starts_with("image/"))
+            .unwrap_or(false);
+
+        let thumb_path = if is_image && let Some(ref hash) = self.hash {
+            let p = crate::services::thumbnail::get_thumbnail_path(hash.as_str());
+            if p.is_file() { Some(p) } else { None }
+        } else {
+            None
+        };
+
         let base_div = div()
             .id(self.id)
             .v_flex()
@@ -99,36 +119,53 @@ impl RenderOnce for FileCard {
             .rounded(cx.theme().radius)
             .when(is_selected, |s| s.bg(cx.theme().accent.opacity(0.9)))
             .when(!is_selected, |d| {
-                d.hover(|style| style.bg(cx.theme().accent.opacity(0.4)))
+                d.hover(|style| style.bg(cx.theme().accent.opacity(0.6)))
             })
-            .child(
-                div()
-                    .v_flex()
-                    .items_center()
-                    .justify_center()
-                    .flex_1()
-                    .gap_1p5()
-                    .child(
-                        div()
-                            .w_10()
-                            .h_10()
-                            .rounded_md()
-                            .h_flex()
-                            .items_center()
-                            .justify_center()
-                            .child(
-                                Icon::new(IconName::File)
-                                    .size_5()
-                                    .text_color(cx.theme().primary),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(self.extension),
-                    ),
-            )
+            .when_none(&thumb_path, |this| {
+                this.child(
+                    div()
+                        .v_flex()
+                        .items_center()
+                        .justify_center()
+                        .flex_1()
+                        .gap_1p5()
+                        .child(
+                            div()
+                                .w_10()
+                                .h_10()
+                                .rounded_md()
+                                .h_flex()
+                                .items_center()
+                                .justify_center()
+                                .child(
+                                    Icon::new(IconName::File)
+                                        .size_5()
+                                        .text_color(cx.theme().primary),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(self.extension),
+                        ),
+                )
+            })
+            .when_some(thumb_path, |this, thumb_path| {
+                this.child(
+                    div()
+                        .size_full()
+                        .flex_1()
+                        .overflow_hidden()
+                        .rounded_md()
+                        .bg(cx.theme().secondary.opacity(0.3))
+                        .child(
+                            img(ImageSource::from(thumb_path))
+                                .size_full()
+                                .object_fit(ObjectFit::Cover),
+                        ),
+                )
+            })
             .child(
                 div()
                     .v_flex()

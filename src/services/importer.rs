@@ -117,6 +117,11 @@ pub async fn import_file(
         utime,
     } = compute_file_metadata(path)?;
 
+    // generate thumbnail for images on import
+    if mime.starts_with("image/") {
+        super::thumbnail::ensure_thumbnail(path, &hash);
+    }
+
     // Deduplication check
     let existing_file = storage::file::find_file_by_hash(db, &hash).await?;
 
