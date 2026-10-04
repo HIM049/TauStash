@@ -10,22 +10,22 @@ use crate::services::tags_queryer::parse_state;
 pub struct UnifiedTagApply;
 
 impl UnifiedTagApply {
-    /// Attach an existing tag to many files.
+    /// Attach tags to files
     pub async fn attach(
         db: &DatabaseConnection,
         file_ids: &[Uuid],
-        tag_id: Uuid,
+        tag_ids: &[Uuid],
     ) -> anyhow::Result<()> {
-        tag_store::link(db, file_ids, tag_id).await
+        tag_store::link(db, file_ids, tag_ids).await
     }
 
-    /// Detach a tag from many files.
+    /// Detach tags from files
     pub async fn detach(
         db: &DatabaseConnection,
         file_ids: &[Uuid],
-        tag_id: Uuid,
+        tag_ids: &[Uuid],
     ) -> anyhow::Result<()> {
-        tag_store::unlink(db, file_ids, tag_id).await
+        tag_store::unlink(db, file_ids, tag_ids).await
     }
 
     /// Attach a tag named in this namespace, creating it when new.
@@ -34,14 +34,23 @@ impl UnifiedTagApply {
         file_ids: &[Uuid],
         namespace: TagNamespace,
         name: String,
-    ) -> anyhow::Result<()> {
-        let name = name.trim().to_string();
-        if name.is_empty() {
-            anyhow::bail!("tag name cannot be empty");
+    ) -> anyhow::Result<Vec<Uuid>> {
+        if file_ids.is_empty() || name.is_empty() {
+            return Ok(Vec::new());
         }
 
-        let tag = tag_store::find_or_create(db, namespace, name).await?;
-        tag_store::link(db, file_ids, tag.id).await
+        let mut tag_ids = Vec::with_capacity(name.len());
+        let name = name.trim().to_string();
+        if !name.is_empty() {
+            let tag = tag_store::find_or_create(db, namespace, name).await?;
+            tag_ids.push(tag.id);
+        }
+
+        if !tag_ids.is_empty() {
+            tag_store::link(db, file_ids, &tag_ids).await?;
+        }
+
+        Ok(tag_ids)
     }
 
     /// Write one tag onto many files, mapped onto whatever backs its space.
@@ -51,7 +60,7 @@ impl UnifiedTagApply {
         tag: &MacroTag,
     ) -> anyhow::Result<()> {
         match tag {
-            MacroTag::StandardTag(tag_id) => tag_store::link(db, file_ids, *tag_id).await,
+            MacroTag::StandardTag(tag_id) => tag_store::link(db, file_ids, &[*tag_id]).await,
             MacroTag::FileState(name) => {
                 let state = parse_state(name)?;
                 file_store::set_file_states(db, file_ids, state).await

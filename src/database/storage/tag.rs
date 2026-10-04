@@ -50,16 +50,25 @@ pub async fn find_or_create(
     }
 }
 
-/// Attach a tag to many files.
-pub async fn link(db: &DatabaseConnection, file_ids: &[Uuid], tag_id: Uuid) -> anyhow::Result<()> {
-    if file_ids.is_empty() {
+/// Attach tags to files
+pub async fn link(
+    db: &DatabaseConnection,
+    file_ids: &[Uuid],
+    tag_ids: &[Uuid],
+) -> anyhow::Result<()> {
+    if file_ids.is_empty() || tag_ids.is_empty() {
         return Ok(());
     }
 
-    let links = file_ids.iter().map(|file_id| file_tag::ActiveModel {
-        file_id: Set(*file_id),
-        tag_id: Set(tag_id),
-    });
+    let links: Vec<file_tag::ActiveModel> = tag_ids
+        .iter()
+        .flat_map(|tag_id| {
+            file_ids.iter().map(move |file_id| file_tag::ActiveModel {
+                file_id: Set(*file_id),
+                tag_id: Set(*tag_id),
+            })
+        })
+        .collect();
 
     file_tag::Entity::insert_many(links)
         .on_conflict_do_nothing()
@@ -69,19 +78,19 @@ pub async fn link(db: &DatabaseConnection, file_ids: &[Uuid], tag_id: Uuid) -> a
     Ok(())
 }
 
-/// Detach a tag from many files.
+/// Detach tags from files
 pub async fn unlink(
     db: &DatabaseConnection,
     file_ids: &[Uuid],
-    tag_id: Uuid,
+    tag_ids: &[Uuid],
 ) -> anyhow::Result<()> {
-    if file_ids.is_empty() {
+    if file_ids.is_empty() || tag_ids.is_empty() {
         return Ok(());
     }
 
     file_tag::Entity::delete_many()
         .filter(file_tag::Column::FileId.is_in(file_ids.iter().copied()))
-        .filter(file_tag::Column::TagId.eq(tag_id))
+        .filter(file_tag::Column::TagId.is_in(tag_ids.iter().copied()))
         .exec(db)
         .await?;
 
