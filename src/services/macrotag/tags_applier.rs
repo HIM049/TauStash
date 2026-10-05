@@ -4,12 +4,10 @@ use uuid::Uuid;
 use crate::database::entities::TagNamespace;
 use crate::database::storage::file as file_store;
 use crate::database::storage::tag as tag_store;
-use crate::services::tags_queryer::MacroTag;
+use crate::services::tags_queryer::MtagService;
 use crate::services::tags_queryer::parse_state;
 
-pub struct UnifiedTagApply;
-
-impl UnifiedTagApply {
+impl MtagService {
     /// Attach tags to files
     pub async fn attach(
         db: &DatabaseConnection,
@@ -33,21 +31,23 @@ impl UnifiedTagApply {
         db: &DatabaseConnection,
         file_ids: &[Uuid],
         namespace: TagNamespace,
-        name: String,
+        names: &[String],
     ) -> anyhow::Result<Vec<Uuid>> {
-        if file_ids.is_empty() || name.is_empty() {
+        if file_ids.is_empty() || names.is_empty() {
             return Ok(Vec::new());
         }
 
-        let mut tag_ids = Vec::with_capacity(name.len());
-        let name = name.trim().to_string();
-        if !name.is_empty() {
-            let tag = tag_store::find_or_create(db, namespace, name).await?;
-            tag_ids.push(tag.id);
-        }
+        let mut tag_ids = Vec::with_capacity(names.len());
+        for name in names {
+            let name = name.trim().to_string();
+            if !name.is_empty() {
+                let tag = tag_store::find_or_create(db, namespace, name).await?;
+                tag_ids.push(tag.id);
+            }
 
-        if !tag_ids.is_empty() {
-            tag_store::link(db, file_ids, &tag_ids).await?;
+            if !tag_ids.is_empty() {
+                tag_store::link(db, file_ids, &tag_ids).await?;
+            }
         }
 
         Ok(tag_ids)
@@ -57,15 +57,15 @@ impl UnifiedTagApply {
     pub async fn apply(
         db: &DatabaseConnection,
         file_ids: &[Uuid],
-        tag: &MacroTag,
+        tag: &super::MacroTag,
     ) -> anyhow::Result<()> {
         match tag {
-            MacroTag::StandardTag(tag_id) => tag_store::link(db, file_ids, &[*tag_id]).await,
-            MacroTag::FileState(name) => {
+            super::MacroTag::StandardTag(tag_id) => tag_store::link(db, file_ids, &[*tag_id]).await,
+            super::MacroTag::FileState(name) => {
                 let state = parse_state(name)?;
                 file_store::set_file_states(db, file_ids, state).await
             }
-            MacroTag::Deleted(date_time) => {
+            super::MacroTag::Deleted(date_time) => {
                 file_store::mark_files_deleted(db, file_ids, *date_time).await
             }
             _ => {
@@ -78,7 +78,7 @@ impl UnifiedTagApply {
     pub async fn apply_all(
         db: &DatabaseConnection,
         file_ids: &[Uuid],
-        tags: &[MacroTag],
+        tags: &[super::MacroTag],
     ) -> anyhow::Result<()> {
         for tag in tags {
             Self::apply(db, file_ids, tag).await?;

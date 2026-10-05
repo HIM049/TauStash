@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::components::tag_chip::{TagChip, TagChipState};
 use crate::database::storage::query::{FileQueryer, TagFacetItem};
-use crate::services::tags_queryer::MacroTag;
+use crate::services::MacroTag;
 
 pub struct TagFilterBar {
     base_query: FileQueryer,

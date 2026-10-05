@@ -1,39 +1,27 @@
-use sea_orm::entity::prelude::DateTimeUtc;
 use sea_orm::{ActiveEnum, Iterable};
 use uuid::Uuid;
 
 use crate::database::entities::FileState;
 use crate::database::storage::query::{FileQueryer, MatchMode};
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum MacroTag {
-    StandardTag(Uuid),
-    Untagged,
-    Ext(String),
-    MediaType(String),
-    FileState(String),
-    HasReplica(u32),
-    Deleted(DateTimeUtc),
-}
-
 /// Collects tags and turns them into a [`FileQueryer`].
 #[derive(Clone, Debug, Default)]
-pub struct UnifiedTagService {
-    tags: Vec<MacroTag>,
+pub struct MtagService {
+    tags: Vec<super::MacroTag>,
     mode: MatchMode,
 }
 
-impl UnifiedTagService {
+impl MtagService {
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn tag(mut self, tag: MacroTag) -> Self {
+    pub fn tag(mut self, tag: super::MacroTag) -> Self {
         self.tags.push(tag);
         self
     }
 
-    pub fn tags(mut self, tags: impl IntoIterator<Item = MacroTag>) -> Self {
+    pub fn tags(mut self, tags: impl IntoIterator<Item = super::MacroTag>) -> Self {
         self.tags.extend(tags);
         self
     }
@@ -45,7 +33,7 @@ impl UnifiedTagService {
     }
 
     /// The tags collected so far.
-    pub fn collected(&self) -> &[MacroTag] {
+    pub fn collected(&self) -> &[super::MacroTag] {
         &self.tags
     }
 
@@ -59,13 +47,13 @@ impl UnifiedTagService {
 
         for tag in tags {
             match tag {
-                MacroTag::Ext(name) => extensions.push(name),
-                MacroTag::MediaType(prefix) => mime_prefixes.push(prefix),
-                MacroTag::FileState(name) => query = query.state(parse_state(&name)?),
-                MacroTag::HasReplica(count) => query = query.replica_count(count),
-                MacroTag::StandardTag(uuid) => named.push(uuid),
-                MacroTag::Untagged => query = query.untagged(),
-                MacroTag::Deleted(time) => query = query.deleted_since(time),
+                super::MacroTag::Ext(name) => extensions.push(name),
+                super::MacroTag::MediaType(prefix) => mime_prefixes.push(prefix),
+                super::MacroTag::FileState(name) => query = query.state(parse_state(&name)?),
+                super::MacroTag::HasReplica(count) => query = query.replica_count(count),
+                super::MacroTag::StandardTag(uuid) => named.push(uuid),
+                super::MacroTag::Untagged => query = query.untagged(),
+                super::MacroTag::Deleted(time) => query = query.deleted_since(time),
             }
         }
 
@@ -89,11 +77,13 @@ pub fn parse_state(value: &str) -> anyhow::Result<FileState> {
         .ok_or(anyhow::anyhow!("Unknown state: {}", value))
 }
 
-impl MacroTag {
+impl super::MacroTag {
     pub fn is_writable(&self) -> bool {
         matches!(
             self,
-            MacroTag::StandardTag(_) | MacroTag::FileState(_) | MacroTag::Deleted(_)
+            super::MacroTag::StandardTag(_)
+                | super::MacroTag::FileState(_)
+                | super::MacroTag::Deleted(_)
         )
     }
 }

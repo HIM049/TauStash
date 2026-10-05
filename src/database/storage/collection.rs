@@ -1,4 +1,4 @@
-use crate::database::entities::collection::{self, CollectionConfig, CollectionType, TagIdList};
+use crate::database::entities::collection::{self, CollectionType};
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
@@ -12,8 +12,8 @@ pub async fn create(
     typ: CollectionType,
     parent_id: Option<Uuid>,
     order: Option<u32>,
-    filters: Vec<Uuid>,
-    config: Option<CollectionConfig>,
+    config: Option<serde_json::Value>,
+    cover: Option<String>,
     icon: Option<String>,
     color: Option<String>,
 ) -> anyhow::Result<collection::Model> {
@@ -22,10 +22,10 @@ pub async fn create(
         id: Set(Uuid::now_v7()),
         name: Set(name.into()),
         icon: Set(icon.unwrap_or_default()),
+        cover: Set(cover.unwrap_or_default()),
         color: Set(color.unwrap_or_default()),
         order: Set(order.unwrap_or(0)),
         parent_id: Set(parent_id),
-        filters: Set(TagIdList(filters)),
         typ: Set(typ),
         config: Set(config.unwrap_or_default()),
         created_at: Set(now),
@@ -100,6 +100,7 @@ pub async fn update_metadata(
     name: Option<String>,
     icon: Option<String>,
     color: Option<String>,
+    cover: Option<String>,
     order: Option<u32>,
 ) -> anyhow::Result<collection::Model> {
     let model = find_by_id(db, id)
@@ -117,6 +118,9 @@ pub async fn update_metadata(
     if let Some(c) = color {
         active.color = Set(c);
     }
+    if let Some(c) = cover {
+        active.cover = Set(c);
+    }
     if let Some(o) = order {
         active.order = Set(o);
     }
@@ -131,31 +135,14 @@ pub async fn update_order(
     id: Uuid,
     order: u32,
 ) -> anyhow::Result<collection::Model> {
-    update_metadata(db, id, None, None, None, Some(order)).await
-}
-
-/// Replace the filter tags associated with this collection.
-pub async fn update_filters(
-    db: &DatabaseConnection,
-    id: Uuid,
-    filters: Vec<Uuid>,
-) -> anyhow::Result<collection::Model> {
-    let model = find_by_id(db, id)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("Collection with id '{id}' not found"))?;
-
-    let mut active: collection::ActiveModel = model.into();
-    active.filters = Set(TagIdList(filters));
-    active.updated_at = Set(Utc::now());
-
-    Ok(active.update(db).await?)
+    update_metadata(db, id, None, None, None, None, Some(order)).await
 }
 
 /// Update the configuration settings payload of a collection.
 pub async fn update_config(
     db: &DatabaseConnection,
     id: Uuid,
-    config: CollectionConfig,
+    config: serde_json::Value,
 ) -> anyhow::Result<collection::Model> {
     let model = find_by_id(db, id)
         .await?

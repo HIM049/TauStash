@@ -11,9 +11,9 @@ use uuid::Uuid;
 use crate::components::tag_batch_editor::{TagBatchEditor, TagDeltaBatch};
 use crate::components::tag_filter_bar::TagFilterBar;
 use crate::database::entities::{FileState, TagNamespace};
+use crate::services::MacroTag;
 use crate::services::importer::{self, FileInfo, TagRef};
-use crate::services::tags_applier::UnifiedTagApply;
-use crate::services::tags_queryer::{MacroTag, UnifiedTagService};
+use crate::services::tags_queryer::MtagService;
 use crate::{AppState, components};
 
 pub struct OverallView {
@@ -34,7 +34,7 @@ pub struct OverallView {
 
 impl OverallView {
     pub fn new(cx: &mut Context<Self>) -> Self {
-        let base_query = UnifiedTagService::new()
+        let base_query = MtagService::new()
             .tag(MacroTag::FileState(FileState::Managed.to_value()))
             .build()
             .unwrap_or_default();
@@ -143,7 +143,7 @@ impl OverallView {
         cx.spawn(async move |this, cx| {
             let files_res = cx
                 .background_spawn(async move {
-                    let query = UnifiedTagService::new()
+                    let query = MtagService::new()
                         .tag(MacroTag::FileState(FileState::Managed.to_value()))
                         .tags(filter_tags)
                         .build()?;
@@ -199,16 +199,16 @@ impl OverallView {
                 .background_spawn(async move {
                     rt.block_on(async {
                         for new_name in &delta.to_create_and_attach {
-                            UnifiedTagApply::attach_by_name(
+                            MtagService::attach_by_name(
                                 &db,
                                 &file_ids,
                                 TagNamespace::User,
-                                new_name.clone(),
+                                &[new_name.clone()],
                             )
                             .await?;
                         }
-                        UnifiedTagApply::attach(&db, &file_ids, &delta.to_attach).await?;
-                        UnifiedTagApply::detach(&db, &file_ids, &delta.to_detach).await?;
+                        MtagService::attach(&db, &file_ids, &delta.to_attach).await?;
+                        MtagService::detach(&db, &file_ids, &delta.to_detach).await?;
 
                         Ok::<(), anyhow::Error>(())
                     })
