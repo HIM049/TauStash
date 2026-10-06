@@ -1,13 +1,16 @@
 use std::rc::Rc;
 
-use gpui_kit::component::menu::{ContextMenuExt, PopupMenuItem};
+use gpui_kit::component::menu::{ContextMenuExt, PopupMenu};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
-use crate::components::utils::{format_file_size, open_path, reveal_in_file_manager};
+use crate::components::utils::format_file_size;
 
 pub type FileCardClickListener = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+pub type FileCardActionHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
+pub type FileCardContextMenuBuilder =
+    Rc<dyn Fn(PopupMenu, &mut Window, &mut App) -> PopupMenu + 'static>;
 
 #[derive(IntoElement)]
 pub struct FileCard {
@@ -21,6 +24,8 @@ pub struct FileCard {
     selected: bool,
     on_click: Option<FileCardClickListener>,
     on_double_click: Option<FileCardClickListener>,
+    on_secondary_click: Option<FileCardActionHandler>,
+    context_menu_builder: Option<FileCardContextMenuBuilder>,
 }
 
 impl FileCard {
@@ -41,6 +46,8 @@ impl FileCard {
             selected: false,
             on_click: None,
             on_double_click: None,
+            on_secondary_click: None,
+            context_menu_builder: None,
         }
     }
 
@@ -79,6 +86,22 @@ impl FileCard {
         self.on_double_click = Some(Rc::new(listener));
         self
     }
+
+    pub fn on_secondary_click(
+        mut self,
+        listener: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_secondary_click = Some(Rc::new(listener));
+        self
+    }
+
+    pub fn context_menu(
+        mut self,
+        builder: impl Fn(PopupMenu, &mut Window, &mut App) -> PopupMenu + 'static,
+    ) -> Self {
+        self.context_menu_builder = Some(Rc::new(builder));
+        self
+    }
 }
 
 impl RenderOnce for FileCard {
@@ -91,9 +114,8 @@ impl RenderOnce for FileCard {
 
         let on_click_handler = self.on_click;
         let on_double_click_handler = self.on_double_click;
-
-        let path_for_menu = self.path.clone();
-        let hash_for_menu = self.hash.clone();
+        let on_secondary_click = self.on_secondary_click;
+        let context_menu_builder = self.context_menu_builder;
 
         let is_image = self
             .mime
@@ -190,6 +212,11 @@ impl RenderOnce for FileCard {
                             .child(format_file_size(self.size)),
                     ),
             )
+            .when_some(on_secondary_click.clone(), |this, on_sec| {
+                this.on_mouse_down(MouseButton::Right, move |_, window, cx| {
+                    on_sec(window, cx);
+                })
+            })
             .on_click(
                 move |event: &ClickEvent, window: &mut Window, cx: &mut App| {
                     if event.click_count() == 2 {
@@ -204,52 +231,13 @@ impl RenderOnce for FileCard {
                 },
             );
 
-        if let Some(file_path) = path_for_menu {
-            let p1 = file_path.clone();
-            let p2 = file_path.clone();
-            let p3 = file_path.clone();
-            let h1 = hash_for_menu.clone();
-
+        if let Some(builder) = context_menu_builder {
             base_div
-                .context_menu(move |menu, _window, _cx| {
-                    let open_p = p1.clone();
-                    let reveal_p = p2.clone();
-                    let copy_p = p3.clone();
-                    let copy_h = h1.clone();
-
-                    let mut m = menu
-                        .item(
-                            PopupMenuItem::new("打开")
-                                .icon(IconName::ExternalLink)
-                                .on_click(move |_, _, _| {
-                                    open_path(open_p.as_ref());
-                                }),
-                        )
-                        .item(
-                            PopupMenuItem::new("在文件管理器中显示")
-                                .icon(IconName::Folder)
-                                .on_click(move |_, _, _| {
-                                    reveal_in_file_manager(reveal_p.as_ref());
-                                }),
-                        )
-                        .separator()
-                        .item(
-                            PopupMenuItem::new("复制路径")
-                                .icon(IconName::Copy)
-                                .on_click(move |_, _, cx| {
-                                    cx.write_to_clipboard(ClipboardItem::new_string(
-                                        copy_p.to_string(),
-                                    ));
-                                }),
-                        );
-
-                    if let Some(h) = copy_h {
-                        m = m.item(PopupMenuItem::new("复制哈希").on_click(move |_, _, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(h.to_string()));
-                        }));
+                .context_menu(move |menu, window, cx| {
+                    if let Some(ref on_sec) = on_secondary_click {
+                        on_sec(window, cx);
                     }
-
-                    m
+                    builder(menu, window, cx)
                 })
                 .into_any_element()
         } else {

@@ -4,6 +4,7 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use crate::views::collection_explorer::CollectionExplorerView;
 use crate::views::explorer::OverallView;
 use crate::views::pending::PendingView;
 use crate::views::scanner::ScannerView;
@@ -13,6 +14,7 @@ pub enum NavTab {
     Explorer,
     Scanner,
     Pending,
+    Collections,
 }
 
 pub struct MyApp {
@@ -21,6 +23,7 @@ pub struct MyApp {
     explorer_view: Entity<OverallView>,
     scanner_view: Entity<ScannerView>,
     pending_view: Entity<PendingView>,
+    collection_view: Entity<CollectionExplorerView>,
 }
 
 impl MyApp {
@@ -28,6 +31,7 @@ impl MyApp {
         let explorer_view = cx.new(|cx| OverallView::new(cx));
         let scanner_view = cx.new(|cx| ScannerView::new(window, cx));
         let pending_view = cx.new(|cx| PendingView::new(cx));
+        let collection_view = cx.new(|cx| CollectionExplorerView::new(window, cx));
 
         Self {
             active_tab: NavTab::Explorer,
@@ -35,6 +39,7 @@ impl MyApp {
             explorer_view,
             scanner_view,
             pending_view,
+            collection_view,
         }
     }
 
@@ -63,10 +68,18 @@ impl MyApp {
                     SidebarMenu::new()
                         .child(
                             SidebarMenuItem::new("文件总览")
-                                .icon(IconName::Folder)
+                                .icon(IconName::File)
                                 .active(self.active_tab == NavTab::Explorer)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.set_active_tab(NavTab::Explorer, cx);
+                                })),
+                        )
+                        .child(
+                            SidebarMenuItem::new("全部合集")
+                                .icon(IconName::Folder)
+                                .active(self.active_tab == NavTab::Collections)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.set_active_tab(NavTab::Collections, cx);
                                 })),
                         )
                         .child(
@@ -106,6 +119,7 @@ impl Render for MyApp {
             NavTab::Explorer => self.explorer_view.clone().into_any_element(),
             NavTab::Scanner => self.scanner_view.clone().into_any_element(),
             NavTab::Pending => self.pending_view.clone().into_any_element(),
+            NavTab::Collections => self.collection_view.clone().into_any_element(),
         };
 
         div()

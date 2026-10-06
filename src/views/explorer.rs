@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use gpui_kit::component::button::Button;
+use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{ElementExt as _, *};
 use gpui_kit::*;
@@ -176,6 +177,128 @@ impl OverallView {
         self.filter_bar.update(cx, |bar, cx| bar.reload_stats(cx));
     }
 
+    fn handle_secondary_select(&mut self, file_id: Uuid, cx: &mut Context<Self>) {
+        if !self.selected_files.contains(&file_id) {
+            if let Some(editor) = &self.batch_editor {
+                if editor.read(cx).has_changes() {
+                    self.batch_editor = None;
+                }
+            }
+            self.selected_files.clear();
+            self.selected_files.insert(file_id);
+            self.last_select = Some(file_id);
+            cx.notify();
+        }
+    }
+
+    /// Soft delete all currently selected files and reload.
+    pub fn delete_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.selected_files.is_empty() {
+            return;
+        }
+
+        let ids: Vec<Uuid> = self.selected_files.iter().copied().collect();
+        self.selected_files.clear();
+        self.last_select = None;
+        self.batch_editor = None;
+        self.last_editor_selection.clear();
+
+        let db = cx.global::<AppState>().db.clone();
+        let rt = cx.global::<AppState>().rt.clone();
+        let now = chrono::Utc::now();
+
+        cx.spawn_in(window, async move |this, cx| {
+            let res = cx
+                .background_spawn(async move {
+                    rt.block_on(crate::database::storage::file::mark_files_deleted(
+                        &db, &ids, now,
+                    ))
+                })
+                .await;
+
+            this.update(cx, |this, cx| {
+                if let Err(err) = res {
+                    tracing::error!("删除失败: {err:#}");
+                }
+                this.reload_all(cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn build_file_context_menu(
+        &self,
+        file_id: Uuid,
+        menu: PopupMenu,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> PopupMenu {
+        let is_multi = self.selected_files.len() > 1 && self.selected_files.contains(&file_id);
+        let mut m = menu;
+
+        if is_multi {
+            let delete_entity = cx.entity().clone();
+            let count = self.selected_files.len();
+            m = m.item(
+                PopupMenuItem::new(format!("删除所选 ({count})"))
+                    .icon(IconName::Delete)
+                    .on_click(move |_, window, cx| {
+                        delete_entity.update(cx, |this, cx| {
+                            this.delete_selected(window, cx);
+                        });
+                    }),
+            );
+        } else {
+            if let Some(file) = self.file_list.iter().find(|f| f.file_id == file_id) {
+                let open_p = file.path.clone();
+                let reveal_p = file.path.clone();
+                let copy_p = file.path.clone();
+                let hash = file.hash.clone();
+
+                m = m
+                    .item(
+                        PopupMenuItem::new("打开")
+                            .icon(IconName::ExternalLink)
+                            .on_click(move |_, _, _| {
+                                components::utils::open_path(&open_p);
+                            }),
+                    )
+                    .item(
+                        PopupMenuItem::new("在文件管理器中显示")
+                            .icon(IconName::Folder)
+                            .on_click(move |_, _, _| {
+                                components::utils::reveal_in_file_manager(&reveal_p);
+                            }),
+                    )
+                    .separator()
+                    .item(
+                        PopupMenuItem::new("复制路径")
+                            .icon(IconName::Copy)
+                            .on_click(move |_, _, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(copy_p.clone()));
+                            }),
+                    )
+                    .item(PopupMenuItem::new("复制哈希").on_click(move |_, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(hash.clone()));
+                    }));
+            }
+
+            let delete_entity = cx.entity().clone();
+            m = m
+                .separator()
+                .item(PopupMenuItem::new("删除").icon(IconName::Delete).on_click(
+                    move |_, window, cx| {
+                        delete_entity.update(cx, |this, cx| {
+                            this.delete_selected(window, cx);
+                        });
+                    },
+                ));
+        }
+
+        m
+    }
+
     fn commit_tag_delta(
         &mut self,
         delta: TagDeltaBatch,
@@ -235,6 +358,8 @@ impl Render for OverallView {
         let current_width = self.container_width;
 
         let select_entity = cx.entity().clone();
+        let sec_select_entity = cx.entity().clone();
+        let menu_entity = cx.entity().clone();
 
         div()
             .id("explorer-main")
@@ -396,6 +521,19 @@ impl Render for OverallView {
 
                             cx.notify();
                         });
+                    })
+                    .on_secondary_select(move |file_id, _window, cx| {
+                        sec_select_entity.update(cx, |this, cx| {
+                            this.handle_secondary_select(file_id, cx);
+                        });
+                    })
+                    .context_menu({
+                        let menu_entity = menu_entity.clone();
+                        move |file_id, menu, window, cx| {
+                            menu_entity.update(cx, |this, cx| {
+                                this.build_file_context_menu(file_id, menu, window, cx)
+                            })
+                        }
                     })
                     .on_open(|path, _, _| components::utils::open_path(path)),
             )

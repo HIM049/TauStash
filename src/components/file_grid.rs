@@ -1,8 +1,10 @@
 use std::collections::HashSet;
 use std::rc::Rc;
 
+use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::*;
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use uuid::Uuid;
 
@@ -16,6 +18,8 @@ const ROW_HEIGHT: f32 = 154.0;
 
 pub type FileGridSelectListener = Rc<dyn Fn(Uuid, &mut Window, &mut App) + 'static>;
 pub type FileGridOpenListener = Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>;
+pub type FileGridContextMenuBuilder =
+    Rc<dyn Fn(Uuid, PopupMenu, &mut Window, &mut App) -> PopupMenu + 'static>;
 
 /// Number of cards that fit on one row at the given width.
 fn columns_for(width: Pixels) -> usize {
@@ -31,7 +35,9 @@ pub struct FileGrid {
     selected_files: HashSet<Uuid>,
     scroll_handle: UniformListScrollHandle,
     on_select: Option<FileGridSelectListener>,
+    on_secondary_select: Option<FileGridSelectListener>,
     on_open: Option<FileGridOpenListener>,
+    context_menu_builder: Option<FileGridContextMenuBuilder>,
 }
 
 impl FileGrid {
@@ -42,7 +48,9 @@ impl FileGrid {
             selected_files: HashSet::new(),
             scroll_handle: UniformListScrollHandle::new(),
             on_select: None,
+            on_secondary_select: None,
             on_open: None,
+            context_menu_builder: None,
         }
     }
 
@@ -68,8 +76,24 @@ impl FileGrid {
         self
     }
 
+    pub fn on_secondary_select(
+        mut self,
+        listener: impl Fn(Uuid, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_secondary_select = Some(Rc::new(listener));
+        self
+    }
+
     pub fn on_open(mut self, listener: impl Fn(&str, &mut Window, &mut App) + 'static) -> Self {
         self.on_open = Some(Rc::new(listener));
+        self
+    }
+
+    pub fn context_menu(
+        mut self,
+        builder: impl Fn(Uuid, PopupMenu, &mut Window, &mut App) -> PopupMenu + 'static,
+    ) -> Self {
+        self.context_menu_builder = Some(Rc::new(builder));
         self
     }
 }
@@ -86,7 +110,9 @@ impl RenderOnce for FileGrid {
             selected_files,
             scroll_handle,
             on_select,
+            on_secondary_select,
             on_open,
+            context_menu_builder,
         } = self;
 
         if file_list.is_empty() {
@@ -123,7 +149,9 @@ impl RenderOnce for FileGrid {
                                             &file_list[start..end],
                                             &selected_files,
                                             &on_select,
+                                            &on_secondary_select,
                                             &on_open,
+                                            &context_menu_builder,
                                         )
                                     })
                                     .collect()
@@ -144,7 +172,9 @@ fn render_row(
     row_files: &[FileInfo],
     selected_files: &HashSet<Uuid>,
     on_select: &Option<FileGridSelectListener>,
+    on_secondary_select: &Option<FileGridSelectListener>,
     on_open: &Option<FileGridOpenListener>,
+    context_menu_builder: &Option<FileGridContextMenuBuilder>,
 ) -> AnyElement {
     div()
         .h(px(ROW_HEIGHT))
@@ -163,7 +193,9 @@ fn render_row(
             let hash = SharedString::new(item.hash.as_str());
             let mime = SharedString::new(item.mime.as_str());
             let select = on_select.clone();
+            let sec_select = on_secondary_select.clone();
             let open = on_open.clone();
+            let menu_builder = context_menu_builder.clone();
 
             components::file_card::FileCard::new(
                 ElementId::Name(format!("file-card-{file_id}").into()),
@@ -181,10 +213,20 @@ fn render_row(
                     listener(file_id, window, cx);
                 }
             })
+            .on_secondary_click(move |window, cx| {
+                if let Some(listener) = &sec_select {
+                    listener(file_id, window, cx);
+                }
+            })
             .on_double_click(move |_, window, cx| {
                 if let Some(listener) = &open {
                     listener(path_open.as_ref(), window, cx);
                 }
+            })
+            .when_some(menu_builder, |card, builder| {
+                card.context_menu(move |menu, window, cx| {
+                    builder(file_id, menu, window, cx)
+                })
             })
         }))
         .into_any_element()

@@ -408,7 +408,6 @@ impl Render for ScannerView {
                         Button::new("scan-source-scan-all")
                             .label("开始扫描")
                             .icon(IconName::RotateCw)
-                            // loading is already inert, do not also set disabled
                             .loading(busy)
                             .on_click(cx.listener(Self::on_scan_all)),
                     ),

@@ -39,7 +39,6 @@ pub struct FileInfo {
     pub tags: Vec<TagRef>,
 }
 
-/// Convert a filesystem timestamp, dropping values before the Unix epoch
 fn to_utc(time: std::time::SystemTime) -> Option<DateTime<Utc>> {
     time.duration_since(UNIX_EPOCH)
         .ok()

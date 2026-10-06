@@ -178,16 +178,25 @@ pub async fn set_parent(
     Ok(active.update(db).await?)
 }
 
-/// Soft delete a collection
-pub async fn delete(db: &DatabaseConnection, id: Uuid) -> anyhow::Result<()> {
-    let model = find_by_id(db, id)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("Collection with id '{id}' not found"))?;
-
-    let mut active: collection::ActiveModel = model.into();
-    active.deleted_at = Set(Some(Utc::now()));
-    active.updated_at = Set(Utc::now());
-    active.update(db).await?;
+/// Soft delete collections by IDs
+pub async fn delete(db: &DatabaseConnection, ids: &[Uuid]) -> anyhow::Result<()> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let now = Utc::now();
+    collection::Entity::update_many()
+        .col_expr(
+            collection::Column::DeletedAt,
+            sea_orm::sea_query::Expr::value(Some(now)),
+        )
+        .col_expr(
+            collection::Column::UpdatedAt,
+            sea_orm::sea_query::Expr::value(now),
+        )
+        .filter(collection::Column::Id.is_in(ids.iter().copied()))
+        .filter(collection::Column::DeletedAt.is_null())
+        .exec(db)
+        .await?;
 
     Ok(())
 }
