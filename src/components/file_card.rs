@@ -1,6 +1,5 @@
 use std::rc::Rc;
 
-use gpui_kit::component::menu::{ContextMenuExt, PopupMenu};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
@@ -9,8 +8,6 @@ use crate::components::utils::format_file_size;
 
 pub type FileCardClickListener = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 pub type FileCardActionHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
-pub type FileCardContextMenuBuilder =
-    Rc<dyn Fn(PopupMenu, &mut Window, &mut App) -> PopupMenu + 'static>;
 
 #[derive(IntoElement)]
 pub struct FileCard {
@@ -25,7 +22,6 @@ pub struct FileCard {
     on_click: Option<FileCardClickListener>,
     on_double_click: Option<FileCardClickListener>,
     on_secondary_click: Option<FileCardActionHandler>,
-    context_menu_builder: Option<FileCardContextMenuBuilder>,
 }
 
 impl FileCard {
@@ -47,7 +43,6 @@ impl FileCard {
             on_click: None,
             on_double_click: None,
             on_secondary_click: None,
-            context_menu_builder: None,
         }
     }
 
@@ -94,14 +89,6 @@ impl FileCard {
         self.on_secondary_click = Some(Rc::new(listener));
         self
     }
-
-    pub fn context_menu(
-        mut self,
-        builder: impl Fn(PopupMenu, &mut Window, &mut App) -> PopupMenu + 'static,
-    ) -> Self {
-        self.context_menu_builder = Some(Rc::new(builder));
-        self
-    }
 }
 
 impl RenderOnce for FileCard {
@@ -115,7 +102,6 @@ impl RenderOnce for FileCard {
         let on_click_handler = self.on_click;
         let on_double_click_handler = self.on_double_click;
         let on_secondary_click = self.on_secondary_click;
-        let context_menu_builder = self.context_menu_builder;
 
         let is_image = self
             .mime
@@ -130,7 +116,7 @@ impl RenderOnce for FileCard {
             None
         };
 
-        let base_div = div()
+        div()
             .id(self.id)
             .v_flex()
             .items_center()
@@ -214,6 +200,7 @@ impl RenderOnce for FileCard {
             )
             .when_some(on_secondary_click.clone(), |this, on_sec| {
                 this.on_mouse_down(MouseButton::Right, move |_, window, cx| {
+                    cx.stop_propagation();
                     on_sec(window, cx);
                 })
             })
@@ -229,19 +216,6 @@ impl RenderOnce for FileCard {
                         click(event, window, cx);
                     }
                 },
-            );
-
-        if let Some(builder) = context_menu_builder {
-            base_div
-                .context_menu(move |menu, window, cx| {
-                    if let Some(ref on_sec) = on_secondary_click {
-                        on_sec(window, cx);
-                    }
-                    builder(menu, window, cx)
-                })
-                .into_any_element()
-        } else {
-            base_div.into_any_element()
-        }
+            )
     }
 }

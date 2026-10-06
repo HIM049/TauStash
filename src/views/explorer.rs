@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use gpui_kit::component::button::Button;
-use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
+use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{ElementExt as _, *};
 use gpui_kit::*;
@@ -227,76 +227,78 @@ impl OverallView {
         .detach();
     }
 
-    fn build_file_context_menu(
+    fn build_context_menu(
         &self,
-        file_id: Uuid,
-        menu: PopupMenu,
+        mut menu: PopupMenu,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> PopupMenu {
-        let is_multi = self.selected_files.len() > 1 && self.selected_files.contains(&file_id);
-        let mut m = menu;
-
-        if is_multi {
-            let delete_entity = cx.entity().clone();
-            let count = self.selected_files.len();
-            m = m.item(
-                PopupMenuItem::new(format!("删除所选 ({count})"))
-                    .icon(IconName::Delete)
-                    .on_click(move |_, window, cx| {
-                        delete_entity.update(cx, |this, cx| {
+        if let Some(file_id) = self.last_select {
+            if self.selected_files.len() > 1 && self.selected_files.contains(&file_id) {
+                let count = self.selected_files.len();
+                menu = menu.item(
+                    PopupMenuItem::new(format!("删除内容 ({count})"))
+                        .icon(IconName::Delete)
+                        .on_click(cx.listener(|this, _, window, cx| {
                             this.delete_selected(window, cx);
-                        });
-                    }),
-            );
-        } else {
-            if let Some(file) = self.file_list.iter().find(|f| f.file_id == file_id) {
-                let open_p = file.path.clone();
-                let reveal_p = file.path.clone();
-                let copy_p = file.path.clone();
-                let hash = file.hash.clone();
+                        })),
+                );
+            } else {
+                if let Some(file) = self.file_list.iter().find(|f| f.file_id == file_id) {
+                    let open_p = file.path.clone();
+                    let reveal_p = file.path.clone();
+                    let copy_p = file.path.clone();
+                    let hash = file.hash.clone();
 
-                m = m
-                    .item(
-                        PopupMenuItem::new("打开")
-                            .icon(IconName::ExternalLink)
-                            .on_click(move |_, _, _| {
-                                components::utils::open_path(&open_p);
-                            }),
-                    )
-                    .item(
-                        PopupMenuItem::new("在文件管理器中显示")
-                            .icon(IconName::Folder)
-                            .on_click(move |_, _, _| {
-                                components::utils::reveal_in_file_manager(&reveal_p);
-                            }),
-                    )
-                    .separator()
-                    .item(
-                        PopupMenuItem::new("复制路径")
-                            .icon(IconName::Copy)
-                            .on_click(move |_, _, cx| {
-                                cx.write_to_clipboard(ClipboardItem::new_string(copy_p.clone()));
-                            }),
-                    )
-                    .item(PopupMenuItem::new("复制哈希").on_click(move |_, _, cx| {
-                        cx.write_to_clipboard(ClipboardItem::new_string(hash.clone()));
-                    }));
+                    menu = menu
+                        .item(
+                            PopupMenuItem::new("打开")
+                                .icon(IconName::ExternalLink)
+                                .on_click(move |_, _, _| {
+                                    components::utils::open_path(&open_p);
+                                }),
+                        )
+                        .item(
+                            PopupMenuItem::new("在文件管理器中显示")
+                                .icon(IconName::Folder)
+                                .on_click(move |_, _, _| {
+                                    components::utils::reveal_in_file_manager(&reveal_p);
+                                }),
+                        )
+                        .separator()
+                        .item(
+                            PopupMenuItem::new("复制路径")
+                                .icon(IconName::Copy)
+                                .on_click(move |_, _, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(
+                                        copy_p.clone(),
+                                    ));
+                                }),
+                        )
+                        .item(PopupMenuItem::new("复制哈希").on_click(move |_, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(hash.clone()));
+                        }));
+                }
+
+                menu = menu.separator().item(
+                    PopupMenuItem::new("删除内容")
+                        .icon(IconName::Delete)
+                        .on_click(cx.listener(|this, _, w, cx| {
+                            this.delete_selected(w, cx);
+                        })),
+                );
             }
-
-            let delete_entity = cx.entity().clone();
-            m = m
-                .separator()
-                .item(PopupMenuItem::new("删除").icon(IconName::Delete).on_click(
-                    move |_, window, cx| {
-                        delete_entity.update(cx, |this, cx| {
-                            this.delete_selected(window, cx);
-                        });
-                    },
-                ));
+        } else {
+            menu = menu.item(
+                PopupMenuItem::new("刷新")
+                    .icon(IconName::RefreshCw)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.reload_all(cx);
+                    })),
+            );
         }
 
-        m
+        menu
     }
 
     fn commit_tag_delta(
@@ -354,11 +356,6 @@ impl OverallView {
 
 impl Render for OverallView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let width_entity = cx.entity().clone();
-        let current_width = self.container_width;
-
-        let select_entity = cx.entity().clone();
-        let sec_select_entity = cx.entity().clone();
         let menu_entity = cx.entity().clone();
 
         div()
@@ -379,21 +376,40 @@ impl Render for OverallView {
                 this.last_select = None;
                 this.selected_files.clear();
             }))
-            .on_prepaint(move |bounds, _, cx| {
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, _, _window, cx| {
+                    if let Some(editor) = &this.batch_editor {
+                        let has_changes = editor.read(cx).has_changes();
+                        if has_changes {
+                            this.batch_editor = None;
+                        }
+                    }
+                    this.last_select = None;
+                    this.selected_files.clear();
+                }),
+            )
+            .on_prepaint(cx.processor(|this, bounds: Bounds<Pixels>, _, cx| {
                 let new_w = bounds.size.width;
-                if (new_w - current_width).abs() > px(2.0) {
-                    width_entity.update(cx, |this, cx| {
-                        this.container_width = new_w;
-                        cx.notify();
-                    });
+                if (new_w - this.container_width).abs() > px(2.0) {
+                    this.container_width = new_w;
+                    cx.notify();
                 }
-            })
+            }))
             .on_drop(cx.listener(|this, e: &ExternalPaths, w, cx| {
                 this.handle_drag(w, e.paths().to_vec(), cx);
             }))
+            .context_menu({
+                let menu_entity = menu_entity.clone();
+                move |menu, window, cx| {
+                    menu_entity.update(cx, |this, cx| this.build_context_menu(menu, window, cx))
+                }
+            })
             .child(
                 div()
                     .id("explorer-top-bar")
+                    .on_click(|_, _, cx| cx.stop_propagation())
+                    .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .v_flex()
                     .gap_4()
                     .child(
@@ -473,68 +489,56 @@ impl Render for OverallView {
                     .container_width(self.container_width)
                     .selected_files(self.selected_files.clone())
                     .scroll_handle(&self.scroll_handle)
-                    .on_select(move |file_id, window, cx| {
+                    .on_select(cx.processor(|this, file_id, window, cx| {
                         let modifiers = window.modifiers();
                         let is_ctrl = modifiers.control || modifiers.platform;
                         let is_shift = modifiers.shift;
 
-                        select_entity.update(cx, |this, cx| {
-                            if let Some(editor) = &this.batch_editor {
-                                if editor.read(cx).has_changes() {
-                                    this.batch_editor = None;
-                                }
+                        if let Some(editor) = &this.batch_editor {
+                            if editor.read(cx).has_changes() {
+                                this.batch_editor = None;
                             }
+                        }
 
-                            if is_ctrl {
-                                if this.selected_files.contains(&file_id) {
-                                    this.selected_files.remove(&file_id);
-                                } else {
-                                    this.selected_files.insert(file_id);
-                                }
-                                this.last_select = Some(file_id);
+                        if is_ctrl {
+                            if this.selected_files.contains(&file_id) {
+                                this.selected_files.remove(&file_id);
+                            } else {
+                                this.selected_files.insert(file_id);
+                            }
+                            this.last_select = Some(file_id);
+
+                            cx.notify();
+                            return;
+                        }
+                        if is_shift {
+                            let anchor = this.last_select;
+                            let (from, to) = (
+                                anchor.and_then(|a| this.index_of(a)),
+                                this.index_of(file_id),
+                            );
+                            if let (Some(a), Some(b)) = (from, to) {
+                                let (start, end) = (a.min(b), a.max(b));
+                                this.selected_files.clear();
+                                this.selected_files.extend(
+                                    this.file_list[start..=end].iter().map(|item| item.file_id),
+                                );
 
                                 cx.notify();
                                 return;
                             }
-                            if is_shift {
-                                let anchor = this.last_select;
-                                let (from, to) = (
-                                    anchor.and_then(|a| this.index_of(a)),
-                                    this.index_of(file_id),
-                                );
-                                if let (Some(a), Some(b)) = (from, to) {
-                                    let (start, end) = (a.min(b), a.max(b));
-                                    this.selected_files.clear();
-                                    this.selected_files.extend(
-                                        this.file_list[start..=end].iter().map(|item| item.file_id),
-                                    );
-
-                                    cx.notify();
-                                    return;
-                                }
-                            }
-
-                            // normal select
-                            this.selected_files.clear();
-                            this.selected_files.insert(file_id);
-                            this.last_select = Some(file_id);
-
-                            cx.notify();
-                        });
-                    })
-                    .on_secondary_select(move |file_id, _window, cx| {
-                        sec_select_entity.update(cx, |this, cx| {
-                            this.handle_secondary_select(file_id, cx);
-                        });
-                    })
-                    .context_menu({
-                        let menu_entity = menu_entity.clone();
-                        move |file_id, menu, window, cx| {
-                            menu_entity.update(cx, |this, cx| {
-                                this.build_file_context_menu(file_id, menu, window, cx)
-                            })
                         }
-                    })
+
+                        // normal select
+                        this.selected_files.clear();
+                        this.selected_files.insert(file_id);
+                        this.last_select = Some(file_id);
+
+                        cx.notify();
+                    }))
+                    .on_secondary_select(cx.processor(|this, file_id, _window, cx| {
+                        this.handle_secondary_select(file_id, cx);
+                    }))
                     .on_open(|path, _, _| components::utils::open_path(path)),
             )
     }

@@ -261,9 +261,6 @@ impl ScannerView {
         let border = cx.theme().border;
         let source_id = source.id;
 
-        let delete_entity = cx.entity().clone();
-        let delete_id = source_id;
-
         div()
             .h_flex()
             .items_center()
@@ -292,10 +289,9 @@ impl ScannerView {
                     .ghost()
                     .label("删除")
                     .disabled(self.is_scanning)
-                    .on_click(move |_, w, cx| {
-                        delete_entity
-                            .update(cx, |this, cx| this.on_delete_source(w, delete_id, cx));
-                    }),
+                    .on_click(cx.listener(move |this, _, w, cx| {
+                        this.on_delete_source(w, source_id, cx);
+                    })),
             )
             .into_any_element()
     }

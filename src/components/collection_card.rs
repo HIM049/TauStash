@@ -1,15 +1,12 @@
 use std::rc::Rc;
 
 use gpui_kit::component::input::{Input, InputState};
-use gpui_kit::component::menu::{ContextMenuExt, PopupMenu};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 pub type CollectionCardClickListener = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 pub type CollectionCardActionHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
-pub type CollectionCardContextMenuBuilder =
-    Rc<dyn Fn(PopupMenu, &mut Window, &mut App) -> PopupMenu + 'static>;
 
 #[derive(IntoElement)]
 pub struct CollectionCard {
@@ -23,7 +20,6 @@ pub struct CollectionCard {
     on_click: Option<CollectionCardClickListener>,
     on_double_click: Option<CollectionCardClickListener>,
     on_secondary_click: Option<CollectionCardActionHandler>,
-    context_menu_builder: Option<CollectionCardContextMenuBuilder>,
 }
 
 impl CollectionCard {
@@ -39,7 +35,6 @@ impl CollectionCard {
             on_click: None,
             on_double_click: None,
             on_secondary_click: None,
-            context_menu_builder: None,
         }
     }
 
@@ -91,14 +86,6 @@ impl CollectionCard {
         self.on_secondary_click = Some(Rc::new(listener));
         self
     }
-
-    pub fn context_menu(
-        mut self,
-        builder: impl Fn(PopupMenu, &mut Window, &mut App) -> PopupMenu + 'static,
-    ) -> Self {
-        self.context_menu_builder = Some(Rc::new(builder));
-        self
-    }
 }
 
 impl RenderOnce for CollectionCard {
@@ -112,19 +99,19 @@ impl RenderOnce for CollectionCard {
         let on_click = self.on_click;
         let on_double_click = self.on_double_click;
         let on_secondary_click = self.on_secondary_click;
-        let context_menu_builder = self.context_menu_builder;
 
         let icon_path = if self.icon.is_empty() {
             format!("icons/{}.svg", "folder")
         } else {
             format!("icons/{}.svg", self.icon.to_string())
         };
+
         let cover_path: Option<SharedString> = match self.cover.to_string() {
             path if path.is_empty() || !std::path::Path::new(&path).is_file() => None,
             path => Some(path.into()),
         };
-        let cover_for_none = cover_path.clone();
 
+        // rename input or name label
         let label_zone = if is_editing && let Some(ref input) = self.input {
             div()
                 .id("collection-card-input-wrap")
@@ -145,7 +132,7 @@ impl RenderOnce for CollectionCard {
                 .into_any_element()
         };
 
-        let base_div = div()
+        div()
             .id(self.id)
             .v_flex()
             .items_center()
@@ -170,6 +157,14 @@ impl RenderOnce for CollectionCard {
                 div()
                     .flex_1()
                     .w_full()
+                    .when_none(&cover_path, |this| {
+                        this.h_flex().items_center().justify_center().child(
+                            Icon::default()
+                                .path(icon_path)
+                                .size_10()
+                                .text_color(cx.theme().primary),
+                        )
+                    })
                     .when_some(cover_path, |this, path| {
                         this.size_full()
                             .flex_1()
@@ -181,19 +176,12 @@ impl RenderOnce for CollectionCard {
                                     .size_full()
                                     .object_fit(gpui::ObjectFit::Cover),
                             )
-                    })
-                    .when_none(&cover_for_none, |this| {
-                        this.h_flex().items_center().justify_center().child(
-                            Icon::default()
-                                .path(icon_path)
-                                .size_10()
-                                .text_color(cx.theme().primary),
-                        )
                     }),
             )
             .child(label_zone)
             .when_some(on_secondary_click.clone(), |this, on_sec| {
                 this.on_mouse_down(MouseButton::Right, move |_, window, cx| {
+                    cx.stop_propagation();
                     on_sec(window, cx);
                 })
             })
@@ -210,19 +198,6 @@ impl RenderOnce for CollectionCard {
                         click(event, window, cx);
                     }
                 },
-            );
-
-        if !is_editing && let Some(builder) = context_menu_builder {
-            base_div
-                .context_menu(move |menu, window, cx| {
-                    if let Some(ref on_sec) = on_secondary_click {
-                        on_sec(window, cx);
-                    }
-                    builder(menu, window, cx)
-                })
-                .into_any_element()
-        } else {
-            base_div.into_any_element()
-        }
+            )
     }
 }

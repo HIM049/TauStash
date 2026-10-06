@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Enter, Escape, InputState};
-use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
+use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::*;
 use gpui_kit::*;
@@ -333,51 +333,65 @@ impl CollectionExplorerView {
 
     fn build_context_menu(
         &self,
-        id: Uuid,
-        name: &str,
-        menu: PopupMenu,
+        mut menu: PopupMenu,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> PopupMenu {
-        let is_multi = self.selected.len() > 1 && self.selected.contains(&id);
-        let mut m = menu;
-        let view_entity = cx.entity().clone();
-
-        if is_multi {
-            let count = self.selected.len();
-            m = m.item(
-                PopupMenuItem::new(format!("删除所选 ({count})"))
-                    .icon(IconName::Delete)
-                    .on_click(move |_, window, cx| {
-                        view_entity.update(cx, |this, cx| {
-                            this.delete_selected(window, cx);
-                        });
-                    }),
-            );
+        if let Some(id) = self.last_select {
+            let is_multi = self.selected.len() > 1 && self.selected.contains(&id);
+            if is_multi {
+                let count = self.selected.len();
+                menu = menu.item(
+                    PopupMenuItem::new(format!("删除内容 ({count})"))
+                        .icon(IconName::Delete)
+                        .on_click(cx.listener(|this, _, w, cx| {
+                            this.delete_selected(w, cx);
+                        })),
+                );
+            } else {
+                let folder_name = self
+                    .folders
+                    .iter()
+                    .find(|f| f.id == id)
+                    .map(|f| f.name.clone())
+                    .unwrap_or_default();
+                menu = menu
+                    .item(
+                        PopupMenuItem::new("重命名")
+                            .icon(IconName::Replace)
+                            .on_click(cx.listener(move |this, _, w, cx| {
+                                this.start_rename(id, &folder_name, w, cx);
+                            })),
+                    )
+                    .separator()
+                    .item(
+                        PopupMenuItem::new("删除内容")
+                            .icon(IconName::Delete)
+                            .on_click(cx.listener(|this, _, w, cx| {
+                                this.delete_selected(w, cx);
+                            })),
+                    );
+            }
         } else {
-            let rename_name = name.to_string();
-            let rename_entity = view_entity.clone();
-            m = m
+            menu = menu
                 .item(
-                    PopupMenuItem::new("重命名")
-                        .icon(IconName::Replace)
-                        .on_click(move |_, window, cx| {
-                            rename_entity.update(cx, |this, cx| {
-                                this.start_rename(id, &rename_name, window, cx);
-                            });
-                        }),
+                    PopupMenuItem::new("刷新")
+                        .icon(IconName::RefreshCw)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.reload(cx);
+                        })),
                 )
                 .separator()
-                .item(PopupMenuItem::new("删除").icon(IconName::Delete).on_click(
-                    move |_, window, cx| {
-                        view_entity.update(cx, |this, cx| {
-                            this.delete_selected(window, cx);
-                        });
-                    },
-                ));
+                .item(
+                    PopupMenuItem::new("新建合集")
+                        .icon(IconName::Plus)
+                        .on_click(cx.listener(|this, _, w, cx| {
+                            this.start_create(w, cx);
+                        })),
+                );
         }
 
-        m
+        menu
     }
 
     fn render_empty(&self, cx: &mut App) -> AnyElement {
@@ -432,8 +446,6 @@ impl CollectionExplorerView {
 
                                     let cell_entity = entity.clone();
                                     let sec_entity = entity.clone();
-                                    let menu_entity = entity.clone();
-                                    let folder_name = folder.name.clone();
 
                                     cells.push(
                                         CollectionCard::new(
@@ -466,17 +478,6 @@ impl CollectionExplorerView {
                                                 this.handle_secondary_click(id, cx);
                                             });
                                         })
-                                        .context_menu(move |menu, window, cx| {
-                                            menu_entity.update(cx, |this, cx| {
-                                                this.build_context_menu(
-                                                    id,
-                                                    &folder_name,
-                                                    menu,
-                                                    window,
-                                                    cx,
-                                                )
-                                            })
-                                        })
                                         .into_any_element(),
                                     );
                                 }
@@ -502,8 +503,7 @@ impl CollectionExplorerView {
 
 impl Render for CollectionExplorerView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let width_entity = cx.entity().clone();
-        let current_width = self.container_width;
+        let menu_entity = cx.entity().clone();
 
         div()
             .id("collection-explorer-main")
@@ -521,19 +521,33 @@ impl Render for CollectionExplorerView {
                     this.clear_selection(cx);
                 }
             }))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, _, window, cx| {
+                    if this.editing_id.is_some() {
+                        this.commit_edit(window, cx);
+                    } else {
+                        this.clear_selection(cx);
+                    }
+                }),
+            )
             .on_action(cx.listener(|this, _: &Enter, window, cx| {
                 this.commit_edit(window, cx);
             }))
             .on_action(cx.listener(|this, _: &Escape, window, cx| {
                 this.cancel_edit(window, cx);
             }))
-            .on_prepaint(move |bounds, _, cx| {
+            .on_prepaint(cx.processor(|this, bounds: Bounds<Pixels>, _, cx| {
                 let new_w = bounds.size.width;
-                if (new_w - current_width).abs() > px(2.0) {
-                    width_entity.update(cx, |this, cx| {
-                        this.container_width = new_w;
-                        cx.notify();
-                    });
+                if (new_w - this.container_width).abs() > px(2.0) {
+                    this.container_width = new_w;
+                    cx.notify();
+                }
+            }))
+            .context_menu({
+                let menu_entity = menu_entity.clone();
+                move |menu, window, cx| {
+                    menu_entity.update(cx, |this, cx| this.build_context_menu(menu, window, cx))
                 }
             })
             .child(
@@ -543,6 +557,7 @@ impl Render for CollectionExplorerView {
                     .items_center()
                     .gap_2()
                     .on_click(|_, _, cx| cx.stop_propagation())
+                    .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .child(div().text_xl().font_bold().child("全部合集"))
                     .child(
                         Button::new("collection-refresh")
