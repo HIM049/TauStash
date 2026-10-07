@@ -13,6 +13,8 @@ use crate::services::MacroTag;
 
 pub struct TagFilterBar {
     base_query: FileQueryer,
+    excluded_tags: HashSet<MacroTag>,
+    is_empty_filter: bool,
     tags_summary: Vec<TagFacetItem>,
     total_files_count: usize,
     untagged_files_count: usize,
@@ -24,8 +26,19 @@ pub struct TagFilterBar {
 
 impl TagFilterBar {
     pub fn new(base_query: FileQueryer, cx: &mut Context<Self>) -> Self {
+        Self::with_excluded_tags(base_query, Vec::new(), false, cx)
+    }
+
+    pub fn with_excluded_tags(
+        base_query: FileQueryer,
+        excluded_tags: impl IntoIterator<Item = MacroTag>,
+        is_empty_filter: bool,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let mut bar = Self {
             base_query,
+            excluded_tags: excluded_tags.into_iter().collect(),
+            is_empty_filter,
             tags_summary: Vec::new(),
             total_files_count: 0,
             untagged_files_count: 0,
@@ -50,6 +63,17 @@ impl TagFilterBar {
         self.reload_stats(cx);
     }
 
+    pub fn set_excluded_tags(
+        &mut self,
+        tags: impl IntoIterator<Item = MacroTag>,
+        is_empty_filter: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.excluded_tags = tags.into_iter().collect();
+        self.is_empty_filter = is_empty_filter;
+        self.reload_stats(cx);
+    }
+
     pub fn tags_summary(&self) -> &[TagFacetItem] {
         &self.tags_summary
     }
@@ -58,6 +82,16 @@ impl TagFilterBar {
         if self.loading {
             return;
         }
+
+        if self.is_empty_filter {
+            self.tags_summary.clear();
+            self.total_files_count = 0;
+            self.untagged_files_count = 0;
+            self.loading = false;
+            cx.notify();
+            return;
+        }
+
         self.loading = true;
 
         let db = cx.global::<AppState>().db.clone();
@@ -143,20 +177,26 @@ impl Render for TagFilterBar {
             }));
         chips.push(chip.into_any_element());
 
-        let chip = TagChip::new("tag-filter-untagged", "未标记")
-            .count(self.untagged_files_count)
-            .state(if is_untagged {
-                TagChipState::Active
-            } else {
-                TagChipState::Default
-            })
-            .on_click(cx.listener(|this, _ev, window, cx| {
-                this.toggle_untagged(window, cx);
-            }));
-        chips.push(chip.into_any_element());
+        if !self.excluded_tags.contains(&MacroTag::Untagged) {
+            let chip = TagChip::new("tag-filter-untagged", "未标记")
+                .count(self.untagged_files_count)
+                .state(if is_untagged {
+                    TagChipState::Active
+                } else {
+                    TagChipState::Default
+                })
+                .on_click(cx.listener(|this, _ev, window, cx| {
+                    this.toggle_untagged(window, cx);
+                }));
+            chips.push(chip.into_any_element());
+        }
 
         for item in &self.tags_summary {
             let tag_id = item.tag_id;
+            if self.excluded_tags.contains(&MacroTag::StandardTag(tag_id)) {
+                continue;
+            }
+
             let is_active = self.active_tags.contains(&MacroTag::StandardTag(tag_id));
 
             let chip = TagChip::new(format!("tag-filter-{}", tag_id), item.name.clone())

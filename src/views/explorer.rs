@@ -146,7 +146,7 @@ impl OverallView {
                 .background_spawn(async move {
                     let query = MtagService::new()
                         .tag(MacroTag::FileState(FileState::Managed.to_value()))
-                        .tags(filter_tags)
+                        .tags(&filter_tags)
                         .build()?;
 
                     rt.block_on(importer::list_files(&db, &query))

@@ -21,8 +21,8 @@ impl MtagService {
         self
     }
 
-    pub fn tags(mut self, tags: impl IntoIterator<Item = super::MacroTag>) -> Self {
-        self.tags.extend(tags);
+    pub fn tags(mut self, tags: &[super::MacroTag]) -> Self {
+        self.tags.extend_from_slice(tags);
         self
     }
 
