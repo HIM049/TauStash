@@ -486,7 +486,6 @@ impl Render for OverallView {
             )
             .child(
                 components::file_grid::FileGrid::new(self.file_list.clone())
-                    .container_width(self.container_width)
                     .selected_files(self.selected_files.clone())
                     .scroll_handle(&self.scroll_handle)
                     .on_select(cx.processor(|this, file_id, window, cx| {

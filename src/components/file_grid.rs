@@ -19,15 +19,13 @@ pub type FileGridOpenListener = Rc<dyn Fn(&str, &mut Window, &mut App) + 'static
 
 /// Number of cards that fit on one row at the given width.
 fn columns_for(width: Pixels) -> usize {
-    let available = (width - px(48.0)).max(px(152.0));
+    let available = (width - px(16.0)).max(px(CARD_SLOT));
     (available.as_f32() / CARD_SLOT).floor().max(1.0) as usize
 }
 
 /// Virtualized grid of file cards.
-#[derive(IntoElement)]
 pub struct FileGrid {
     file_list: Vec<FileInfo>,
-    container_width: Pixels,
     selected_files: HashSet<Uuid>,
     scroll_handle: UniformListScrollHandle,
     on_select: Option<FileGridSelectListener>,
@@ -39,19 +37,12 @@ impl FileGrid {
     pub fn new(file_list: Vec<FileInfo>) -> Self {
         Self {
             file_list,
-            container_width: px(800.0),
             selected_files: HashSet::new(),
             scroll_handle: UniformListScrollHandle::new(),
             on_select: None,
             on_secondary_select: None,
             on_open: None,
         }
-    }
-
-    /// Width the grid may occupy; drives the column count.
-    pub fn container_width(mut self, width: Pixels) -> Self {
-        self.container_width = width;
-        self
     }
 
     pub fn selected_files(mut self, files: HashSet<Uuid>) -> Self {
@@ -84,24 +75,51 @@ impl FileGrid {
     }
 }
 
-impl RenderOnce for FileGrid {
-    fn render(
-        self,
-        _: &mut gpui_kit::Window,
-        cx: &mut gpui_kit::App,
-    ) -> impl gpui_kit::prelude::IntoElement {
-        let FileGrid {
-            file_list,
-            container_width,
-            selected_files,
-            scroll_handle,
-            on_select,
-            on_secondary_select,
-            on_open,
-        } = self;
+impl IntoElement for FileGrid {
+    type Element = Self;
 
-        if file_list.is_empty() {
-            return div()
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for FileGrid {
+    type RequestLayoutState = ();
+    type PrepaintState = Option<AnyElement>;
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        let mut style = Style::default();
+        style.size.width = relative(1.).into();
+        style.size.height = relative(1.).into();
+        let layout_id = window.request_layout(style, [], cx);
+        (layout_id, ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self::PrepaintState {
+        if self.file_list.is_empty() {
+            let mut empty = div()
                 .h_flex()
                 .items_center()
                 .justify_center()
@@ -110,14 +128,26 @@ impl RenderOnce for FileGrid {
                 .text_color(cx.theme().muted_foreground)
                 .child("当前筛选下暂无匹配文件")
                 .into_any_element();
+            let available_space = size(
+                AvailableSpace::Definite(bounds.size.width),
+                AvailableSpace::Definite(bounds.size.height),
+            );
+            empty.prepaint_as_root(bounds.origin, available_space, window, cx);
+            return Some(empty);
         }
 
-        let cols = columns_for(container_width);
-        let rows_count = file_list.len().div_ceil(cols);
-        let total = file_list.len();
+        let cols = columns_for(bounds.size.width);
+        let rows_count = self.file_list.len().div_ceil(cols);
+        let total = self.file_list.len();
 
-        components::lru_image_cache::lru_image_cache_default("file-grid-image-cache")
-            .flex_1()
+        let file_list = self.file_list.clone();
+        let selected_files = self.selected_files.clone();
+        let on_select = self.on_select.clone();
+        let on_secondary_select = self.on_secondary_select.clone();
+        let on_open = self.on_open.clone();
+        let scroll_handle = self.scroll_handle.clone();
+
+        let mut inner = components::lru_image_cache::lru_image_cache_default("file-grid-image-cache")
             .size_full()
             .child(
                 div()
@@ -147,7 +177,29 @@ impl RenderOnce for FileGrid {
                     )
                     .vertical_scrollbar(&scroll_handle),
             )
-            .into_any_element()
+            .into_any_element();
+
+        let available_space = size(
+            AvailableSpace::Definite(bounds.size.width),
+            AvailableSpace::Definite(bounds.size.height),
+        );
+        inner.prepaint_as_root(bounds.origin, available_space, window, cx);
+        Some(inner)
+    }
+
+    fn paint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        prepaint: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if let Some(mut inner) = prepaint.take() {
+            inner.paint(window, cx);
+        }
     }
 }
 
@@ -202,7 +254,7 @@ fn render_row(
             })
             .on_double_click(move |_, window, cx| {
                 if let Some(listener) = &open {
-                    listener(path_open.as_ref(), window, cx);
+                    listener(&path_open, window, cx);
                 }
             })
         }))

@@ -13,6 +13,7 @@ use crate::components::collection_card::CollectionCard;
 use crate::database::entities::collection;
 use crate::database::storage::collection as collection_store;
 use crate::services::collection::CollectionConfig;
+use crate::views::generic_view::GenericView;
 
 const DEFAULT_FOLDER_NAME: &str = "未命名合集";
 
@@ -38,6 +39,8 @@ pub struct CollectionExplorerView {
     name_input: Entity<InputState>,
     focus_handle: FocusHandle,
     editing_id: Option<Uuid>,
+
+    active_folder_view: Option<Entity<GenericView>>,
 }
 
 impl CollectionExplorerView {
@@ -55,6 +58,7 @@ impl CollectionExplorerView {
             name_input,
             focus_handle,
             editing_id: None,
+            active_folder_view: None,
         };
         view.reload(cx);
         view
@@ -94,6 +98,20 @@ impl CollectionExplorerView {
 
     pub fn selected_ids(&self) -> &HashSet<Uuid> {
         &self.selected
+    }
+
+    pub fn open_collection(&mut self, folder: &collection::Model, cx: &mut Context<Self>) {
+        let this_entity = cx.entity().clone();
+        let view = cx.new(|cx| {
+            GenericView::from_collection(folder, cx).on_back(move |_window, cx| {
+                this_entity.update(cx, |this, cx| {
+                    this.active_folder_view = None;
+                    this.reload(cx);
+                });
+            })
+        });
+        self.active_folder_view = Some(view);
+        cx.notify();
     }
 
     fn select_only(&mut self, id: Uuid, cx: &mut Context<Self>) {
@@ -446,6 +464,8 @@ impl CollectionExplorerView {
 
                                     let cell_entity = entity.clone();
                                     let sec_entity = entity.clone();
+                                    let dbl_entity = entity.clone();
+                                    let dbl_folder = folder.clone();
 
                                     cells.push(
                                         CollectionCard::new(
@@ -471,6 +491,11 @@ impl CollectionExplorerView {
 
                                             cell_entity.update(cx, |this, cx| {
                                                 this.handle_select(id, is_ctrl, is_shift, cx);
+                                            });
+                                        })
+                                        .on_double_click(move |_, _, cx| {
+                                            dbl_entity.update(cx, |this, cx| {
+                                                this.open_collection(&dbl_folder, cx);
                                             });
                                         })
                                         .on_secondary_click(move |_window, cx| {
@@ -503,6 +528,10 @@ impl CollectionExplorerView {
 
 impl Render for CollectionExplorerView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some(folder_view) = &self.active_folder_view {
+            return folder_view.clone().into_any_element();
+        }
+
         let menu_entity = cx.entity().clone();
 
         div()
@@ -579,5 +608,6 @@ impl Render for CollectionExplorerView {
             } else {
                 self.render_grid(cx)
             })
+            .into_any_element()
     }
 }

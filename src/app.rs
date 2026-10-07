@@ -4,8 +4,13 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use sea_orm::ActiveEnum;
+
+use crate::database::entities::FileState;
+use crate::services::collection::CollectionConfig;
+use crate::services::macrotag::MacroTag;
 use crate::views::collection_explorer::CollectionExplorerView;
-use crate::views::explorer::OverallView;
+use crate::views::generic_view::GenericView;
 use crate::views::pending::PendingView;
 use crate::views::scanner::ScannerView;
 
@@ -20,7 +25,7 @@ pub enum NavTab {
 pub struct MyApp {
     active_tab: NavTab,
     sidebar_collapsed: bool,
-    explorer_view: Entity<OverallView>,
+    explorer_view: Entity<GenericView>,
     scanner_view: Entity<ScannerView>,
     pending_view: Entity<PendingView>,
     collection_view: Entity<CollectionExplorerView>,
@@ -28,7 +33,12 @@ pub struct MyApp {
 
 impl MyApp {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let explorer_view = cx.new(|cx| OverallView::new(cx));
+        // TODO: Move to config
+        let explorer_config = CollectionConfig {
+            filters: vec![MacroTag::FileState(FileState::Managed.to_value())],
+            ..Default::default()
+        };
+        let explorer_view = cx.new(|cx| GenericView::new("文件总览", explorer_config, cx));
         let scanner_view = cx.new(|cx| ScannerView::new(window, cx));
         let pending_view = cx.new(|cx| PendingView::new(cx));
         let collection_view = cx.new(|cx| CollectionExplorerView::new(window, cx));
