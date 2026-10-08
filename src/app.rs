@@ -1,18 +1,28 @@
 use gpui_fps::fps_monitor;
-use gpui_kit::component::sidebar::*;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use sea_orm::ActiveEnum;
 
-use crate::database::entities::FileState;
+use uuid::Uuid;
+
+use crate::AppState;
+use crate::components::app_sidebar::{AppSidebar, NavTarget};
+use crate::database::entities::{FileState, collection};
+use crate::database::storage::collection as collection_store;
 use crate::services::collection::CollectionConfig;
 use crate::services::macrotag::MacroTag;
 use crate::views::collection_explorer::CollectionExplorerView;
 use crate::views::generic_view::GenericView;
 use crate::views::pending::PendingView;
 use crate::views::scanner::ScannerView;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CurrentNav {
+    Tab(NavTab),
+    View(Uuid),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NavTab {
@@ -23,8 +33,10 @@ pub enum NavTab {
 }
 
 pub struct MyApp {
-    active_tab: NavTab,
+    current_nav: CurrentNav,
     sidebar_collapsed: bool,
+    views: Vec<collection::Model>,
+    dynamic_view: Option<Entity<GenericView>>,
     explorer_view: Entity<GenericView>,
     scanner_view: Entity<ScannerView>,
     pending_view: Entity<PendingView>,
@@ -43,93 +55,95 @@ impl MyApp {
         let pending_view = cx.new(|cx| PendingView::new(cx));
         let collection_view = cx.new(|cx| CollectionExplorerView::new(window, cx));
 
-        Self {
-            active_tab: NavTab::Explorer,
+        let mut app = Self {
+            current_nav: CurrentNav::Tab(NavTab::Explorer),
             sidebar_collapsed: false,
+            views: Vec::new(),
+            dynamic_view: None,
             explorer_view,
             scanner_view,
             pending_view,
             collection_view,
+        };
+        app.load_views(cx);
+        app
+    }
+
+    /// Load registered views from database on startup.
+    fn load_views(&mut self, cx: &mut Context<Self>) {
+        let db = cx.global::<AppState>().db.clone();
+        let rt = cx.global::<AppState>().rt.clone();
+
+        cx.spawn(async move |this, cx| {
+            let items = cx
+                .background_spawn(async move {
+                    rt.block_on(collection_store::list_by_type(
+                        &db,
+                        collection::CollectionType::View,
+                    ))
+                })
+                .await;
+
+            if let Ok(views) = items {
+                this.update(cx, |this, cx| {
+                    this.views = views;
+                    cx.notify();
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
+    fn select_nav(&mut self, target: NavTarget, cx: &mut Context<Self>) {
+        match target {
+            NavTarget::Fixed(tab) => {
+                self.current_nav = CurrentNav::Tab(tab);
+                cx.notify();
+            }
+            NavTarget::View(id) => {
+                if let Some(model) = self.views.iter().find(|v| v.id == id).cloned() {
+                    self.current_nav = CurrentNav::View(id);
+                    self.dynamic_view = Some(cx.new(|cx| GenericView::from_collection(&model, cx)));
+                    cx.notify();
+                }
+            }
         }
     }
 
-    fn set_active_tab(&mut self, tab: NavTab, cx: &mut Context<Self>) {
-        self.active_tab = tab;
-        cx.notify();
-    }
-
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        Sidebar::new("app-sidebar")
-            .collapsible(SidebarCollapsible::Icon)
+        let active = match &self.current_nav {
+            CurrentNav::Tab(tab) => NavTarget::Fixed(*tab),
+            CurrentNav::View(id) => NavTarget::View(*id),
+        };
+
+        AppSidebar::new(active)
             .collapsed(self.sidebar_collapsed)
-            .w(px(220.0))
-            .header(
-                SidebarHeader::new().child(h_flex().items_center().gap_2().px_1().when(
-                    !self.sidebar_collapsed,
-                    |this| {
-                        this.font_weight(FontWeight::BOLD)
-                            .text_sm()
-                            .child("PiCargo")
-                    },
-                )),
-            )
-            .child(
-                SidebarGroup::new("导航").child(
-                    SidebarMenu::new()
-                        .child(
-                            SidebarMenuItem::new("文件总览")
-                                .icon(IconName::File)
-                                .active(self.active_tab == NavTab::Explorer)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.set_active_tab(NavTab::Explorer, cx);
-                                })),
-                        )
-                        .child(
-                            SidebarMenuItem::new("全部合集")
-                                .icon(IconName::Folder)
-                                .active(self.active_tab == NavTab::Collections)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.set_active_tab(NavTab::Collections, cx);
-                                })),
-                        )
-                        .child(
-                            SidebarMenuItem::new("审核队列")
-                                .icon(IconName::Check)
-                                .active(self.active_tab == NavTab::Pending)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.set_active_tab(NavTab::Pending, cx);
-                                })),
-                        )
-                        .child(
-                            SidebarMenuItem::new("扫描状态")
-                                .icon(IconName::Search)
-                                .active(self.active_tab == NavTab::Scanner)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.set_active_tab(NavTab::Scanner, cx);
-                                })),
-                        ),
-                ),
-            )
-            .footer(
-                div().child(
-                    SidebarToggleButton::new()
-                        .collapsed(self.sidebar_collapsed)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.sidebar_collapsed = !this.sidebar_collapsed;
-                            cx.notify();
-                        })),
-                ),
-            )
+            .views(self.views.clone())
+            .on_select(cx.listener(|this, target: &NavTarget, _, cx| {
+                this.select_nav(target.clone(), cx);
+            }))
+            .on_toggle_collapse(cx.listener(|this, _, _window, cx| {
+                this.sidebar_collapsed = !this.sidebar_collapsed;
+                cx.notify();
+            }))
     }
 }
 
 impl Render for MyApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let main_content = match self.active_tab {
-            NavTab::Explorer => self.explorer_view.clone().into_any_element(),
-            NavTab::Scanner => self.scanner_view.clone().into_any_element(),
-            NavTab::Pending => self.pending_view.clone().into_any_element(),
-            NavTab::Collections => self.collection_view.clone().into_any_element(),
+        let main_content = match &self.current_nav {
+            CurrentNav::Tab(NavTab::Explorer) => self.explorer_view.clone().into_any_element(),
+            CurrentNav::Tab(NavTab::Scanner) => self.scanner_view.clone().into_any_element(),
+            CurrentNav::Tab(NavTab::Pending) => self.pending_view.clone().into_any_element(),
+            CurrentNav::Tab(NavTab::Collections) => self.collection_view.clone().into_any_element(),
+            CurrentNav::View(_) => {
+                if let Some(view) = &self.dynamic_view {
+                    view.clone().into_any_element()
+                } else {
+                    div().into_any_element()
+                }
+            }
         };
 
         div()

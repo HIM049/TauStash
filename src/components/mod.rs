@@ -1,3 +1,4 @@
+pub mod app_sidebar;
 pub mod collection_card;
 pub mod file_card;
 pub mod file_grid;
