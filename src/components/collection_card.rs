@@ -142,14 +142,7 @@ impl RenderOnce for CollectionCard {
             .p_3()
             .rounded(cx.theme().radius)
             .cursor_pointer()
-            .when(is_editing, |s| {
-                s.border_1()
-                    .border_color(cx.theme().primary)
-                    .bg(cx.theme().accent.opacity(0.9))
-            })
-            .when(!is_editing && is_selected, |s| {
-                s.bg(cx.theme().accent.opacity(0.9))
-            })
+            .when(is_selected, |s| s.bg(cx.theme().accent.opacity(0.9)))
             .when(!is_editing && !is_selected, |d| {
                 d.hover(|style| style.bg(cx.theme().accent.opacity(0.6)))
             })

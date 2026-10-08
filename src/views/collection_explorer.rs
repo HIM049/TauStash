@@ -3,7 +3,6 @@ use std::collections::HashSet;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Enter, Escape, InputState};
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
-use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::*;
 use gpui_kit::*;
 use uuid::Uuid;
@@ -14,26 +13,15 @@ use crate::database::entities::collection;
 use crate::database::storage::collection as collection_store;
 use crate::services::collection::CollectionConfig;
 use crate::views::generic_view::GenericView;
+use crate::components::virtual_grid::VirtualGrid;
 
 const DEFAULT_FOLDER_NAME: &str = "未命名合集";
-
-/// Width one card occupies, including the gap that follows it.
-const CARD_SLOT: f32 = 142.0;
-/// Height of one grid row: the 150px card plus the gap.
-const ROW_HEIGHT: f32 = 154.0;
-
-/// Number of cards that fit on one row at the given width.
-fn columns_for(width: Pixels) -> usize {
-    let available = (width - px(48.0)).max(px(152.0));
-    (available.as_f32() / CARD_SLOT).floor().max(1.0) as usize
-}
 
 pub struct CollectionExplorerView {
     folders: Vec<collection::Model>,
     scroll_handle: UniformListScrollHandle,
     selected: HashSet<Uuid>,
     last_select: Option<Uuid>,
-    container_width: Pixels,
     loading: bool,
 
     name_input: Entity<InputState>,
@@ -53,7 +41,6 @@ impl CollectionExplorerView {
             scroll_handle: UniformListScrollHandle::new(),
             selected: HashSet::new(),
             last_select: None,
-            container_width: px(800.0),
             loading: false,
             name_input,
             focus_handle,
@@ -407,119 +394,6 @@ impl CollectionExplorerView {
 
         menu
     }
-
-    fn render_empty(&self, cx: &mut App) -> AnyElement {
-        div()
-            .h_flex()
-            .items_center()
-            .justify_center()
-            .size_full()
-            .text_sm()
-            .text_color(cx.theme().muted_foreground)
-            .child(if self.loading {
-                "加载中..."
-            } else {
-                "暂无合集"
-            })
-            .into_any_element()
-    }
-
-    fn render_grid(&self, cx: &mut Context<Self>) -> AnyElement {
-        let cols = columns_for(self.container_width);
-        let name_input = self.name_input.clone();
-        let folders = self.folders.clone();
-        let total = folders.len();
-        let rows_count = total.div_ceil(cols);
-        let selected = self.selected.clone();
-        let editing_id = self.editing_id;
-        let entity = cx.entity().clone();
-
-        div()
-            .relative()
-            .flex_1()
-            .size_full()
-            .child(
-                uniform_list(
-                    "collection-grid-list",
-                    rows_count,
-                    move |visible_range, _, _| {
-                        visible_range
-                            .map(|row| {
-                                let start = row * cols;
-                                let end = (start + cols).min(total);
-                                let selected = &selected;
-
-                                let mut cells: Vec<AnyElement> = Vec::with_capacity(cols);
-                                for slot in start..end {
-                                    let Some(folder) = folders.get(slot) else {
-                                        continue;
-                                    };
-                                    let id = folder.id;
-                                    let is_selected = selected.contains(&id);
-                                    let is_editing = editing_id == Some(id);
-
-                                    let cell_entity = entity.clone();
-                                    let sec_entity = entity.clone();
-                                    let dbl_entity = entity.clone();
-                                    let dbl_folder = folder.clone();
-
-                                    cells.push(
-                                        CollectionCard::new(
-                                            ElementId::Name(format!("collection-card-{id}").into()),
-                                            SharedString::new(folder.name.as_str()),
-                                        )
-                                        .icon(folder.icon.as_str())
-                                        .cover(folder.cover.as_str())
-                                        .selected(is_selected)
-                                        .editing(is_editing)
-                                        .input(if is_editing {
-                                            Some(name_input.clone())
-                                        } else {
-                                            None
-                                        })
-                                        .on_click(move |_, window, cx| {
-                                            if is_editing {
-                                                return;
-                                            }
-                                            let modifiers = window.modifiers();
-                                            let is_ctrl = modifiers.control || modifiers.platform;
-                                            let is_shift = modifiers.shift;
-
-                                            cell_entity.update(cx, |this, cx| {
-                                                this.handle_select(id, is_ctrl, is_shift, cx);
-                                            });
-                                        })
-                                        .on_double_click(move |_, _, cx| {
-                                            dbl_entity.update(cx, |this, cx| {
-                                                this.open_collection(&dbl_folder, cx);
-                                            });
-                                        })
-                                        .on_secondary_click(move |_window, cx| {
-                                            sec_entity.update(cx, |this, cx| {
-                                                this.handle_secondary_click(id, cx);
-                                            });
-                                        })
-                                        .into_any_element(),
-                                    );
-                                }
-
-                                div()
-                                    .h(px(ROW_HEIGHT))
-                                    .h_flex()
-                                    .gap_1()
-                                    .children(cells)
-                                    .into_any_element()
-                            })
-                            .collect()
-                    },
-                )
-                .pb_6()
-                .size_full()
-                .track_scroll(&self.scroll_handle),
-            )
-            .vertical_scrollbar(&self.scroll_handle)
-            .into_any_element()
-    }
 }
 
 impl Render for CollectionExplorerView {
@@ -562,13 +436,6 @@ impl Render for CollectionExplorerView {
             .on_action(cx.listener(|this, _: &Escape, window, cx| {
                 this.cancel_edit(window, cx);
             }))
-            .on_prepaint(cx.processor(|this, bounds: Bounds<Pixels>, _, cx| {
-                let new_w = bounds.size.width;
-                if (new_w - this.container_width).abs() > px(2.0) {
-                    this.container_width = new_w;
-                    cx.notify();
-                }
-            }))
             .context_menu({
                 let menu_entity = menu_entity.clone();
                 move |menu, window, cx| {
@@ -599,11 +466,68 @@ impl Render for CollectionExplorerView {
                         }),
                     )),
             )
-            .child(if self.folders.is_empty() {
-                self.render_empty(cx)
-            } else {
-                self.render_grid(cx)
-            })
+            .child(
+                VirtualGrid::new("collection-grid", self.folders.clone(), {
+                    let selected = self.selected.clone();
+                    let editing_id = self.editing_id;
+                    let name_input = self.name_input.clone();
+                    let entity = cx.entity().clone();
+
+                    move |folder, _idx, _window, _cx| {
+                        let id = folder.id;
+                        let is_selected = selected.contains(&id);
+                        let is_editing = editing_id == Some(id);
+
+                        let cell_entity = entity.clone();
+                        let sec_entity = entity.clone();
+                        let dbl_entity = entity.clone();
+                        let dbl_folder = folder.clone();
+
+                        CollectionCard::new(
+                            ElementId::Name(format!("collection-card-{id}").into()),
+                            SharedString::new(folder.name.as_str()),
+                        )
+                        .icon(folder.icon.as_str())
+                        .cover(folder.cover.as_str())
+                        .selected(is_selected)
+                        .editing(is_editing)
+                        .input(if is_editing {
+                            Some(name_input.clone())
+                        } else {
+                            None
+                        })
+                        .on_click(move |_, window, cx| {
+                            if is_editing {
+                                return;
+                            }
+                            let modifiers = window.modifiers();
+                            let is_ctrl = modifiers.control || modifiers.platform;
+                            let is_shift = modifiers.shift;
+
+                            cell_entity.update(cx, |this, cx| {
+                                this.handle_select(id, is_ctrl, is_shift, cx);
+                            });
+                        })
+                        .on_double_click(move |_, _, cx| {
+                            dbl_entity.update(cx, |this, cx| {
+                                this.open_collection(&dbl_folder, cx);
+                            });
+                        })
+                        .on_secondary_click(move |_window, cx| {
+                            sec_entity.update(cx, |this, cx| {
+                                this.handle_secondary_click(id, cx);
+                            });
+                        })
+                        .into_any_element()
+                    }
+                })
+                .scroll_handle(&self.scroll_handle)
+                .empty_placeholder(if self.loading {
+                    "加载中..."
+                } else {
+                    "暂无合集"
+                }),
+            )
             .into_any_element()
     }
 }

@@ -1,10 +1,10 @@
 pub mod app_sidebar;
 pub mod collection_card;
 pub mod file_card;
-pub mod file_grid;
 pub mod file_row;
 pub mod lru_image_cache;
 pub mod tag_batch_editor;
 pub mod tag_chip;
 pub mod tag_filter_bar;
 pub mod utils;
+pub mod virtual_grid;

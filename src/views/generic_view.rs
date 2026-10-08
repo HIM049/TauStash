@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::components::tag_batch_editor::{TagBatchEditor, TagDeltaBatch};
 use crate::components::tag_filter_bar::TagFilterBar;
+use crate::components::virtual_grid::VirtualGrid;
 use crate::database::entities::TagNamespace;
 use crate::database::entities::collection;
 use crate::services::collection::CollectionConfig;
@@ -37,8 +38,6 @@ pub struct GenericView {
     working: bool,
     enable_drag: bool,
 }
-
-pub type GerericView = GenericView;
 
 impl GenericView {
     pub fn new(
@@ -127,7 +126,7 @@ impl GenericView {
         paths: Vec<PathBuf>,
         cx: &mut Context<Self>,
     ) {
-        if self.enable_drag && self.working || paths.is_empty() {
+        if !self.enable_drag || self.working || paths.is_empty() {
             return;
         }
 
@@ -250,6 +249,54 @@ impl GenericView {
             self.last_select = Some(file_id);
             cx.notify();
         }
+    }
+
+    fn handle_file_select(
+        &mut self,
+        file_id: Uuid,
+        is_ctrl: bool,
+        is_shift: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(editor) = &self.batch_editor {
+            if editor.read(cx).has_changes() {
+                self.batch_editor = None;
+            }
+        }
+
+        if is_ctrl {
+            if self.selected_files.contains(&file_id) {
+                self.selected_files.remove(&file_id);
+            } else {
+                self.selected_files.insert(file_id);
+            }
+            self.last_select = Some(file_id);
+            cx.notify();
+            return;
+        }
+
+        if is_shift {
+            let anchor = self.last_select;
+            let (from, to) = (
+                anchor.and_then(|a| self.index_of(a)),
+                self.index_of(file_id),
+            );
+            if let (Some(a), Some(b)) = (from, to) {
+                let (start, end) = (a.min(b), a.max(b));
+                self.selected_files.clear();
+                self.selected_files.extend(
+                    self.file_list[start..=end].iter().map(|item| item.file_id),
+                );
+                cx.notify();
+                return;
+            }
+        }
+
+        // normal select
+        self.selected_files.clear();
+        self.selected_files.insert(file_id);
+        self.last_select = Some(file_id);
+        cx.notify();
     }
 
     /// Soft delete all currently selected files and reload.
@@ -549,60 +596,60 @@ impl Render for GenericView {
                     }),
             )
             .child(
-                components::file_grid::FileGrid::new(self.file_list.clone())
-                    .selected_files(self.selected_files.clone())
-                    .scroll_handle(&self.scroll_handle)
-                    .on_select(cx.processor(|this, file_id, window, cx| {
-                        let modifiers = window.modifiers();
-                        let is_ctrl = modifiers.control || modifiers.platform;
-                        let is_shift = modifiers.shift;
+                VirtualGrid::new("file-grid", self.file_list.clone(), {
+                    let selected_files = self.selected_files.clone();
+                    let entity = cx.entity().clone();
 
-                        if let Some(editor) = &this.batch_editor {
-                            if editor.read(cx).has_changes() {
-                                this.batch_editor = None;
-                            }
-                        }
+                    move |item, _idx, _window, _cx| {
+                        let extension = item
+                            .ext
+                            .as_deref()
+                            .unwrap_or_else(|| item.mime.split('/').nth(1).unwrap_or("file"))
+                            .to_uppercase();
+                        let file_id = item.file_id;
+                        let is_selected = selected_files.contains(&file_id);
+                        let file_path = SharedString::new(item.path.as_str());
+                        let path_open = file_path.clone();
+                        let hash = SharedString::new(item.hash.as_str());
+                        let mime = SharedString::new(item.mime.as_str());
 
-                        if is_ctrl {
-                            if this.selected_files.contains(&file_id) {
-                                this.selected_files.remove(&file_id);
-                            } else {
-                                this.selected_files.insert(file_id);
-                            }
-                            this.last_select = Some(file_id);
+                        let select_entity = entity.clone();
+                        let sec_entity = entity.clone();
 
-                            cx.notify();
-                            return;
-                        }
-                        if is_shift {
-                            let anchor = this.last_select;
-                            let (from, to) = (
-                                anchor.and_then(|a| this.index_of(a)),
-                                this.index_of(file_id),
-                            );
-                            if let (Some(a), Some(b)) = (from, to) {
-                                let (start, end) = (a.min(b), a.max(b));
-                                this.selected_files.clear();
-                                this.selected_files.extend(
-                                    this.file_list[start..=end].iter().map(|item| item.file_id),
-                                );
+                        components::file_card::FileCard::new(
+                            ElementId::Name(format!("file-card-{file_id}").into()),
+                            SharedString::new(item.file_name.as_str()),
+                            extension,
+                            item.size,
+                        )
+                        .path(file_path)
+                        .hash(hash)
+                        .mime(mime)
+                        .selected(is_selected)
+                        .on_click(move |_, window, cx| {
+                            cx.stop_propagation();
+                            let modifiers = window.modifiers();
+                            let is_ctrl = modifiers.control || modifiers.platform;
+                            let is_shift = modifiers.shift;
 
-                                cx.notify();
-                                return;
-                            }
-                        }
-
-                        // normal select
-                        this.selected_files.clear();
-                        this.selected_files.insert(file_id);
-                        this.last_select = Some(file_id);
-
-                        cx.notify();
-                    }))
-                    .on_secondary_select(cx.processor(|this, file_id, _window, cx| {
-                        this.handle_secondary_select(file_id, cx);
-                    }))
-                    .on_open(|path, _, _| components::utils::open_path(path)),
+                            select_entity.update(cx, |this, cx| {
+                                this.handle_file_select(file_id, is_ctrl, is_shift, cx);
+                            });
+                        })
+                        .on_secondary_click(move |_window, cx| {
+                            sec_entity.update(cx, |this, cx| {
+                                this.handle_secondary_select(file_id, cx);
+                            });
+                        })
+                        .on_double_click(move |_, _, _| {
+                            components::utils::open_path(&path_open);
+                        })
+                        .into_any_element()
+                    }
+                })
+                .scroll_handle(&self.scroll_handle)
+                .empty_placeholder("当前筛选下暂无匹配文件"),
             )
+            .into_any_element()
     }
 }
