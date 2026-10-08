@@ -50,7 +50,8 @@ impl MyApp {
             filters: vec![MacroTag::FileState(FileState::Managed.to_value())],
             ..Default::default()
         };
-        let explorer_view = cx.new(|cx| GenericView::new("文件总览", explorer_config, cx));
+        let explorer_view =
+            cx.new(|cx| GenericView::new("文件总览", explorer_config, cx).enable_drag());
         let scanner_view = cx.new(|cx| ScannerView::new(window, cx));
         let pending_view = cx.new(|cx| PendingView::new(cx));
         let collection_view = cx.new(|cx| CollectionExplorerView::new(window, cx));

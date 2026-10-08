@@ -35,6 +35,7 @@ pub struct GenericView {
     last_select: Option<Uuid>,
     // for any working state
     working: bool,
+    enable_drag: bool,
 }
 
 pub type GerericView = GenericView;
@@ -75,6 +76,7 @@ impl GenericView {
             selected_files: HashSet::new(),
             last_select: None,
             working: false,
+            enable_drag: false,
         };
 
         let overall_entity = cx.entity().clone();
@@ -114,14 +116,18 @@ impl GenericView {
         self
     }
 
-    // TODO: edit
+    pub fn enable_drag(mut self) -> Self {
+        self.enable_drag = true;
+        self
+    }
+
     pub fn handle_drag(
         &mut self,
         window: &mut Window,
         paths: Vec<PathBuf>,
         cx: &mut Context<Self>,
     ) {
-        if self.working || paths.is_empty() {
+        if self.enable_drag && self.working || paths.is_empty() {
             return;
         }
 
@@ -303,7 +309,6 @@ impl GenericView {
                     let open_p = file.path.clone();
                     let reveal_p = file.path.clone();
                     let copy_p = file.path.clone();
-                    let hash = file.hash.clone();
 
                     menu = menu
                         .item(

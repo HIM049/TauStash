@@ -96,10 +96,6 @@ impl CollectionExplorerView {
         .detach();
     }
 
-    pub fn selected_ids(&self) -> &HashSet<Uuid> {
-        &self.selected
-    }
-
     pub fn open_collection(&mut self, folder: &collection::Model, cx: &mut Context<Self>) {
         let this_entity = cx.entity().clone();
         let view = cx.new(|cx| {
