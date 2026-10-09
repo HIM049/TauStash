@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::notification::Notification;
@@ -9,18 +10,20 @@ use gpui_kit::component::*;
 use gpui_kit::*;
 use uuid::Uuid;
 
+use crate::components::item_grid_view::ItemGridView;
+use crate::components::item_list_view::ItemListView;
 use crate::components::tag_batch_editor::{TagBatchEditor, TagDeltaBatch};
 use crate::components::tag_filter_bar::TagFilterBar;
-use crate::components::virtual_grid::VirtualGrid;
 use crate::database::entities::TagNamespace;
 use crate::database::entities::collection;
-use crate::services::collection::CollectionConfig;
+use crate::services::collection::{CollectionConfig, ViewOption};
 use crate::services::importer::{self, FileInfo, TagRef};
 use crate::services::macrotag::MacroTag;
 use crate::services::tags_queryer::MtagService;
 use crate::{AppState, components};
 
 pub struct GenericView {
+    pub collection_id: Option<Uuid>,
     pub config: CollectionConfig,
     pub title: SharedString,
     pub icon: Option<SharedString>,
@@ -61,6 +64,7 @@ impl GenericView {
         });
 
         let mut view = Self {
+            collection_id: None,
             config,
             title: title.into(),
             icon: None,
@@ -102,6 +106,7 @@ impl GenericView {
 
         let mut view = Self::new(model.name.clone(), config, cx);
         view.icon = icon;
+        view.collection_id = Some(model.id);
         view
     }
 
@@ -171,6 +176,30 @@ impl GenericView {
             }
         })
         .detach();
+    }
+
+    pub fn toggle_view(&mut self, cx: &mut Context<Self>) {
+        self.config.view = match self.config.view {
+            ViewOption::Grid => ViewOption::List,
+            ViewOption::List => ViewOption::Grid,
+        };
+        self.persist_config(cx);
+        cx.notify();
+    }
+
+    fn persist_config(&self, cx: &mut Context<Self>) {
+        if let Some(id) = self.collection_id {
+            let db = cx.global::<AppState>().db.clone();
+            let rt = cx.global::<AppState>().rt.clone();
+            if let Ok(config_val) = serde_json::to_value(&self.config) {
+                cx.spawn(async move |_this, _cx| {
+                    let _ = rt.block_on(crate::database::storage::collection::update_config(
+                        &db, id, config_val,
+                    ));
+                })
+                .detach();
+            }
+        }
     }
 
     fn apply_filter(&mut self, tags: Vec<MacroTag>, cx: &mut Context<Self>) {
@@ -284,9 +313,8 @@ impl GenericView {
             if let (Some(a), Some(b)) = (from, to) {
                 let (start, end) = (a.min(b), a.max(b));
                 self.selected_files.clear();
-                self.selected_files.extend(
-                    self.file_list[start..=end].iter().map(|item| item.file_id),
-                );
+                self.selected_files
+                    .extend(self.file_list[start..=end].iter().map(|item| item.file_id));
                 cx.notify();
                 return;
             }
@@ -475,12 +503,22 @@ impl Render for GenericView {
                     .text_color(cx.theme().primary),
             );
         }
+        let is_list = matches!(self.config.view, ViewOption::List);
         title_bar = title_bar
             .child(div().text_xl().font_bold().child(self.title.clone()))
             .child(
                 Button::new("refresh")
                     .icon(IconName::RefreshCw)
                     .on_click(cx.listener(|this, _, _, cx| this.reload_all(cx))),
+            )
+            .child(
+                Button::new("view-toggle")
+                    .icon(if is_list {
+                        IconName::LayoutGrid
+                    } else {
+                        IconName::List
+                    })
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_view(cx))),
             );
 
         div()
@@ -595,61 +633,89 @@ impl Render for GenericView {
                         editor.clone().into_any_element()
                     }),
             )
-            .child(
-                VirtualGrid::new("file-grid", self.file_list.clone(), {
-                    let selected_files = self.selected_files.clone();
+            .child(match self.config.view {
+                ViewOption::List => {
                     let entity = cx.entity().clone();
+                    let sec_entity = cx.entity().clone();
 
-                    move |item, _idx, _window, _cx| {
-                        let extension = item
-                            .ext
-                            .as_deref()
-                            .unwrap_or_else(|| item.mime.split('/').nth(1).unwrap_or("file"))
-                            .to_uppercase();
-                        let file_id = item.file_id;
-                        let is_selected = selected_files.contains(&file_id);
-                        let file_path = SharedString::new(item.path.as_str());
-                        let path_open = file_path.clone();
-                        let hash = SharedString::new(item.hash.as_str());
-                        let mime = SharedString::new(item.mime.as_str());
-
-                        let select_entity = entity.clone();
-                        let sec_entity = entity.clone();
-
-                        components::file_card::FileCard::new(
-                            ElementId::Name(format!("file-card-{file_id}").into()),
-                            SharedString::new(item.file_name.as_str()),
-                            extension,
-                            item.size,
-                        )
-                        .path(file_path)
-                        .hash(hash)
-                        .mime(mime)
-                        .selected(is_selected)
-                        .on_click(move |_, window, cx| {
-                            cx.stop_propagation();
-                            let modifiers = window.modifiers();
-                            let is_ctrl = modifiers.control || modifiers.platform;
-                            let is_shift = modifiers.shift;
-
-                            select_entity.update(cx, |this, cx| {
+                    ItemListView::new("file-list", self.file_list.clone())
+                        .selected_files(self.selected_files.clone())
+                        .scroll_handle(&self.scroll_handle)
+                        .empty_placeholder("当前筛选下暂无匹配文件")
+                        .on_select(move |file_id, is_ctrl, is_shift, _window, cx| {
+                            entity.update(cx, |this, cx| {
                                 this.handle_file_select(file_id, is_ctrl, is_shift, cx);
                             });
                         })
-                        .on_secondary_click(move |_window, cx| {
+                        .on_secondary_select(move |file_id, _window, cx| {
                             sec_entity.update(cx, |this, cx| {
                                 this.handle_secondary_select(file_id, cx);
                             });
                         })
-                        .on_double_click(move |_, _, _| {
-                            components::utils::open_path(&path_open);
+                        .on_open(|path, _window, _cx| {
+                            components::utils::open_path(path);
                         })
                         .into_any_element()
-                    }
-                })
-                .scroll_handle(&self.scroll_handle)
-                .empty_placeholder("当前筛选下暂无匹配文件"),
-            )
+                }
+                ViewOption::Grid => {
+                    let selected_files = self.selected_files.clone();
+                    let entity = cx.entity().clone();
+
+                    ItemGridView::new(
+                        "file-grid",
+                        self.file_list.clone(),
+                        move |item, _idx, _window, _cx| {
+                            let extension = item
+                                .ext
+                                .as_deref()
+                                .unwrap_or_else(|| item.mime.split('/').nth(1).unwrap_or("file"))
+                                .to_uppercase();
+                            let file_id = item.file_id;
+                            let is_selected = selected_files.contains(&file_id);
+                            let file_path = SharedString::new(item.path.as_str());
+                            let path_open = file_path.clone();
+                            let hash = SharedString::new(item.hash.as_str());
+                            let mime = SharedString::new(item.mime.as_str());
+
+                            let select_entity = entity.clone();
+                            let sec_entity = entity.clone();
+
+                            components::file_card::FileCard::new(
+                                ElementId::Name(format!("file-card-{file_id}").into()),
+                                SharedString::new(item.file_name.as_str()),
+                                extension,
+                                item.size,
+                            )
+                            .path(file_path)
+                            .hash(hash)
+                            .mime(mime)
+                            .selected(is_selected)
+                            .on_click(move |_, window, cx| {
+                                cx.stop_propagation();
+                                let modifiers = window.modifiers();
+                                let is_ctrl = modifiers.control || modifiers.platform;
+                                let is_shift = modifiers.shift;
+
+                                select_entity.update(cx, |this, cx| {
+                                    this.handle_file_select(file_id, is_ctrl, is_shift, cx);
+                                });
+                            })
+                            .on_secondary_click(move |_window, cx| {
+                                sec_entity.update(cx, |this, cx| {
+                                    this.handle_secondary_select(file_id, cx);
+                                });
+                            })
+                            .on_double_click(move |_, _, _| {
+                                components::utils::open_path(&path_open);
+                            })
+                            .into_any_element()
+                        },
+                    )
+                    .scroll_handle(&self.scroll_handle)
+                    .empty_placeholder("当前筛选下暂无匹配文件")
+                    .into_any_element()
+                }
+            })
             .into_any_element()
     }
 }

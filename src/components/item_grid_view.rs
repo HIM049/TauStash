@@ -8,7 +8,7 @@ use crate::components;
 
 pub type RenderCardFn<T> = Rc<dyn Fn(&T, usize, &mut Window, &mut App) -> AnyElement>;
 
-pub struct VirtualGrid<T> {
+pub struct ItemGridView<T> {
     id: ElementId,
     items: Vec<T>,
     card_slot_width: f32,
@@ -18,7 +18,7 @@ pub struct VirtualGrid<T> {
     render_card: RenderCardFn<T>,
 }
 
-impl<T: 'static + Clone> VirtualGrid<T> {
+impl<T: 'static + Clone> ItemGridView<T> {
     pub fn new(
         id: impl Into<ElementId>,
         items: Vec<T>,
@@ -56,7 +56,7 @@ impl<T: 'static + Clone> VirtualGrid<T> {
     }
 }
 
-impl<T: 'static + Clone> IntoElement for VirtualGrid<T> {
+impl<T: 'static + Clone> IntoElement for ItemGridView<T> {
     type Element = Self;
 
     fn into_element(self) -> Self::Element {
@@ -64,7 +64,7 @@ impl<T: 'static + Clone> IntoElement for VirtualGrid<T> {
     }
 }
 
-impl<T: 'static + Clone> Element for VirtualGrid<T> {
+impl<T: 'static + Clone> Element for ItemGridView<T> {
     type RequestLayoutState = ();
     type PrepaintState = Option<AnyElement>;
 

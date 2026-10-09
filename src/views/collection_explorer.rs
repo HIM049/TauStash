@@ -9,11 +9,11 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::components::collection_card::CollectionCard;
+use crate::components::item_grid_view::ItemGridView;
 use crate::database::entities::collection;
 use crate::database::storage::collection as collection_store;
 use crate::services::collection::CollectionConfig;
 use crate::views::generic_view::GenericView;
-use crate::components::virtual_grid::VirtualGrid;
 
 const DEFAULT_FOLDER_NAME: &str = "未命名合集";
 
@@ -467,7 +467,7 @@ impl Render for CollectionExplorerView {
                     )),
             )
             .child(
-                VirtualGrid::new("collection-grid", self.folders.clone(), {
+                ItemGridView::new("collection-grid", self.folders.clone(), {
                     let selected = self.selected.clone();
                     let editing_id = self.editing_id;
                     let name_input = self.name_input.clone();
