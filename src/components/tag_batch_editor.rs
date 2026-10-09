@@ -38,9 +38,9 @@ impl PinnedBatchTag {
     pub fn name(&self) -> String {
         match self {
             Self::Tag(t) => t.name.clone(),
-            Self::State(FileState::Managed) => "入库".to_string(),
+            Self::State(FileState::Managed) => "归档".to_string(),
             Self::State(FileState::Ignore) => "忽略".to_string(),
-            Self::State(FileState::Blocked) => "拦截".to_string(),
+            Self::State(FileState::Blocked) => "丢弃".to_string(),
             Self::State(FileState::Pending) => "待审核".to_string(),
         }
     }
@@ -53,6 +53,7 @@ pub struct TrackedBatchItem {
     pub kind: BatchItemKind,
     pub original: EditState,
     pub target: EditState,
+    pub is_pinned: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -116,6 +117,7 @@ impl TagBatchEditor {
                         kind: BatchItemKind::State(*state),
                         original,
                         target: original,
+                        is_pinned: true,
                     });
                 }
                 PinnedBatchTag::Tag(tag_ref) => {
@@ -136,6 +138,7 @@ impl TagBatchEditor {
                         kind: BatchItemKind::Tag(tag_ref.clone()),
                         original,
                         target: original,
+                        is_pinned: true,
                     });
                 }
             }
@@ -157,10 +160,9 @@ impl TagBatchEditor {
         });
 
         for (tag_ref, count) in sorted_tags {
-            if !tracked_items
-                .iter()
-                .any(|t| matches!(&t.kind, BatchItemKind::Tag(existing) if existing.id == tag_ref.id))
-            {
+            if !tracked_items.iter().any(
+                |t| matches!(&t.kind, BatchItemKind::Tag(existing) if existing.id == tag_ref.id),
+            ) {
                 let (original, target) = if count == total && total > 0 {
                     (EditState::All, EditState::All)
                 } else {
@@ -172,22 +174,23 @@ impl TagBatchEditor {
                     kind: BatchItemKind::Tag(tag_ref),
                     original,
                     target,
+                    is_pinned: false,
                 });
             }
         }
 
         // 3. Add popular candidate tags
         for candidate in popular_tags {
-            if !tracked_items
-                .iter()
-                .any(|t| matches!(&t.kind, BatchItemKind::Tag(existing) if existing.id == candidate.id))
-            {
+            if !tracked_items.iter().any(
+                |t| matches!(&t.kind, BatchItemKind::Tag(existing) if existing.id == candidate.id),
+            ) {
                 tracked_items.push(TrackedBatchItem {
                     id: format!("tag-{}", candidate.id),
                     name: candidate.name.clone(),
                     kind: BatchItemKind::Tag(candidate.clone()),
                     original: EditState::None,
                     target: EditState::None,
+                    is_pinned: false,
                 });
             }
         }
@@ -227,23 +230,21 @@ impl TagBatchEditor {
                         delta.target_state = Some(*state);
                     }
                 }
-                BatchItemKind::Tag(tag_ref) => {
-                    match (item.original, item.target) {
-                        (EditState::All, EditState::None) => {
-                            delta.to_detach.push(tag_ref.id);
-                        }
-                        (EditState::Partial, EditState::All) => {
-                            delta.to_attach.push(tag_ref.id);
-                        }
-                        (EditState::Partial, EditState::None) => {
-                            delta.to_detach.push(tag_ref.id);
-                        }
-                        (EditState::None, EditState::All) => {
-                            delta.to_create_and_attach.push(tag_ref.name.clone());
-                        }
-                        _ => {}
+                BatchItemKind::Tag(tag_ref) => match (item.original, item.target) {
+                    (EditState::All, EditState::None) => {
+                        delta.to_detach.push(tag_ref.id);
                     }
-                }
+                    (EditState::Partial, EditState::All) => {
+                        delta.to_attach.push(tag_ref.id);
+                    }
+                    (EditState::Partial, EditState::None) => {
+                        delta.to_detach.push(tag_ref.id);
+                    }
+                    (EditState::None, EditState::All) => {
+                        delta.to_create_and_attach.push(tag_ref.name.clone());
+                    }
+                    _ => {}
+                },
             }
         }
 
@@ -319,6 +320,7 @@ impl TagBatchEditor {
                     kind: BatchItemKind::Tag(tag_ref),
                     original: EditState::None,
                     target: EditState::All,
+                    is_pinned: false,
                 });
             }
         }
@@ -347,34 +349,36 @@ impl Render for TagBatchEditor {
         let delta = self.compute_delta();
         let has_changes = !delta.is_empty();
 
-        let mut chips = Vec::with_capacity(self.tracked_items.len() + 1);
+        let mut chips = Vec::with_capacity(self.tracked_items.len() + 2);
+        let mut prev_was_pinned = false;
 
         for (idx, item) in self.tracked_items.iter().enumerate() {
+            if prev_was_pinned && !item.is_pinned {
+                chips.push(
+                    div()
+                        .h(px(24.0))
+                        .w(px(1.0))
+                        .bg(theme.border)
+                        .mx_1()
+                        .flex_shrink_0()
+                        .into_any_element(),
+                );
+            }
+            prev_was_pinned = item.is_pinned;
+
             let chip_state = match item.target {
                 EditState::All => TagChipState::Selected,
                 EditState::Partial => TagChipState::PartialSelected,
                 EditState::None => TagChipState::NoneSelected,
             };
 
-            let icon = match &item.kind {
-                BatchItemKind::State(FileState::Managed) => Some(Icon::new(IconName::Inbox)),
-                BatchItemKind::State(FileState::Ignore) => Some(Icon::new(IconName::EyeOff)),
-                BatchItemKind::State(FileState::Blocked) => Some(Icon::new(IconName::Delete)),
-                BatchItemKind::State(FileState::Pending) => Some(Icon::new(IconName::Clock)),
-                BatchItemKind::Tag(_) => None,
-            };
-
-            let chip = TagChip::new(
-                format!("batch-item-{}", item.id),
-                item.name.clone(),
-            )
-            .state(chip_state)
-            .squared()
-            .when_some(icon, |c, ic| c.icon(ic))
-            .on_click(cx.listener(move |this, _ev, _window, cx| {
-                cx.stop_propagation();
-                this.toggle_tag(idx, cx);
-            }));
+            let chip = TagChip::new(format!("batch-item-{}", item.id), item.name.clone())
+                .state(chip_state)
+                .squared()
+                .on_click(cx.listener(move |this, _ev, _window, cx| {
+                    cx.stop_propagation();
+                    this.toggle_tag(idx, cx);
+                }));
 
             chips.push(chip.into_any_element());
         }

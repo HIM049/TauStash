@@ -9,9 +9,9 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::components::app_sidebar::{AppSidebar, NavTarget};
-use crate::database::entities::{FileState, collection};
+use crate::database::entities::{FileState, TagNamespace, collection};
 use crate::database::storage::collection as collection_store;
-use crate::services::collection::CollectionConfig;
+use crate::services::collection::{CandidateTagRule, CollectionConfig};
 use crate::services::macrotag::MacroTag;
 use crate::views::collection_explorer::CollectionExplorerView;
 use crate::views::generic_view::GenericView;
@@ -33,6 +33,11 @@ pub fn prefab_views() -> Vec<collection::Model> {
             MacroTag::FileState(FileState::Ignore.to_value()),
             MacroTag::FileState(FileState::Blocked.to_value()),
         ],
+        include_view_tags: false,
+        candidate_filter: Some(CandidateTagRule {
+            namespaces: vec![TagNamespace::User],
+            limit: 12,
+        }),
         view: crate::services::collection::ViewOption::List,
         ..Default::default()
     };

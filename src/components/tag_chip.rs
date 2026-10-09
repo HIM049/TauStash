@@ -79,48 +79,93 @@ impl TagChip {
 
 impl TagChip {
     fn get_theme(&self, theme: &Theme) -> (Hsla, Hsla, Hsla, Option<Icon>, bool) {
-        match self.state {
-            TagChipState::Default => (theme.secondary, theme.foreground, theme.border, None, false),
-            TagChipState::Active => (
-                theme.primary,
-                theme.primary_foreground,
-                theme.primary,
-                None,
-                false,
-            ),
-            TagChipState::NoneSelected => (
-                theme.secondary.opacity(0.3),
-                theme.muted_foreground,
-                theme.border.opacity(0.4),
-                Some(
-                    Icon::new(IconName::Close)
-                        .size_3()
-                        .text_color(theme.muted_foreground),
+        if let Some(custom_color) = self.color {
+            match self.state {
+                TagChipState::Default => (
+                    custom_color.opacity(0.2),
+                    custom_color,
+                    custom_color,
+                    None,
+                    false,
                 ),
-                true,
-            ),
-            TagChipState::PartialSelected => (
-                theme.primary.opacity(0.15),
-                theme.foreground,
-                theme.primary,
-                Some(
-                    Icon::new(IconName::Minus)
-                        .size_3()
-                        .text_color(theme.primary),
+                TagChipState::Active | TagChipState::Selected => (
+                    custom_color,
+                    theme.primary_foreground,
+                    custom_color,
+                    Some(
+                        Icon::new(IconName::Check)
+                            .size_3()
+                            .text_color(theme.primary_foreground),
+                    ),
+                    false,
                 ),
-                false,
-            ),
-            TagChipState::Selected => (
-                theme.primary,
-                theme.primary_foreground,
-                theme.primary,
-                Some(
-                    Icon::new(IconName::Check)
-                        .size_3()
-                        .text_color(theme.primary_foreground),
+                TagChipState::NoneSelected => (
+                    custom_color.opacity(0.12),
+                    custom_color.opacity(0.85),
+                    custom_color.opacity(0.3),
+                    Some(
+                        Icon::new(IconName::Close)
+                            .size_3()
+                            .text_color(custom_color.opacity(0.85)),
+                    ),
+                    false,
                 ),
-                false,
-            ),
+                TagChipState::PartialSelected => (
+                    custom_color.opacity(0.3),
+                    custom_color,
+                    custom_color,
+                    Some(
+                        Icon::new(IconName::Minus)
+                            .size_3()
+                            .text_color(custom_color),
+                    ),
+                    false,
+                ),
+            }
+        } else {
+            match self.state {
+                TagChipState::Default => (theme.secondary, theme.foreground, theme.border, None, false),
+                TagChipState::Active => (
+                    theme.primary,
+                    theme.primary_foreground,
+                    theme.primary,
+                    None,
+                    false,
+                ),
+                TagChipState::NoneSelected => (
+                    theme.secondary.opacity(0.3),
+                    theme.muted_foreground,
+                    theme.border.opacity(0.4),
+                    Some(
+                        Icon::new(IconName::Close)
+                            .size_3()
+                            .text_color(theme.muted_foreground),
+                    ),
+                    true,
+                ),
+                TagChipState::PartialSelected => (
+                    theme.primary.opacity(0.15),
+                    theme.foreground,
+                    theme.primary,
+                    Some(
+                        Icon::new(IconName::Minus)
+                            .size_3()
+                            .text_color(theme.primary),
+                    ),
+                    false,
+                ),
+                TagChipState::Selected => (
+                    theme.primary,
+                    theme.primary_foreground,
+                    theme.primary,
+                    Some(
+                        Icon::new(IconName::Check)
+                            .size_3()
+                            .text_color(theme.primary_foreground),
+                    ),
+                    false,
+                ),
+            }
         }
     }
 }
@@ -128,7 +173,7 @@ impl TagChip {
 impl RenderOnce for TagChip {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = cx.theme();
-        let (bg_color, text_color, border_color, state_icon, is_dimmed) = self.get_theme(theme);
+        let (bg_color, text_color, _border_color, state_icon, is_dimmed) = self.get_theme(theme);
         let on_click = self.on_click.clone();
         let leading_icon = state_icon.or(self.icon);
 
@@ -140,8 +185,8 @@ impl RenderOnce for TagChip {
             .px_3()
             .py_1()
             .text_xs()
-            .border_1()
-            .border_color(border_color)
+            // .border_1()
+            // .border_color(border_color)
             .bg(bg_color)
             .text_color(text_color)
             .h(px(34.0))

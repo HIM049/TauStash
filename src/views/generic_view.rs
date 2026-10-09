@@ -38,6 +38,7 @@ pub struct GenericView {
     current_filter_tags: Vec<MacroTag>,
     selected_files: HashSet<uuid::Uuid>,
     last_select: Option<Uuid>,
+    candidate_tags: Vec<TagRef>,
     // for any working state
     working: bool,
     enable_drag: bool,
@@ -79,6 +80,7 @@ impl GenericView {
             current_filter_tags: Vec::new(),
             selected_files: HashSet::new(),
             last_select: None,
+            candidate_tags: Vec::new(),
             working: false,
             enable_drag: false,
         };
@@ -93,6 +95,7 @@ impl GenericView {
         });
 
         view.reload_files(cx);
+        view.reload_candidates(cx);
         view
     }
 
@@ -293,9 +296,42 @@ impl GenericView {
             .position(|item| item.file_id == file_id)
     }
 
+    pub fn reload_candidates(&mut self, cx: &mut Context<Self>) {
+        if let Some(ref rule) = self.config.candidate_filter {
+            let db = cx.global::<AppState>().db.clone();
+            let rt = cx.global::<AppState>().rt.clone();
+            let namespaces = rule.namespaces.clone();
+            let limit = rule.limit;
+
+            cx.spawn(async move |this, cx| {
+                let tags_res = cx
+                    .background_spawn(async move {
+                        rt.block_on(crate::database::storage::tag::list_candidates(
+                            &db,
+                            &namespaces,
+                            limit,
+                        ))
+                    })
+                    .await;
+
+                this.update(cx, |this, cx| {
+                    if let Ok(tags) = tags_res {
+                        this.candidate_tags = tags;
+                        cx.notify();
+                    }
+                })
+                .ok();
+            })
+            .detach();
+        } else {
+            self.candidate_tags.clear();
+        }
+    }
+
     /// refresh file list and tell filter_bar to reload its facet stats
     pub fn reload_all(&mut self, cx: &mut Context<Self>) {
         self.reload_files(cx);
+        self.reload_candidates(cx);
         let is_empty = self.config.filters.is_empty();
         let excluded = self.config.filters.clone();
         self.filter_bar.update(cx, |bar, cx| {
@@ -540,14 +576,6 @@ impl Render for GenericView {
                     }),
             );
         }
-        if let Some(ref icon) = self.icon {
-            title_bar = title_bar.child(
-                Icon::default()
-                    .path(format!("icons/{}.svg", icon))
-                    .size_5()
-                    .text_color(cx.theme().primary),
-            );
-        }
         let is_list = matches!(self.config.view, ViewOption::List);
         title_bar = title_bar
             .child(div().text_xl().font_bold().child(self.title.clone()))
@@ -635,25 +663,35 @@ impl Render for GenericView {
                             .cloned()
                             .collect();
 
-                        let popular_tags: Vec<TagRef> = self
-                            .filter_bar
-                            .read(cx)
-                            .tags_summary()
-                            .iter()
-                            .take(8)
-                            .map(|s| TagRef {
-                                id: s.tag_id,
-                                namespace: TagNamespace::User,
-                                name: s.name.clone(),
-                            })
-                            .collect();
+                        let mut candidate_tags: Vec<TagRef> = Vec::new();
+
+                        if self.config.include_view_tags {
+                            for s in self.filter_bar.read(cx).tags_summary().iter().take(8) {
+                                candidate_tags.push(TagRef {
+                                    id: s.tag_id,
+                                    namespace: TagNamespace::User,
+                                    name: s.name.clone(),
+                                });
+                            }
+                        }
+
+                        for tag in &self.candidate_tags {
+                            if !candidate_tags.iter().any(|t| t.id == tag.id) {
+                                candidate_tags.push(tag.clone());
+                            }
+                        }
 
                         let pinned_tags = self.resolve_pinned_tags(cx);
                         let editor = self.batch_editor.get_or_insert_with(|| {
                             let overall_entity = cx.entity().clone();
                             cx.new(|cx| {
-                                let mut editor =
-                                    TagBatchEditor::new(&selected_items, &popular_tags, &pinned_tags, window, cx);
+                                let mut editor = TagBatchEditor::new(
+                                    &selected_items,
+                                    &candidate_tags,
+                                    &pinned_tags,
+                                    window,
+                                    cx,
+                                );
 
                                 let entity = overall_entity.clone();
                                 editor.on_commit(move |delta, window, cx| {

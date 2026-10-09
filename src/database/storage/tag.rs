@@ -1,9 +1,11 @@
 use crate::database::entities::{TagNamespace, file_tag, tag};
+use crate::database::storage::file::TagRef;
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySelect, Set,
+};
 use uuid::Uuid;
 
-/// Look up a tag by `(namespace, name)`, the `tag` table's unique key.
 pub async fn find_by_name(
     db: &DatabaseConnection,
     namespace: TagNamespace,
@@ -95,4 +97,19 @@ pub async fn unlink(
         .await?;
 
     Ok(())
+}
+
+/// Query candidate tags from database based on namespaces and limit.
+pub async fn list_candidates(
+    db: &DatabaseConnection,
+    namespaces: &[TagNamespace],
+    limit: usize,
+) -> anyhow::Result<Vec<TagRef>> {
+    let mut query = tag::Entity::find();
+    if !namespaces.is_empty() {
+        query = query.filter(tag::Column::Namespace.is_in(namespaces.iter().copied()));
+    }
+    let tags = query.limit(limit as u64).all(db).await?;
+
+    Ok(tags.into_iter().map(TagRef::from_tag).collect())
 }
