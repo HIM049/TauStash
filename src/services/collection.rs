@@ -38,4 +38,6 @@ pub struct CollectionConfig {
     /// Default should be DESC
     pub is_order_revert: bool,
     pub is_hide_tagbar: bool,
+    #[serde(default)]
+    pub pinned_tags: Vec<MacroTag>,
 }

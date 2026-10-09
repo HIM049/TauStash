@@ -354,6 +354,7 @@ impl FileQueryer {
                         .mime
                         .unwrap_or_else(|| "application/octet-stream".to_string()),
                     ext: f.ext,
+                    state: f.state,
                 })
             })
             .collect();

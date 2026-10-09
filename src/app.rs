@@ -15,7 +15,6 @@ use crate::services::collection::CollectionConfig;
 use crate::services::macrotag::MacroTag;
 use crate::views::collection_explorer::CollectionExplorerView;
 use crate::views::generic_view::GenericView;
-use crate::views::pending::PendingView;
 use crate::views::scanner::ScannerView;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,7 +38,7 @@ pub struct MyApp {
     dynamic_view: Option<Entity<GenericView>>,
     explorer_view: Entity<GenericView>,
     scanner_view: Entity<ScannerView>,
-    pending_view: Entity<PendingView>,
+    pending_view: Entity<GenericView>,
     collection_view: Entity<CollectionExplorerView>,
 }
 
@@ -53,7 +52,17 @@ impl MyApp {
         let explorer_view =
             cx.new(|cx| GenericView::new("文件总览", explorer_config, cx).enable_drag());
         let scanner_view = cx.new(|cx| ScannerView::new(window, cx));
-        let pending_view = cx.new(|cx| PendingView::new(cx));
+        let pending_config = CollectionConfig {
+            filters: vec![MacroTag::FileState(FileState::Pending.to_value())],
+            pinned_tags: vec![
+                MacroTag::FileState(FileState::Managed.to_value()),
+                MacroTag::FileState(FileState::Ignore.to_value()),
+                MacroTag::FileState(FileState::Blocked.to_value()),
+            ],
+            view: crate::services::collection::ViewOption::List,
+            ..Default::default()
+        };
+        let pending_view = cx.new(|cx| GenericView::new("审核队列", pending_config, cx));
         let collection_view = cx.new(|cx| CollectionExplorerView::new(window, cx));
 
         let mut app = Self {

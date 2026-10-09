@@ -37,6 +37,7 @@ pub struct FileInfo {
     pub ext: Option<String>,
     pub is_duplicate: bool,
     pub tags: Vec<TagRef>,
+    pub state: FileState,
 }
 
 fn to_utc(time: std::time::SystemTime) -> Option<DateTime<Utc>> {
@@ -246,6 +247,7 @@ pub async fn get_file_detail(db: &DatabaseConnection, file_id: Uuid) -> Result<O
         ext: record.ext,
         is_duplicate: false,
         tags,
+        state: record.state,
     }))
 }
 
@@ -269,6 +271,7 @@ pub async fn list_files(db: &DatabaseConnection, query: &FileQueryer) -> Result<
                 ext: r.ext,
                 is_duplicate: false,
                 tags,
+                state: r.state,
             }
         })
         .collect();

@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::components::item_grid_view::ItemGridView;
 use crate::components::item_list_view::ItemListView;
-use crate::components::tag_batch_editor::{TagBatchEditor, TagDeltaBatch};
+use crate::components::tag_batch_editor::{PinnedBatchTag, TagBatchEditor, TagDeltaBatch};
 use crate::components::tag_filter_bar::TagFilterBar;
 use crate::database::entities::TagNamespace;
 use crate::database::entities::collection;
@@ -21,6 +21,7 @@ use crate::services::importer::{self, FileInfo, TagRef};
 use crate::services::macrotag::MacroTag;
 use crate::services::tags_queryer::MtagService;
 use crate::{AppState, components};
+use sea_orm::ActiveEnum;
 
 pub struct GenericView {
     pub collection_id: Option<Uuid>,
@@ -123,6 +124,42 @@ impl GenericView {
     pub fn enable_drag(mut self) -> Self {
         self.enable_drag = true;
         self
+    }
+
+    pub fn pinned_tags(mut self, tags: Vec<MacroTag>) -> Self {
+        self.config.pinned_tags = tags;
+        self
+    }
+
+    pub fn resolve_pinned_tags(&self, cx: &Context<Self>) -> Vec<PinnedBatchTag> {
+        let mut result = Vec::new();
+        let known_tags = self.filter_bar.read(cx).tags_summary();
+        for mt in &self.config.pinned_tags {
+            match mt {
+                MacroTag::FileState(s) => {
+                    if let Ok(state) = crate::services::tags_queryer::parse_state(s) {
+                        result.push(PinnedBatchTag::State(state));
+                    }
+                }
+                MacroTag::StandardTag(id) => {
+                    let name = known_tags
+                        .iter()
+                        .find(|t| t.tag_id == *id)
+                        .map(|t| t.name.clone())
+                        .unwrap_or_else(|| {
+                            let s = id.to_string();
+                            format!("标签:{}", &s[..6.min(s.len())])
+                        });
+                    result.push(PinnedBatchTag::Tag(TagRef {
+                        id: *id,
+                        name,
+                        namespace: TagNamespace::User,
+                    }));
+                }
+                _ => {}
+            }
+        }
+        result
     }
 
     pub fn handle_drag(
@@ -447,6 +484,14 @@ impl GenericView {
             let res = cx
                 .background_spawn(async move {
                     rt.block_on(async {
+                        if let Some(target_state) = delta.target_state {
+                            MtagService::apply(
+                                &db,
+                                &file_ids,
+                                &MacroTag::FileState(target_state.to_value()),
+                            )
+                            .await?;
+                        }
                         for new_name in &delta.to_create_and_attach {
                             MtagService::attach_by_name(
                                 &db,
@@ -603,11 +648,12 @@ impl Render for GenericView {
                             })
                             .collect();
 
+                        let pinned_tags = self.resolve_pinned_tags(cx);
                         let editor = self.batch_editor.get_or_insert_with(|| {
                             let overall_entity = cx.entity().clone();
                             cx.new(|cx| {
                                 let mut editor =
-                                    TagBatchEditor::new(&selected_items, &popular_tags, window, cx);
+                                    TagBatchEditor::new(&selected_items, &popular_tags, &pinned_tags, window, cx);
 
                                 let entity = overall_entity.clone();
                                 editor.on_commit(move |delta, window, cx| {

@@ -22,6 +22,7 @@ pub struct DbFileRecord {
     pub size: i64,
     pub mime: String,
     pub ext: Option<String>,
+    pub state: FileState,
 }
 
 /// Parameters for creating or updating a physical replica
@@ -303,6 +304,7 @@ pub async fn get_file_record_by_id(
             .mime
             .unwrap_or_else(|| "application/octet-stream".to_string()),
         ext: f.ext,
+        state: f.state,
     }))
 }
 
