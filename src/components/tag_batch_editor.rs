@@ -8,12 +8,11 @@ use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
-use sea_orm::ActiveEnum;
 use uuid::Uuid;
 
 use crate::components::tag_chip::{TagChip, TagChipState};
-use crate::database::entities::{FileState, TagNamespace};
-use crate::services::importer::{FileInfo, TagRef};
+use crate::services::file::FileInfo;
+use crate::services::macrotag::MacroTag;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EditState {
@@ -23,57 +22,14 @@ pub enum EditState {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum BatchItemKind {
-    Tag(TagRef),
-    State(FileState),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PinnedBatchTag {
-    Tag(TagRef),
-    State(FileState),
-}
-
-impl PinnedBatchTag {
-    pub fn name(&self) -> String {
-        match self {
-            Self::Tag(t) => t.name.clone(),
-            Self::State(FileState::Managed) => "归档".to_string(),
-            Self::State(FileState::Ignore) => "忽略".to_string(),
-            Self::State(FileState::Blocked) => "丢弃".to_string(),
-            Self::State(FileState::Pending) => "待审核".to_string(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TrackedBatchItem {
-    pub id: String,
-    pub name: String,
-    pub kind: BatchItemKind,
+    pub tag: MacroTag,
     pub original: EditState,
     pub target: EditState,
     pub is_pinned: bool,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct TagDeltaBatch {
-    pub to_attach: Vec<Uuid>,
-    pub to_detach: Vec<Uuid>,
-    pub to_create_and_attach: Vec<String>,
-    pub target_state: Option<FileState>,
-}
-
-impl TagDeltaBatch {
-    pub fn is_empty(&self) -> bool {
-        self.to_attach.is_empty()
-            && self.to_detach.is_empty()
-            && self.to_create_and_attach.is_empty()
-            && self.target_state.is_none()
-    }
-}
-
-pub type CommitListener = Rc<dyn Fn(&TagDeltaBatch, &mut Window, &mut App) + 'static>;
+pub type CommitListener = Rc<dyn Fn(&[MacroTag], &[MacroTag], &mut Window, &mut App) + 'static>;
 pub type CancelListener = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 
 pub struct TagBatchEditor {
@@ -91,87 +47,56 @@ pub struct TagBatchEditor {
 impl TagBatchEditor {
     pub fn new(
         selected_files: &[FileInfo],
-        popular_tags: &[TagRef],
-        pinned_tags: &[PinnedBatchTag],
+        candidate_tags: &[MacroTag],
+        pinned_tags: &[MacroTag],
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let total = selected_files.len();
         let mut tracked_items: Vec<TrackedBatchItem> = Vec::new();
 
-        // 1. Process pinned tags first
+        // Process pinned tags
         for pinned in pinned_tags {
-            match pinned {
-                PinnedBatchTag::State(state) => {
-                    let count = selected_files.iter().filter(|f| f.state == *state).count();
-                    let original = if count == total && total > 0 {
-                        EditState::All
-                    } else if count > 0 {
-                        EditState::Partial
-                    } else {
-                        EditState::None
-                    };
-                    tracked_items.push(TrackedBatchItem {
-                        id: format!("state-{}", state.to_value()),
-                        name: pinned.name(),
-                        kind: BatchItemKind::State(*state),
-                        original,
-                        target: original,
-                        is_pinned: true,
-                    });
-                }
-                PinnedBatchTag::Tag(tag_ref) => {
-                    let count = selected_files
-                        .iter()
-                        .filter(|f| f.tags.iter().any(|t| t.id == tag_ref.id))
-                        .count();
-                    let original = if count == total && total > 0 {
-                        EditState::All
-                    } else if count > 0 {
-                        EditState::Partial
-                    } else {
-                        EditState::None
-                    };
-                    tracked_items.push(TrackedBatchItem {
-                        id: format!("tag-{}", tag_ref.id),
-                        name: tag_ref.name.clone(),
-                        kind: BatchItemKind::Tag(tag_ref.clone()),
-                        original,
-                        target: original,
-                        is_pinned: true,
-                    });
-                }
-            }
+            let count = selected_files.iter().filter(|f| f.has_tag(pinned)).count();
+            let original = if count == total && total > 0 {
+                EditState::All
+            } else if count > 0 {
+                EditState::Partial
+            } else {
+                EditState::None
+            };
+            tracked_items.push(TrackedBatchItem {
+                tag: pinned.clone(),
+                original,
+                target: original,
+                is_pinned: true,
+            });
         }
 
-        // 2. Count existing tags across selected files
-        let mut tag_counts: HashMap<TagRef, usize> = HashMap::new();
+        // Count existing tags across selected files
+        let mut tag_counts: HashMap<MacroTag, usize> = HashMap::new();
         for file in selected_files {
             for tag in &file.tags {
                 *tag_counts.entry(tag.clone()).or_insert(0) += 1;
             }
         }
 
-        let mut sorted_tags: Vec<(TagRef, usize)> = tag_counts.into_iter().collect();
+        let mut sorted_tags: Vec<(MacroTag, usize)> = tag_counts.into_iter().collect();
         sorted_tags.sort_by(|(tag_a, count_a), (tag_b, count_b)| {
             count_b
                 .cmp(count_a)
-                .then_with(|| tag_a.name.cmp(&tag_b.name))
+                .then_with(|| tag_a.display_name().cmp(&tag_b.display_name()))
         });
 
-        for (tag_ref, count) in sorted_tags {
-            if !tracked_items.iter().any(
-                |t| matches!(&t.kind, BatchItemKind::Tag(existing) if existing.id == tag_ref.id),
-            ) {
+        for (tag, count) in sorted_tags {
+            if !tracked_items.iter().any(|t| t.tag == tag) {
                 let (original, target) = if count == total && total > 0 {
                     (EditState::All, EditState::All)
                 } else {
                     (EditState::Partial, EditState::Partial)
                 };
                 tracked_items.push(TrackedBatchItem {
-                    id: format!("tag-{}", tag_ref.id),
-                    name: tag_ref.name.clone(),
-                    kind: BatchItemKind::Tag(tag_ref),
+                    tag,
                     original,
                     target,
                     is_pinned: false,
@@ -179,15 +104,11 @@ impl TagBatchEditor {
             }
         }
 
-        // 3. Add popular candidate tags
-        for candidate in popular_tags {
-            if !tracked_items.iter().any(
-                |t| matches!(&t.kind, BatchItemKind::Tag(existing) if existing.id == candidate.id),
-            ) {
+        // Add candidate tags
+        for candidate in candidate_tags {
+            if !tracked_items.iter().any(|t| t.tag == *candidate) {
                 tracked_items.push(TrackedBatchItem {
-                    id: format!("tag-{}", candidate.id),
-                    name: candidate.name.clone(),
-                    kind: BatchItemKind::Tag(candidate.clone()),
+                    tag: candidate.clone(),
                     original: EditState::None,
                     target: EditState::None,
                     is_pinned: false,
@@ -208,7 +129,10 @@ impl TagBatchEditor {
         }
     }
 
-    pub fn on_commit(&mut self, handler: impl Fn(&TagDeltaBatch, &mut Window, &mut App) + 'static) {
+    pub fn on_commit(
+        &mut self,
+        handler: impl Fn(&[MacroTag], &[MacroTag], &mut Window, &mut App) + 'static,
+    ) {
         self.on_commit = Some(Rc::new(handler));
     }
 
@@ -220,74 +144,72 @@ impl TagBatchEditor {
         self.focus_handle.focus(window, cx);
     }
 
-    pub fn compute_delta(&self) -> TagDeltaBatch {
-        let mut delta = TagDeltaBatch::default();
+    pub fn compute_changes(&self) -> (Vec<MacroTag>, Vec<MacroTag>) {
+        let mut ensure = Vec::new();
+        let mut remove = Vec::new();
 
         for item in &self.tracked_items {
-            match &item.kind {
-                BatchItemKind::State(state) => {
-                    if item.target == EditState::All && item.original != EditState::All {
-                        delta.target_state = Some(*state);
-                    }
+            if item.tag.is_exclusive() {
+                if item.target == EditState::All && item.original != EditState::All {
+                    ensure.push(item.tag.clone());
                 }
-                BatchItemKind::Tag(tag_ref) => match (item.original, item.target) {
+            } else {
+                match (item.original, item.target) {
                     (EditState::All, EditState::None) => {
-                        delta.to_detach.push(tag_ref.id);
+                        remove.push(item.tag.clone());
                     }
                     (EditState::Partial, EditState::All) => {
-                        delta.to_attach.push(tag_ref.id);
+                        ensure.push(item.tag.clone());
                     }
                     (EditState::Partial, EditState::None) => {
-                        delta.to_detach.push(tag_ref.id);
+                        remove.push(item.tag.clone());
                     }
                     (EditState::None, EditState::All) => {
-                        delta.to_create_and_attach.push(tag_ref.name.clone());
+                        ensure.push(item.tag.clone());
                     }
                     _ => {}
-                },
+                }
             }
         }
 
-        delta
+        (ensure, remove)
     }
 
     pub fn has_changes(&self) -> bool {
-        !self.compute_delta().is_empty()
+        let (ensure, remove) = self.compute_changes();
+        !ensure.is_empty() || !remove.is_empty()
     }
 
     fn toggle_tag(&mut self, index: usize, cx: &mut Context<Self>) {
         if let Some(item) = self.tracked_items.get_mut(index) {
-            match &item.kind {
-                BatchItemKind::State(_) => {
-                    if item.target == EditState::All {
-                        item.target = EditState::None;
-                    } else {
-                        item.target = EditState::All;
-                        // Mutually exclusive: clear other state targets
-                        for (i, other) in self.tracked_items.iter_mut().enumerate() {
-                            if i != index && matches!(other.kind, BatchItemKind::State(_)) {
-                                other.target = EditState::None;
-                            }
+            if item.tag.is_exclusive() {
+                if item.target == EditState::All {
+                    item.target = EditState::None;
+                } else {
+                    item.target = EditState::All;
+                    // Mutually exclusive: clear other exclusive targets
+                    for (i, other) in self.tracked_items.iter_mut().enumerate() {
+                        if i != index && other.tag.is_exclusive() {
+                            other.target = EditState::None;
                         }
                     }
                 }
-                BatchItemKind::Tag(_) => {
-                    item.target = match item.original {
-                        EditState::All => match item.target {
-                            EditState::All => EditState::None,
-                            _ => EditState::All,
-                        },
-                        EditState::Partial => match item.target {
-                            EditState::Partial => EditState::All,
-                            EditState::All => EditState::None,
-                            EditState::None => EditState::Partial,
-                        },
-                        EditState::None => match item.target {
-                            EditState::All => EditState::None,
-                            _ => EditState::All,
-                        },
-                    };
-                }
+            } else {
+                item.target = match item.original {
+                    EditState::All => match item.target {
+                        EditState::All => EditState::None,
+                        _ => EditState::All,
+                    },
+                    EditState::Partial => match item.target {
+                        EditState::Partial => EditState::All,
+                        EditState::All => EditState::None,
+                        EditState::None => EditState::Partial,
+                    },
+                    EditState::None => match item.target {
+                        EditState::All => EditState::None,
+                        _ => EditState::All,
+                    },
+                };
             }
             cx.notify();
         }
@@ -305,19 +227,12 @@ impl TagBatchEditor {
             if let Some(item) = self
                 .tracked_items
                 .iter_mut()
-                .find(|t| matches!(&t.kind, BatchItemKind::Tag(existing) if existing.name == name))
+                .find(|t| t.tag.display_name() == name)
             {
                 item.target = EditState::All;
             } else {
-                let tag_ref = TagRef {
-                    id: Uuid::now_v7(),
-                    namespace: TagNamespace::User,
-                    name: name.clone(),
-                };
                 self.tracked_items.push(TrackedBatchItem {
-                    id: format!("tag-{}", tag_ref.id),
-                    name,
-                    kind: BatchItemKind::Tag(tag_ref),
+                    tag: MacroTag::standard(Uuid::now_v7(), name),
                     original: EditState::None,
                     target: EditState::All,
                     is_pinned: false,
@@ -331,8 +246,8 @@ impl TagBatchEditor {
 
     fn commit(&self, window: &mut Window, cx: &mut App) {
         if let Some(ref cb) = self.on_commit {
-            let delta = self.compute_delta();
-            cb(&delta, window, cx);
+            let (ensure, remove) = self.compute_changes();
+            cb(&ensure, &remove, window, cx);
         }
     }
 
@@ -346,8 +261,8 @@ impl TagBatchEditor {
 impl Render for TagBatchEditor {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
-        let delta = self.compute_delta();
-        let has_changes = !delta.is_empty();
+        let (ensure, remove) = self.compute_changes();
+        let has_changes = !ensure.is_empty() || !remove.is_empty();
 
         let mut chips = Vec::with_capacity(self.tracked_items.len() + 2);
         let mut prev_was_pinned = false;
@@ -372,7 +287,7 @@ impl Render for TagBatchEditor {
                 EditState::None => TagChipState::NoneSelected,
             };
 
-            let chip = TagChip::new(format!("batch-item-{}", item.id), item.name.clone())
+            let chip = TagChip::new(("batch-item", idx), item.tag.display_name())
                 .state(chip_state)
                 .squared()
                 .on_click(cx.listener(move |this, _ev, _window, cx| {
@@ -398,26 +313,26 @@ impl Render for TagBatchEditor {
             .items_center()
             .justify_between()
             .w_full()
+            .px_3()
             .py_1()
+            .gap_2()
+            .bg(theme.accent.opacity(0.08))
+            .border_t_1()
+            .border_color(theme.border)
             .child(
                 div()
                     .h_flex()
                     .items_center()
-                    .flex_1()
                     .gap_2()
+                    .flex_1()
                     .overflow_x_scrollbar()
                     .children(chips)
-                    .when_else(
-                        self.is_adding,
-                        |t| {
-                            t.child(
-                                div()
-                                    .id("new-tag-input")
-                                    .h_flex()
-                                    .items_center()
-                                    .gap_1()
-                                    .w(px(230.0))
-                                    .on_click(|_, _, cx| cx.stop_propagation())
+                    .child(
+                        div()
+                            .h_flex()
+                            .items_center()
+                            .when(self.is_adding, |this| {
+                                this.w(px(140.0))
                                     .on_action(cx.listener(|this, _: &Enter, window, cx| {
                                         this.confirm_new_tag(window, cx);
                                     }))
@@ -425,81 +340,50 @@ impl Render for TagBatchEditor {
                                         this.is_adding = false;
                                         cx.notify();
                                     }))
-                                    .child(Input::new(&self.input_state).small().focus_ring(false))
-                                    .child(
-                                        Button::new("btn-confirm-tag")
-                                            .icon(IconName::Check)
-                                            .compact()
-                                            .small()
-                                            .on_click(cx.listener(|this, _ev, window, cx| {
-                                                cx.stop_propagation();
-
-                                                this.confirm_new_tag(window, cx);
-                                            })),
-                                    )
-                                    .child(
-                                        Button::new("btn-cancel-tag")
-                                            .icon(IconName::Close)
-                                            .compact()
-                                            .small()
-                                            .on_click(cx.listener(|this, _ev, _w, cx| {
-                                                cx.stop_propagation();
-
-                                                this.is_adding = false;
-                                                cx.notify();
-                                            })),
-                                    ),
-                            )
-                        },
-                        |t| {
-                            t.child(
-                                Button::new("btn-add-tag")
-                                    .icon(IconName::Plus)
-                                    .compact()
-                                    .ghost()
-                                    .rounded_full()
-                                    .on_click(cx.listener(|this, _ev, window, cx| {
-                                        cx.stop_propagation();
-
-                                        this.is_adding = true;
-                                        let focus = this.input_state.read(cx).focus_handle(cx);
-                                        focus.focus(window, cx);
-                                        cx.notify();
-                                    })),
-                            )
-                        },
+                                    .child(Input::new(&self.input_state).small())
+                            })
+                            .when(!self.is_adding, |this| {
+                                this.child(
+                                    Button::new("add-tag-btn")
+                                        .icon(IconName::Plus)
+                                        .ghost()
+                                        .xsmall()
+                                        .on_click(cx.listener(|this, _ev, window, cx| {
+                                            this.is_adding = true;
+                                            this.input_state.update(cx, |input, cx| {
+                                                input.focus(window, cx);
+                                            });
+                                            cx.notify();
+                                        })),
+                                )
+                            }),
                     ),
             )
             .child(
                 div()
                     .h_flex()
                     .items_center()
-                    .gap_1p5()
-                    .pr_6()
+                    .gap_1()
+                    .flex_shrink_0()
                     .child(
-                        div()
-                            .h_flex()
-                            .items_center()
-                            .px_2()
-                            .py_1()
-                            .rounded_md()
-                            .text_color(theme.accent)
-                            .text_xs()
-                            .font_semibold()
-                            .text_color(theme.foreground)
-                            .child(format!("已选 {} 项", self.selected_count)),
+                        Button::new("cancel-batch-btn")
+                            .label("取消")
+                            .ghost()
+                            .small()
+                            .on_click(cx.listener(|this, _ev, window, cx| {
+                                this.cancel(window, cx);
+                            })),
                     )
-                    .when(has_changes, |this| {
-                        this.child(
-                            Button::new("btn-editor-save")
-                                .icon(IconName::Check)
-                                .compact()
-                                .primary()
-                                .on_click(cx.listener(|this, _ev, window, cx| {
-                                    this.commit(window, cx);
-                                })),
-                        )
-                    }),
+                    .child(
+                        Button::new("apply-batch-btn")
+                            .label("应用")
+                            .primary()
+                            .small()
+                            .disabled(!has_changes)
+                            .on_click(cx.listener(|this, _ev, window, cx| {
+                                this.commit(window, cx);
+                            })),
+                    ),
             )
     }
 }

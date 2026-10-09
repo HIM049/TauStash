@@ -9,9 +9,7 @@ use uuid::Uuid;
 
 use super::scanner::scan_directory;
 use crate::database::entities::{FileState, ReplicaState};
-pub use crate::database::storage::file::TagRef;
 use crate::database::storage::file::{ContentTimes, CreateFileParams, UpsertReplicaParams};
-use crate::database::storage::query::FileQueryer;
 use crate::database::storage::{self};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,20 +22,6 @@ pub struct FileMetadata {
     pub ctime: Option<DateTime<Utc>>,
     /// Filesystem modification time
     pub utime: Option<DateTime<Utc>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct FileInfo {
-    pub file_id: Uuid,
-    pub path: String,
-    pub file_name: String,
-    pub hash: String,
-    pub size: i64,
-    pub mime: String,
-    pub ext: Option<String>,
-    pub is_duplicate: bool,
-    pub tags: Vec<TagRef>,
-    pub state: FileState,
 }
 
 fn to_utc(time: std::time::SystemTime) -> Option<DateTime<Utc>> {
@@ -227,54 +211,4 @@ pub async fn import_from_paths(
     }
 
     Ok(report)
-}
-
-/// Fetch full UI detail for a given file_id (including tags)
-pub async fn get_file_detail(db: &DatabaseConnection, file_id: Uuid) -> Result<Option<FileInfo>> {
-    let Some(record) = storage::file::get_file_record_by_id(db, file_id).await? else {
-        return Ok(None);
-    };
-
-    let tags = storage::file::get_file_tags(db, file_id).await?;
-
-    Ok(Some(FileInfo {
-        file_id: record.file_id,
-        path: record.path,
-        file_name: record.file_name,
-        hash: record.hash,
-        size: record.size,
-        mime: record.mime,
-        ext: record.ext,
-        is_duplicate: false,
-        tags,
-        state: record.state,
-    }))
-}
-
-/// List files filtered by query from database
-pub async fn list_files(db: &DatabaseConnection, query: &FileQueryer) -> Result<Vec<FileInfo>> {
-    let records = query.execute(db).await?;
-    let file_ids: Vec<uuid::Uuid> = records.iter().map(|r| r.file_id).collect();
-    let mut tags_by_file = storage::file::get_files_tags_batch(db, &file_ids).await?;
-
-    let result = records
-        .into_iter()
-        .map(|r| {
-            let tags = tags_by_file.remove(&r.file_id).unwrap_or_default();
-            FileInfo {
-                file_id: r.file_id,
-                path: r.path,
-                file_name: r.file_name,
-                hash: r.hash,
-                size: r.size,
-                mime: r.mime,
-                ext: r.ext,
-                is_duplicate: false,
-                tags,
-                state: r.state,
-            }
-        })
-        .collect();
-
-    Ok(result)
 }

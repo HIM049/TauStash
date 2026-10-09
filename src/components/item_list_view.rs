@@ -8,7 +8,7 @@ use gpui_kit::*;
 use uuid::Uuid;
 
 use crate::components::utils::format_file_size;
-use crate::services::importer::FileInfo;
+use crate::services::file::FileInfo;
 
 const ROW_HEIGHT: f32 = 36.0;
 

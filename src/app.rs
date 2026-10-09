@@ -3,8 +3,6 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use sea_orm::ActiveEnum;
-
 use uuid::Uuid;
 
 use crate::AppState;
@@ -23,15 +21,15 @@ pub const PENDING_VIEW_ID: Uuid = Uuid::from_u128(2);
 pub fn prefab_views() -> Vec<collection::Model> {
     let now = chrono::Utc::now();
     let explorer_config = CollectionConfig {
-        filters: vec![MacroTag::FileState(FileState::Managed.to_value())],
+        filters: vec![MacroTag::FileState(FileState::Managed)],
         ..Default::default()
     };
     let pending_config = CollectionConfig {
-        filters: vec![MacroTag::FileState(FileState::Pending.to_value())],
+        filters: vec![MacroTag::FileState(FileState::Pending)],
         pinned_tags: vec![
-            MacroTag::FileState(FileState::Managed.to_value()),
-            MacroTag::FileState(FileState::Ignore.to_value()),
-            MacroTag::FileState(FileState::Blocked.to_value()),
+            MacroTag::FileState(FileState::Managed),
+            MacroTag::FileState(FileState::Ignore),
+            MacroTag::FileState(FileState::Blocked),
         ],
         include_view_tags: false,
         candidate_filter: Some(CandidateTagRule {

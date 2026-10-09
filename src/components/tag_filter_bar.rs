@@ -135,10 +135,10 @@ impl TagFilterBar {
         self.notify_change(window, cx);
     }
 
-    fn toggle_tag(&mut self, tag_id: Uuid, window: &mut Window, cx: &mut Context<Self>) {
+    fn toggle_tag(&mut self, tag_id: Uuid, name: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.active_tags.remove(&MacroTag::Untagged);
 
-        let tag = MacroTag::StandardTag(tag_id);
+        let tag = MacroTag::standard(tag_id, name);
         if self.active_tags.contains(&tag) {
             self.active_tags.remove(&tag);
         } else {
@@ -193,11 +193,12 @@ impl Render for TagFilterBar {
 
         for item in &self.tags_summary {
             let tag_id = item.tag_id;
-            if self.excluded_tags.contains(&MacroTag::StandardTag(tag_id)) {
+            let tag_name = item.name.clone();
+            if self.excluded_tags.contains(&MacroTag::standard_id(tag_id)) {
                 continue;
             }
 
-            let is_active = self.active_tags.contains(&MacroTag::StandardTag(tag_id));
+            let is_active = self.active_tags.contains(&MacroTag::standard_id(tag_id));
 
             let chip = TagChip::new(format!("tag-filter-{}", tag_id), item.name.clone())
                 .count(item.count)
@@ -207,7 +208,7 @@ impl Render for TagFilterBar {
                     TagChipState::Default
                 })
                 .on_click(cx.listener(move |this, _ev, window, cx| {
-                    this.toggle_tag(tag_id, window, cx);
+                    this.toggle_tag(tag_id, &tag_name, window, cx);
                 }));
 
             chips.push(chip.into_any_element());

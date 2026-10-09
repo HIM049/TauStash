@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::database::{
-    entities::{FileState, ReplicaState, TagNamespace, file, file_replica, file_tag, tag},
+    entities::{FileState, ReplicaState, file, file_replica, file_tag, tag},
     utils,
 };
 use chrono::Utc;
@@ -36,23 +36,6 @@ pub struct UpsertReplicaParams<'a> {
     pub ctime: Option<DateTimeUtc>,
     pub utime: Option<DateTimeUtc>,
     pub file_size: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TagRef {
-    pub id: Uuid,
-    pub name: String,
-    pub namespace: TagNamespace,
-}
-
-impl TagRef {
-    pub fn from_tag(tag: tag::Model) -> Self {
-        Self {
-            id: tag.id,
-            name: tag.name,
-            namespace: tag.namespace,
-        }
-    }
 }
 
 /// Find a file record by its BLAKE3 hash
@@ -275,6 +258,24 @@ pub async fn mark_files_deleted(
     Ok(())
 }
 
+/// Restore soft-deleted files and clear replica deleted_at timestamp.
+pub async fn unmark_files_deleted(
+    db: &DatabaseConnection,
+    file_ids: &[Uuid],
+) -> anyhow::Result<()> {
+    if file_ids.is_empty() {
+        return Ok(());
+    }
+
+    file_replica::Entity::update_many()
+        .col_expr(file_replica::Column::DeletedAt, Expr::value(None::<DateTimeUtc>))
+        .filter(file_replica::Column::FileId.is_in(file_ids.iter().copied()))
+        .exec(db)
+        .await?;
+
+    Ok(())
+}
+
 /// Get detail of a single file by id
 pub async fn get_file_record_by_id(
     db: &DatabaseConnection,
@@ -312,7 +313,7 @@ pub async fn get_file_record_by_id(
 pub async fn get_files_tags_batch(
     db: &DatabaseConnection,
     file_ids: &[Uuid],
-) -> anyhow::Result<HashMap<Uuid, Vec<TagRef>>> {
+) -> anyhow::Result<HashMap<Uuid, Vec<tag::Model>>> {
     if file_ids.is_empty() {
         return Ok(HashMap::new());
     }
@@ -334,38 +335,21 @@ pub async fn get_files_tags_batch(
 
     let tag_map: HashMap<_, _> = tags
         .into_iter()
-        .map(|t| (t.id, TagRef::from_tag(t)))
+        .map(|t| (t.id, t))
         .collect();
 
-    let mut result: HashMap<Uuid, Vec<TagRef>> = HashMap::new();
+    let mut result: HashMap<Uuid, Vec<tag::Model>> = HashMap::new();
     for link in links {
-        if let Some(tr) = tag_map.get(&link.tag_id) {
-            result.entry(link.file_id).or_default().push(tr.clone());
+        if let Some(t) = tag_map.get(&link.tag_id) {
+            result.entry(link.file_id).or_default().push(t.clone());
         }
     }
 
     Ok(result)
 }
 
-// /// Delete a file and its associated tags and replicas from database
-// pub async fn delete_file(db: &DatabaseConnection, file_id: Uuid) -> anyhow::Result<()> {
-//     file_tag::Entity::delete_many()
-//         .filter(file_tag::Column::FileId.eq(file_id))
-//         .exec(db)
-//         .await?;
-
-//     file_replica::Entity::delete_many()
-//         .filter(file_replica::Column::FileId.eq(file_id))
-//         .exec(db)
-//         .await?;
-
-//     file::Entity::delete_by_id(file_id).exec(db).await?;
-
-//     Ok(())
-// }
-
-/// Retrieve all tag names for a given file
-pub async fn get_file_tags(db: &DatabaseConnection, file_id: Uuid) -> anyhow::Result<Vec<TagRef>> {
+/// Retrieve all tag records for a given file
+pub async fn get_file_tags(db: &DatabaseConnection, file_id: Uuid) -> anyhow::Result<Vec<tag::Model>> {
     let links = file_tag::Entity::find()
         .filter(file_tag::Column::FileId.eq(file_id))
         .all(db)
@@ -381,5 +365,5 @@ pub async fn get_file_tags(db: &DatabaseConnection, file_id: Uuid) -> anyhow::Re
         .all(db)
         .await?;
 
-    Ok(tags.into_iter().map(|t| TagRef::from_tag(t)).collect())
+    Ok(tags)
 }

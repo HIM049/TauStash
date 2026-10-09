@@ -76,7 +76,7 @@ pub struct FileQueryer {
     pub search_term: Option<String>,
     pub extensions: Option<Vec<String>>, // Whitelist
     pub mime_prefixes: Option<Vec<String>>,
-    pub replica_count: Option<u32>,
+    pub has_replica: bool,
     pub deleted_since: Option<DateTimeUtc>,
     pub size_range: (Option<i64>, Option<i64>),
     pub date_range: Option<(Option<DateTimeUtc>, Option<DateTimeUtc>)>,
@@ -126,9 +126,9 @@ impl FileQueryer {
         self
     }
 
-    /// Filter by exact active replica count
-    pub fn replica_count(mut self, count: u32) -> Self {
-        self.replica_count = Some(count);
+    /// Filter files that have multiple physical replicas (duplicate copies)
+    pub fn has_replica(mut self, has: bool) -> Self {
+        self.has_replica = has;
         self
     }
 
@@ -393,15 +393,15 @@ fn build_filter_conditions(spec: &FileQueryer) -> sea_orm::Condition {
         cond = cond.add(mime_cond);
     }
 
-    // REPLICA COUNT filter
-    if let Some(target_count) = spec.replica_count {
+    // REPLICA COUNT filter: filter files with multiple replicas (> 1)
+    if spec.has_replica {
         let replica_count_subquery = Query::select()
             .column(file_replica::Column::FileId)
             .from(file_replica::Entity)
             .and_where(Expr::col(file_replica::Column::State).ne("missing"))
             .group_by_col(file_replica::Column::FileId)
             .and_having(
-                Expr::expr(Func::count(Expr::col(file_replica::Column::Id))).eq(target_count as i32),
+                Expr::expr(Func::count(Expr::col(file_replica::Column::Id))).gt(1),
             )
             .to_owned();
 

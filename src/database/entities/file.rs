@@ -1,6 +1,8 @@
 use sea_orm::entity::prelude::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::None)")]
 pub enum FileState {
     #[sea_orm(string_value = "pending")]
@@ -11,6 +13,17 @@ pub enum FileState {
     Blocked,
     #[sea_orm(string_value = "ignore")]
     Ignore,
+}
+
+impl FileState {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Pending => "待审核",
+            Self::Managed => "归档",
+            Self::Ignore => "忽略",
+            Self::Blocked => "丢弃",
+        }
+    }
 }
 
 #[sea_orm::model]

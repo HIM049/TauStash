@@ -12,16 +12,15 @@ use uuid::Uuid;
 
 use crate::components::item_grid_view::ItemGridView;
 use crate::components::item_list_view::ItemListView;
-use crate::components::tag_batch_editor::{PinnedBatchTag, TagBatchEditor, TagDeltaBatch};
+use crate::components::tag_batch_editor::TagBatchEditor;
 use crate::components::tag_filter_bar::TagFilterBar;
-use crate::database::entities::TagNamespace;
 use crate::database::entities::collection;
 use crate::services::collection::{CollectionConfig, ViewOption};
-use crate::services::importer::{self, FileInfo, TagRef};
+use crate::services::file::{self, FileInfo};
+use crate::services::importer;
 use crate::services::macrotag::MacroTag;
 use crate::services::tags_queryer::MtagService;
 use crate::{AppState, components};
-use sea_orm::ActiveEnum;
 
 pub struct GenericView {
     pub collection_id: Option<Uuid>,
@@ -38,7 +37,7 @@ pub struct GenericView {
     current_filter_tags: Vec<MacroTag>,
     selected_files: HashSet<uuid::Uuid>,
     last_select: Option<Uuid>,
-    candidate_tags: Vec<TagRef>,
+    candidate_tags: Vec<MacroTag>,
     // for any working state
     working: bool,
     enable_drag: bool,
@@ -132,37 +131,6 @@ impl GenericView {
     pub fn pinned_tags(mut self, tags: Vec<MacroTag>) -> Self {
         self.config.pinned_tags = tags;
         self
-    }
-
-    pub fn resolve_pinned_tags(&self, cx: &Context<Self>) -> Vec<PinnedBatchTag> {
-        let mut result = Vec::new();
-        let known_tags = self.filter_bar.read(cx).tags_summary();
-        for mt in &self.config.pinned_tags {
-            match mt {
-                MacroTag::FileState(s) => {
-                    if let Ok(state) = crate::services::tags_queryer::parse_state(s) {
-                        result.push(PinnedBatchTag::State(state));
-                    }
-                }
-                MacroTag::StandardTag(id) => {
-                    let name = known_tags
-                        .iter()
-                        .find(|t| t.tag_id == *id)
-                        .map(|t| t.name.clone())
-                        .unwrap_or_else(|| {
-                            let s = id.to_string();
-                            format!("标签:{}", &s[..6.min(s.len())])
-                        });
-                    result.push(PinnedBatchTag::Tag(TagRef {
-                        id: *id,
-                        name,
-                        namespace: TagNamespace::User,
-                    }));
-                }
-                _ => {}
-            }
-        }
-        result
     }
 
     pub fn handle_drag(
@@ -274,7 +242,7 @@ impl GenericView {
                         .tags(&filter_tags)
                         .build()?;
 
-                    rt.block_on(importer::list_files(&db, &query))
+                    rt.block_on(file::list_files(&db, &query))
                 })
                 .await;
 
@@ -316,7 +284,10 @@ impl GenericView {
 
                 this.update(cx, |this, cx| {
                     if let Ok(tags) = tags_res {
-                        this.candidate_tags = tags;
+                        this.candidate_tags = tags
+                            .into_iter()
+                            .map(|t| MacroTag::Standard(t.into()))
+                            .collect();
                         cx.notify();
                     }
                 })
@@ -506,9 +477,10 @@ impl GenericView {
         menu
     }
 
-    fn commit_tag_delta(
+    fn commit_tag_changes(
         &mut self,
-        delta: TagDeltaBatch,
+        ensure: Vec<MacroTag>,
+        remove: Vec<MacroTag>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -520,26 +492,7 @@ impl GenericView {
             let res = cx
                 .background_spawn(async move {
                     rt.block_on(async {
-                        if let Some(target_state) = delta.target_state {
-                            MtagService::apply(
-                                &db,
-                                &file_ids,
-                                &MacroTag::FileState(target_state.to_value()),
-                            )
-                            .await?;
-                        }
-                        for new_name in &delta.to_create_and_attach {
-                            MtagService::attach_by_name(
-                                &db,
-                                &file_ids,
-                                TagNamespace::User,
-                                &[new_name.clone()],
-                            )
-                            .await?;
-                        }
-                        MtagService::attach(&db, &file_ids, &delta.to_attach).await?;
-                        MtagService::detach(&db, &file_ids, &delta.to_detach).await?;
-
+                        MtagService::apply_changes(&db, &file_ids, &ensure, &remove).await?;
                         Ok::<(), anyhow::Error>(())
                     })
                 })
@@ -663,25 +616,21 @@ impl Render for GenericView {
                             .cloned()
                             .collect();
 
-                        let mut candidate_tags: Vec<TagRef> = Vec::new();
+                        let mut candidate_tags: Vec<MacroTag> = Vec::new();
 
                         if self.config.include_view_tags {
                             for s in self.filter_bar.read(cx).tags_summary().iter().take(8) {
-                                candidate_tags.push(TagRef {
-                                    id: s.tag_id,
-                                    namespace: TagNamespace::User,
-                                    name: s.name.clone(),
-                                });
+                                candidate_tags.push(MacroTag::standard(s.tag_id, s.name.clone()));
                             }
                         }
 
                         for tag in &self.candidate_tags {
-                            if !candidate_tags.iter().any(|t| t.id == tag.id) {
+                            if !candidate_tags.iter().any(|t| t == tag) {
                                 candidate_tags.push(tag.clone());
                             }
                         }
 
-                        let pinned_tags = self.resolve_pinned_tags(cx);
+                        let pinned_tags = self.config.pinned_tags.clone();
                         let editor = self.batch_editor.get_or_insert_with(|| {
                             let overall_entity = cx.entity().clone();
                             cx.new(|cx| {
@@ -694,9 +643,11 @@ impl Render for GenericView {
                                 );
 
                                 let entity = overall_entity.clone();
-                                editor.on_commit(move |delta, window, cx| {
+                                editor.on_commit(move |ensure, remove, window, cx| {
+                                    let ensure = ensure.to_vec();
+                                    let remove = remove.to_vec();
                                     entity.update(cx, |this, cx| {
-                                        this.commit_tag_delta(delta.clone(), window, cx);
+                                        this.commit_tag_changes(ensure, remove, window, cx);
                                     });
                                 });
 

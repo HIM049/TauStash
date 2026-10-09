@@ -49,9 +49,9 @@ impl MtagService {
             match tag {
                 super::MacroTag::Ext(name) => extensions.push(name),
                 super::MacroTag::MediaType(prefix) => mime_prefixes.push(prefix),
-                super::MacroTag::FileState(name) => query = query.state(parse_state(&name)?),
-                super::MacroTag::HasReplica(count) => query = query.replica_count(count),
-                super::MacroTag::StandardTag(uuid) => named.push(uuid),
+                super::MacroTag::FileState(state) => query = query.state(state),
+                super::MacroTag::HasReplica(_) => query = query.has_replica(true),
+                super::MacroTag::Standard(meta) => named.push(meta.id),
                 super::MacroTag::Untagged => query = query.untagged(),
                 super::MacroTag::Deleted(time) => query = query.deleted_since(time),
             }
@@ -75,15 +75,4 @@ pub fn parse_state(value: &str) -> anyhow::Result<FileState> {
     FileState::iter()
         .find(|state| state.to_value() == value)
         .ok_or(anyhow::anyhow!("Unknown state: {}", value))
-}
-
-impl super::MacroTag {
-    pub fn is_writable(&self) -> bool {
-        matches!(
-            self,
-            super::MacroTag::StandardTag(_)
-                | super::MacroTag::FileState(_)
-                | super::MacroTag::Deleted(_)
-        )
-    }
 }
