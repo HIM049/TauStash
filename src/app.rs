@@ -17,6 +17,58 @@ use crate::views::collection_explorer::CollectionExplorerView;
 use crate::views::generic_view::GenericView;
 use crate::views::scanner::ScannerView;
 
+pub const EXPLORER_VIEW_ID: Uuid = Uuid::from_u128(1);
+pub const PENDING_VIEW_ID: Uuid = Uuid::from_u128(2);
+
+pub fn prefab_views() -> Vec<collection::Model> {
+    let now = chrono::Utc::now();
+    let explorer_config = CollectionConfig {
+        filters: vec![MacroTag::FileState(FileState::Managed.to_value())],
+        ..Default::default()
+    };
+    let pending_config = CollectionConfig {
+        filters: vec![MacroTag::FileState(FileState::Pending.to_value())],
+        pinned_tags: vec![
+            MacroTag::FileState(FileState::Managed.to_value()),
+            MacroTag::FileState(FileState::Ignore.to_value()),
+            MacroTag::FileState(FileState::Blocked.to_value()),
+        ],
+        view: crate::services::collection::ViewOption::List,
+        ..Default::default()
+    };
+
+    vec![
+        collection::Model {
+            id: EXPLORER_VIEW_ID,
+            name: "文件总览".to_string(),
+            icon: "file".to_string(),
+            cover: String::new(),
+            color: String::new(),
+            order: 0,
+            parent_id: None,
+            typ: collection::CollectionType::View,
+            config: serde_json::to_value(explorer_config).unwrap_or_default(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+        },
+        collection::Model {
+            id: PENDING_VIEW_ID,
+            name: "审核队列".to_string(),
+            icon: "check".to_string(),
+            cover: String::new(),
+            color: String::new(),
+            order: 1,
+            parent_id: None,
+            typ: collection::CollectionType::View,
+            config: serde_json::to_value(pending_config).unwrap_or_default(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+        },
+    ]
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CurrentNav {
     Tab(NavTab),
@@ -25,54 +77,34 @@ pub enum CurrentNav {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NavTab {
-    Explorer,
-    Scanner,
-    Pending,
     Collections,
+    Scanner,
 }
 
 pub struct MyApp {
     current_nav: CurrentNav,
     sidebar_collapsed: bool,
     views: Vec<collection::Model>,
-    dynamic_view: Option<Entity<GenericView>>,
-    explorer_view: Entity<GenericView>,
+    current_view: Option<Entity<GenericView>>,
     scanner_view: Entity<ScannerView>,
-    pending_view: Entity<GenericView>,
     collection_view: Entity<CollectionExplorerView>,
 }
 
 impl MyApp {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        // TODO: Move to config
-        let explorer_config = CollectionConfig {
-            filters: vec![MacroTag::FileState(FileState::Managed.to_value())],
-            ..Default::default()
-        };
-        let explorer_view =
-            cx.new(|cx| GenericView::new("文件总览", explorer_config, cx).enable_drag());
+        let prefabs = prefab_views();
+        let initial_model = prefabs[0].clone();
+        let current_view =
+            Some(cx.new(|cx| GenericView::from_collection(&initial_model, cx).enable_drag()));
         let scanner_view = cx.new(|cx| ScannerView::new(window, cx));
-        let pending_config = CollectionConfig {
-            filters: vec![MacroTag::FileState(FileState::Pending.to_value())],
-            pinned_tags: vec![
-                MacroTag::FileState(FileState::Managed.to_value()),
-                MacroTag::FileState(FileState::Ignore.to_value()),
-                MacroTag::FileState(FileState::Blocked.to_value()),
-            ],
-            view: crate::services::collection::ViewOption::List,
-            ..Default::default()
-        };
-        let pending_view = cx.new(|cx| GenericView::new("审核队列", pending_config, cx));
         let collection_view = cx.new(|cx| CollectionExplorerView::new(window, cx));
 
         let mut app = Self {
-            current_nav: CurrentNav::Tab(NavTab::Explorer),
+            current_nav: CurrentNav::View(EXPLORER_VIEW_ID),
             sidebar_collapsed: false,
-            views: Vec::new(),
-            dynamic_view: None,
-            explorer_view,
+            views: prefabs,
+            current_view,
             scanner_view,
-            pending_view,
             collection_view,
         };
         app.load_views(cx);
@@ -94,9 +126,11 @@ impl MyApp {
                 })
                 .await;
 
-            if let Ok(views) = items {
+            if let Ok(db_views) = items {
                 this.update(cx, |this, cx| {
-                    this.views = views;
+                    let mut all_views = prefab_views();
+                    all_views.extend(db_views);
+                    this.views = all_views;
                     cx.notify();
                 })
                 .ok();
@@ -114,7 +148,13 @@ impl MyApp {
             NavTarget::View(id) => {
                 if let Some(model) = self.views.iter().find(|v| v.id == id).cloned() {
                     self.current_nav = CurrentNav::View(id);
-                    self.dynamic_view = Some(cx.new(|cx| GenericView::from_collection(&model, cx)));
+                    self.current_view = Some(cx.new(|cx| {
+                        let mut view = GenericView::from_collection(&model, cx);
+                        if id == EXPLORER_VIEW_ID {
+                            view = view.enable_drag();
+                        }
+                        view
+                    }));
                     cx.notify();
                 }
             }
@@ -143,12 +183,12 @@ impl MyApp {
 impl Render for MyApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let main_content = match &self.current_nav {
-            CurrentNav::Tab(NavTab::Explorer) => self.explorer_view.clone().into_any_element(),
             CurrentNav::Tab(NavTab::Scanner) => self.scanner_view.clone().into_any_element(),
-            CurrentNav::Tab(NavTab::Pending) => self.pending_view.clone().into_any_element(),
-            CurrentNav::Tab(NavTab::Collections) => self.collection_view.clone().into_any_element(),
+            CurrentNav::Tab(NavTab::Collections) => {
+                self.collection_view.clone().into_any_element()
+            }
             CurrentNav::View(_) => {
-                if let Some(view) = &self.dynamic_view {
+                if let Some(view) = &self.current_view {
                     view.clone().into_any_element()
                 } else {
                     div().into_any_element()

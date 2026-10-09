@@ -88,17 +88,28 @@ impl RenderOnce for AppSidebar {
             .child(SidebarGroup::new("导航").child({
                 let mut menu = SidebarMenu::new();
 
-                let sel = on_select.clone();
-                menu = menu.child(
-                    SidebarMenuItem::new("文件总览")
-                        .icon(IconName::File)
-                        .active(self.active == NavTarget::Fixed(NavTab::Explorer))
-                        .on_click(move |_, window, cx| {
-                            if let Some(cb) = sel.as_ref() {
-                                cb(&NavTarget::Fixed(NavTab::Explorer), window, cx);
-                            }
-                        }),
-                );
+                for v in &self.views {
+                    let view_id = v.id;
+                    let view_name = v.name.clone();
+                    let is_active = self.active == NavTarget::View(view_id);
+                    let sel = on_select.clone();
+                    let icon = match v.icon.as_str() {
+                        "file" => IconName::File,
+                        "check" => IconName::Check,
+                        _ => IconName::Folder,
+                    };
+
+                    menu = menu.child(
+                        SidebarMenuItem::new(SharedString::from(view_name))
+                            .icon(icon)
+                            .active(is_active)
+                            .on_click(move |_, window, cx| {
+                                if let Some(cb) = sel.as_ref() {
+                                    cb(&NavTarget::View(view_id), window, cx);
+                                }
+                            }),
+                    );
+                }
 
                 let sel = on_select.clone();
                 menu = menu.child(
@@ -114,18 +125,6 @@ impl RenderOnce for AppSidebar {
 
                 let sel = on_select.clone();
                 menu = menu.child(
-                    SidebarMenuItem::new("审核队列")
-                        .icon(IconName::Check)
-                        .active(self.active == NavTarget::Fixed(NavTab::Pending))
-                        .on_click(move |_, window, cx| {
-                            if let Some(cb) = sel.as_ref() {
-                                cb(&NavTarget::Fixed(NavTab::Pending), window, cx);
-                            }
-                        }),
-                );
-
-                let sel = on_select.clone();
-                menu = menu.child(
                     SidebarMenuItem::new("扫描状态")
                         .icon(IconName::Search)
                         .active(self.active == NavTarget::Fixed(NavTab::Scanner))
@@ -135,24 +134,6 @@ impl RenderOnce for AppSidebar {
                             }
                         }),
                 );
-
-                for v in &self.views {
-                    let view_id = v.id;
-                    let view_name = v.name.clone();
-                    let is_active = self.active == NavTarget::View(view_id);
-                    let sel = on_select.clone();
-
-                    menu = menu.child(
-                        SidebarMenuItem::new(SharedString::from(view_name))
-                            .icon(IconName::Folder)
-                            .active(is_active)
-                            .on_click(move |_, window, cx| {
-                                if let Some(cb) = sel.as_ref() {
-                                    cb(&NavTarget::View(view_id), window, cx);
-                                }
-                            }),
-                    );
-                }
 
                 menu
             }))
