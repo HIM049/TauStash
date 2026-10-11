@@ -1,6 +1,8 @@
 pub mod app_sidebar;
 pub mod collection_card;
+pub mod collection_config_editor;
 pub mod file_card;
+pub mod file_content_view;
 pub mod item_grid_view;
 pub mod item_list_view;
 pub mod lru_image_cache;

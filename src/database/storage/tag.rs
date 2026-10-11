@@ -112,3 +112,18 @@ pub async fn list_candidates(
 
     Ok(tags)
 }
+
+/// Search tags from database by keyword.
+pub async fn search_tags(
+    db: &DatabaseConnection,
+    keyword: &str,
+    limit: usize,
+) -> anyhow::Result<Vec<tag::Model>> {
+    let mut query = tag::Entity::find().filter(tag::Column::DeletedAt.is_null());
+    let trimmed = keyword.trim();
+    if !trimmed.is_empty() {
+        query = query.filter(tag::Column::Name.contains(trimmed));
+    }
+    let tags = query.limit(limit as u64).all(db).await?;
+    Ok(tags)
+}

@@ -13,6 +13,7 @@ use crate::components::item_grid_view::ItemGridView;
 use crate::database::entities::collection;
 use crate::database::storage::collection as collection_store;
 use crate::services::collection::CollectionConfig;
+use crate::stores::AppStores;
 use crate::views::generic_view::GenericView;
 
 const DEFAULT_FOLDER_NAME: &str = "未命名合集";
@@ -28,6 +29,7 @@ pub struct CollectionExplorerView {
     focus_handle: FocusHandle,
     editing_id: Option<Uuid>,
 
+    stores: Option<AppStores>,
     active_folder_view: Option<Entity<GenericView>>,
 }
 
@@ -45,6 +47,7 @@ impl CollectionExplorerView {
             name_input,
             focus_handle,
             editing_id: None,
+            stores: None,
             active_folder_view: None,
         };
         view.reload(cx);
@@ -83,10 +86,29 @@ impl CollectionExplorerView {
         .detach();
     }
 
-    pub fn open_collection(&mut self, folder: &collection::Model, cx: &mut Context<Self>) {
+    pub fn stores(mut self, stores: AppStores, cx: &mut Context<Self>) -> Self {
+        cx.observe(&stores.collections, |this, _, cx| {
+            this.reload(cx);
+        })
+        .detach();
+        self.stores = Some(stores);
+        self
+    }
+
+    pub fn open_collection(
+        &mut self,
+        folder: &collection::Model,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let this_entity = cx.entity().clone();
+        let stores = self.stores.clone();
         let view = cx.new(|cx| {
-            GenericView::from_collection(folder, cx).on_back(move |_window, cx| {
+            let mut view = GenericView::from_collection(folder, window, cx);
+            if let Some(stores) = stores {
+                view = view.stores(stores, cx);
+            }
+            view.on_back(move |_window, cx| {
                 this_entity.update(cx, |this, cx| {
                     this.active_folder_view = None;
                     this.reload(cx);
@@ -407,6 +429,7 @@ impl Render for CollectionExplorerView {
         div()
             .id("collection-explorer-main")
             .v_flex()
+            .bg(cx.theme().background)
             .size_full()
             .gap_3()
             .p_6()
@@ -508,9 +531,9 @@ impl Render for CollectionExplorerView {
                                 this.handle_select(id, is_ctrl, is_shift, cx);
                             });
                         })
-                        .on_double_click(move |_, _, cx| {
+                        .on_double_click(move |_, window, cx| {
                             dbl_entity.update(cx, |this, cx| {
-                                this.open_collection(&dbl_folder, cx);
+                                this.open_collection(&dbl_folder, window, cx);
                             });
                         })
                         .on_secondary_click(move |_window, cx| {

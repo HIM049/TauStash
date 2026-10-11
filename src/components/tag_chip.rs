@@ -22,10 +22,12 @@ pub struct TagChip {
     id: ElementId,
     name: SharedString,
     icon: Option<Icon>,
+    trailing_icon: Option<Icon>,
     count: Option<usize>,
     color: Option<Hsla>,
     state: TagChipState,
     squared: bool,
+    small: bool,
     on_click: Option<Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
 }
 
@@ -35,10 +37,12 @@ impl TagChip {
             id: id.into(),
             name: name.into(),
             icon: None,
+            trailing_icon: None,
             count: None,
             color: None,
             state: TagChipState::Default,
             squared: false,
+            small: false,
             on_click: None,
         }
     }
@@ -48,8 +52,18 @@ impl TagChip {
         self
     }
 
+    pub fn small(mut self) -> Self {
+        self.small = true;
+        self
+    }
+
     pub fn icon(mut self, icon: impl Into<Option<Icon>>) -> Self {
         self.icon = icon.into();
+        self
+    }
+
+    pub fn trailing_icon(mut self, icon: impl Into<Option<Icon>>) -> Self {
+        self.trailing_icon = icon.into();
         self
     }
 
@@ -114,17 +128,15 @@ impl TagChip {
                     custom_color.opacity(0.3),
                     custom_color,
                     custom_color,
-                    Some(
-                        Icon::new(IconName::Minus)
-                            .size_3()
-                            .text_color(custom_color),
-                    ),
+                    Some(Icon::new(IconName::Minus).size_3().text_color(custom_color)),
                     false,
                 ),
             }
         } else {
             match self.state {
-                TagChipState::Default => (theme.secondary, theme.foreground, theme.border, None, false),
+                TagChipState::Default => {
+                    (theme.secondary, theme.foreground, theme.border, None, false)
+                }
                 TagChipState::Active => (
                     theme.primary,
                     theme.primary_foreground,
@@ -176,28 +188,40 @@ impl RenderOnce for TagChip {
         let (bg_color, text_color, _border_color, state_icon, is_dimmed) = self.get_theme(theme);
         let on_click = self.on_click.clone();
         let leading_icon = state_icon.or(self.icon);
+        let is_clickable = on_click.is_some();
+        let height = if self.small { px(26.0) } else { px(34.0) };
 
         div()
             .id(self.id)
             .h_flex()
             .items_center()
             .gap_1p5()
-            .px_3()
-            .py_1()
+            .when_else(
+                self.small,
+                |this| this.px_2().py_0p5(),
+                |this| this.px_3().py_1(),
+            )
             .text_xs()
             // .border_1()
             // .border_color(border_color)
             .bg(bg_color)
             .text_color(text_color)
-            .h(px(34.0))
+            .h(height)
             .when_else(
                 self.squared,
                 |this| this.rounded_md(),
                 |this| this.rounded_full(),
             )
             .when(is_dimmed, |this| this.opacity(0.6))
+            .when(is_clickable, |this| this.cursor_pointer())
             .hover(|style| match self.state {
-                TagChipState::Active | TagChipState::Selected => style,
+                TagChipState::Active | TagChipState::Selected => {
+                    if is_clickable {
+                        style.opacity(0.85)
+                    } else {
+                        style
+                    }
+                }
                 TagChipState::NoneSelected => style.opacity(0.8).bg(theme.accent),
                 _ => style.bg(theme.accent),
             })
@@ -208,7 +232,7 @@ impl RenderOnce for TagChip {
             })
             .when_some(leading_icon, |this, icon| this.child(icon))
             .child(div().child(self.name))
-            .when_some(self.count, |this, cnt| {
+            .when_some(self.count, |this, count| {
                 let badge_bg = match self.state {
                     TagChipState::Active | TagChipState::Selected => theme.background.opacity(0.2),
                     _ => theme.background,
@@ -220,14 +244,18 @@ impl RenderOnce for TagChip {
 
                 this.child(
                     div()
+                        .flex()
+                        .justify_center()
+                        .w_7()
                         .px_1p5()
                         .py_0p5()
                         .rounded_full()
                         .text_xs()
                         .bg(badge_bg)
                         .text_color(badge_text)
-                        .child(cnt.to_string()),
+                        .child(count.to_string()),
                 )
             })
+            .when_some(self.trailing_icon, |this, icon| this.child(icon))
     }
 }

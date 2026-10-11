@@ -1,42 +1,49 @@
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::time::Duration;
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::*;
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use uuid::Uuid;
 
-use crate::components::item_grid_view::ItemGridView;
-use crate::components::item_list_view::ItemListView;
+use crate::AppState;
+use crate::components::collection_config_editor::{CollectionConfigEditor, ConfigEditorEvent};
+use crate::components::file_content_view::{FileContentEvent, FilePoolView};
 use crate::components::tag_batch_editor::TagBatchEditor;
-use crate::components::tag_filter_bar::TagFilterBar;
+use crate::components::tag_filter_bar::{TagFilterBar, TagFilterEvent};
 use crate::database::entities::collection;
 use crate::services::collection::{CollectionConfig, ViewOption};
-use crate::services::file::{self, FileInfo};
+use crate::services::file;
 use crate::services::importer;
 use crate::services::macrotag::MacroTag;
 use crate::services::tags_queryer::MtagService;
-use crate::{AppState, components};
+use crate::stores::AppStores;
+
+#[derive(Clone, Default)]
+pub enum BarMode {
+    #[default]
+    Normal,
+    BatchEditing,
+    Configuring(Entity<CollectionConfigEditor>),
+}
 
 pub struct GenericView {
-    pub collection_id: Option<Uuid>,
-    pub config: CollectionConfig,
-    pub title: SharedString,
-    pub icon: Option<SharedString>,
+    collection_id: Option<Uuid>,
+    config: CollectionConfig,
+    title: SharedString,
+    icon: Option<SharedString>,
     on_back: Option<Rc<dyn Fn(&mut Window, &mut App) + 'static>>,
 
-    pub file_list: Vec<FileInfo>,
-    scroll_handle: UniformListScrollHandle,
-    filter_bar: Entity<TagFilterBar>,
-    batch_editor: Option<Entity<TagBatchEditor>>,
-    last_editor_selection: HashSet<uuid::Uuid>,
+    stores: Option<AppStores>,
+    content_view: Entity<FilePoolView>,
+    filter_bar: TagFilterBar,
+    batch_editor: Entity<TagBatchEditor>,
+    bar_mode: BarMode,
     current_filter_tags: Vec<MacroTag>,
-    selected_files: HashSet<uuid::Uuid>,
-    last_select: Option<Uuid>,
     candidate_tags: Vec<MacroTag>,
     // for any working state
     working: bool,
@@ -47,6 +54,7 @@ impl GenericView {
     pub fn new(
         title: impl Into<SharedString>,
         config: CollectionConfig,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let base_query = MtagService::new()
@@ -55,50 +63,82 @@ impl GenericView {
             .unwrap_or_default();
 
         let is_empty_filter = config.filters.is_empty();
-        let filter_bar = cx.new(|cx| {
-            TagFilterBar::with_excluded_tags(
-                base_query,
-                config.filters.clone(),
-                is_empty_filter,
-                cx,
-            )
+        let filter_bar =
+            TagFilterBar::with_excluded_tags(base_query, config.filters.clone(), is_empty_filter);
+
+        let overall_entity = cx.entity().downgrade();
+        let batch_editor = cx.new(|cx| {
+            TagBatchEditor::new(window, cx)
+                .on_commit({
+                    let entity = overall_entity.clone();
+                    move |ensure, remove, window, cx| {
+                        if let Some(entity) = entity.upgrade() {
+                            let ensure = ensure.to_vec();
+                            let remove = remove.to_vec();
+                            entity.update(cx, |this, cx| {
+                                this.commit_tag_changes(ensure, remove, window, cx);
+                            });
+                        }
+                    }
+                })
+                .on_cancel({
+                    let entity = overall_entity.clone();
+                    move |_window, cx| {
+                        if let Some(entity) = entity.upgrade() {
+                            entity.update(cx, |this, cx| {
+                                this.clear_selection(cx);
+                            });
+                        }
+                    }
+                })
         });
+
+        let content_view = cx.new(|_cx| FilePoolView::new(config.view));
+        cx.subscribe(
+            &content_view,
+            |this, _view, event: &FileContentEvent, cx| match event {
+                FileContentEvent::SelectionChanged => {
+                    this.sync_batch_editor(cx);
+                }
+                FileContentEvent::DeleteRequested(ids) => {
+                    this.delete_files(ids, cx);
+                }
+                FileContentEvent::RefreshRequested => {
+                    this.reload_all(cx);
+                }
+            },
+        )
+        .detach();
 
         let mut view = Self {
             collection_id: None,
-            config,
+            config: config.clone(),
             title: title.into(),
             icon: None,
             on_back: None,
+            stores: None,
 
-            file_list: Vec::new(),
-            scroll_handle: UniformListScrollHandle::new(),
+            content_view,
             filter_bar,
-            batch_editor: None,
-            last_editor_selection: HashSet::new(),
+            batch_editor,
+            bar_mode: BarMode::Normal,
             current_filter_tags: Vec::new(),
-            selected_files: HashSet::new(),
-            last_select: None,
             candidate_tags: Vec::new(),
             working: false,
             enable_drag: false,
         };
 
-        let overall_entity = cx.entity().clone();
-        view.filter_bar.update(cx, |bar, _cx| {
-            bar.on_change(move |tags, _window, cx| {
-                overall_entity.update(cx, |this, cx| {
-                    this.apply_filter(tags.to_vec(), cx);
-                });
-            });
-        });
-
         view.reload_files(cx);
         view.reload_candidates(cx);
+        view.reload_filter_stats(cx);
         view
     }
 
-    pub fn from_collection(model: &collection::Model, cx: &mut Context<Self>) -> Self {
+    pub fn from_collection(
+        model: &collection::Model,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let config: CollectionConfig =
             serde_json::from_value(model.config.clone()).unwrap_or_default();
         let icon = if model.icon.is_empty() {
@@ -107,7 +147,7 @@ impl GenericView {
             Some(model.icon.clone().into())
         };
 
-        let mut view = Self::new(model.name.clone(), config, cx);
+        let mut view = Self::new(model.name.clone(), config, window, cx);
         view.icon = icon;
         view.collection_id = Some(model.id);
         view
@@ -115,6 +155,17 @@ impl GenericView {
 
     pub fn on_back(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_back = Some(Rc::new(handler));
+        self
+    }
+
+    pub fn stores(mut self, stores: AppStores, cx: &mut Context<Self>) -> Self {
+        cx.observe(&stores.tags, |this, tag_store, cx| {
+            this.candidate_tags = tag_store.read(cx).cached_tags.clone();
+            cx.notify();
+        })
+        .detach();
+        self.candidate_tags = stores.tags.read(cx).cached_tags.clone();
+        self.stores = Some(stores);
         self
     }
 
@@ -191,6 +242,9 @@ impl GenericView {
             ViewOption::Grid => ViewOption::List,
             ViewOption::List => ViewOption::Grid,
         };
+        self.content_view.update(cx, |view, cx| {
+            view.set_view_mode(self.config.view, cx);
+        });
         self.persist_config(cx);
         cx.notify();
     }
@@ -210,13 +264,15 @@ impl GenericView {
         }
     }
 
-    fn apply_filter(&mut self, tags: Vec<MacroTag>, cx: &mut Context<Self>) {
+    pub fn apply_filter(&mut self, tags: Vec<MacroTag>, cx: &mut Context<Self>) {
         if self.current_filter_tags == tags {
             return;
         }
 
         self.current_filter_tags = tags;
-        self.scroll_handle.scroll_to_item(0, ScrollStrategy::Top);
+        self.content_view.update(cx, |view, _cx| {
+            view.scroll_handle().scroll_to_item(0, ScrollStrategy::Top);
+        });
 
         self.reload_files(cx);
         cx.notify();
@@ -229,7 +285,9 @@ impl GenericView {
         let filter_tags = self.current_filter_tags.clone();
 
         if config_filters.is_empty() && filter_tags.is_empty() {
-            self.file_list.clear();
+            self.content_view.update(cx, |view, cx| {
+                view.set_files(Vec::new(), cx);
+            });
             cx.notify();
             return;
         }
@@ -248,7 +306,9 @@ impl GenericView {
 
             this.update(cx, |this, cx| {
                 if let Ok(files) = files_res {
-                    this.file_list = files;
+                    this.content_view.update(cx, |view, cx| {
+                        view.set_files(files, cx);
+                    });
                 }
                 cx.notify();
             })
@@ -257,14 +317,13 @@ impl GenericView {
         .detach();
     }
 
-    /// Position of a file inside the currently loaded and filtered list.
-    fn index_of(&self, file_id: Uuid) -> Option<usize> {
-        self.file_list
-            .iter()
-            .position(|item| item.file_id == file_id)
-    }
-
     pub fn reload_candidates(&mut self, cx: &mut Context<Self>) {
+        if let Some(stores) = &self.stores {
+            self.candidate_tags = stores.tags.read(cx).cached_tags.clone();
+            cx.notify();
+            return;
+        }
+
         if let Some(ref rule) = self.config.candidate_filter {
             let db = cx.global::<AppState>().db.clone();
             let rt = cx.global::<AppState>().rt.clone();
@@ -305,89 +364,253 @@ impl GenericView {
         self.reload_candidates(cx);
         let is_empty = self.config.filters.is_empty();
         let excluded = self.config.filters.clone();
-        self.filter_bar.update(cx, |bar, cx| {
-            bar.set_excluded_tags(excluded, is_empty, cx);
-        });
+        self.filter_bar.set_excluded_tags(excluded, is_empty);
+        self.reload_filter_stats(cx);
     }
 
-    fn handle_secondary_select(&mut self, file_id: Uuid, cx: &mut Context<Self>) {
-        if !self.selected_files.contains(&file_id) {
-            if let Some(editor) = &self.batch_editor {
-                if editor.read(cx).has_changes() {
-                    self.batch_editor = None;
-                }
-            }
-            self.selected_files.clear();
-            self.selected_files.insert(file_id);
-            self.last_select = Some(file_id);
-            cx.notify();
-        }
-    }
-
-    fn handle_file_select(
-        &mut self,
-        file_id: Uuid,
-        is_ctrl: bool,
-        is_shift: bool,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(editor) = &self.batch_editor {
-            if editor.read(cx).has_changes() {
-                self.batch_editor = None;
-            }
+    pub fn reload_filter_stats(&mut self, cx: &mut Context<Self>) {
+        if self.filter_bar.loading() {
+            return;
         }
 
-        if is_ctrl {
-            if self.selected_files.contains(&file_id) {
-                self.selected_files.remove(&file_id);
-            } else {
-                self.selected_files.insert(file_id);
-            }
-            self.last_select = Some(file_id);
+        if self.filter_bar.is_empty_filter() {
+            self.filter_bar.clear_stats();
             cx.notify();
             return;
         }
 
-        if is_shift {
-            let anchor = self.last_select;
-            let (from, to) = (
-                anchor.and_then(|a| self.index_of(a)),
-                self.index_of(file_id),
-            );
-            if let (Some(a), Some(b)) = (from, to) {
-                let (start, end) = (a.min(b), a.max(b));
-                self.selected_files.clear();
-                self.selected_files
-                    .extend(self.file_list[start..=end].iter().map(|item| item.file_id));
-                cx.notify();
-                return;
-            }
-        }
+        self.filter_bar.set_loading(true);
+        let db = cx.global::<AppState>().db.clone();
+        let rt = cx.global::<AppState>().rt.clone();
+        let query = self.filter_bar.base_query().clone();
 
-        // normal select
-        self.selected_files.clear();
-        self.selected_files.insert(file_id);
-        self.last_select = Some(file_id);
+        cx.spawn(async move |this, cx| {
+            let stats_res = cx
+                .background_spawn(async move { rt.block_on(query.query_stats(&db)) })
+                .await;
+
+            this.update(cx, |this, cx| {
+                this.filter_bar.set_loading(false);
+                if let Ok(stats) = stats_res {
+                    this.filter_bar.set_stats(
+                        stats.tags_summary,
+                        stats.untagged_files,
+                        stats.total_files,
+                    );
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub fn start_configuring(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.content_view.update(cx, |view, cx| {
+            view.clear_selection(cx);
+        });
+
+        let tag_store = self.stores.as_ref().map(|s| s.tags.clone());
+        let editor = cx.new(|cx| {
+            let mut ed = CollectionConfigEditor::new(
+                self.title.to_string(),
+                self.config.clone(),
+                window,
+                cx,
+            );
+            if let Some(tag_store) = tag_store {
+                ed = ed.tag_store(tag_store, cx);
+            }
+            ed
+        });
+
+        cx.subscribe(
+            &editor,
+            |this, editor, event: &ConfigEditorEvent, cx| match event {
+                ConfigEditorEvent::DraftChanged => {
+                    let filters = editor.read(cx).current_config().filters.clone();
+                    this.reload_draft_files(&filters, cx);
+                }
+                ConfigEditorEvent::CancelRequested => {
+                    this.cancel_configuration(cx);
+                }
+                ConfigEditorEvent::SaveRequested => {
+                    let name = editor.read(cx).current_name(cx);
+                    let config = editor.read(cx).current_config().clone();
+                    this.apply_saved_configuration(&name, &config, None, cx);
+                }
+            },
+        )
+        .detach();
+
+        self.bar_mode = BarMode::Configuring(editor);
+        let filters = self.config.filters.clone();
+        self.reload_draft_files(&filters, cx);
         cx.notify();
     }
 
-    /// Soft delete all currently selected files and reload.
-    pub fn delete_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.selected_files.is_empty() {
+    pub fn reload_draft_files(&mut self, filters: &[MacroTag], cx: &mut Context<Self>) {
+        let db = cx.global::<AppState>().db.clone();
+        let rt = cx.global::<AppState>().rt.clone();
+        let config_filters = filters.to_vec();
+
+        if config_filters.is_empty() {
+            self.content_view.update(cx, |view, cx| {
+                view.set_files(Vec::new(), cx);
+            });
+            cx.notify();
             return;
         }
 
-        let ids: Vec<Uuid> = self.selected_files.iter().copied().collect();
-        self.selected_files.clear();
-        self.last_select = None;
-        self.batch_editor = None;
-        self.last_editor_selection.clear();
+        cx.spawn(async move |this, cx| {
+            let files_res = cx
+                .background_spawn(async move {
+                    let query = MtagService::new().tags(&config_filters).build()?;
+                    rt.block_on(file::list_files(&db, &query))
+                })
+                .await;
+
+            this.update(cx, |this, cx| {
+                if let Ok(files) = files_res {
+                    this.content_view.update(cx, |view, cx| {
+                        view.set_files(files, cx);
+                    });
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub fn apply_saved_configuration(
+        &mut self,
+        new_name: &str,
+        new_config: &CollectionConfig,
+        window: Option<&mut Window>,
+        cx: &mut Context<Self>,
+    ) {
+        self.title = new_name.to_string().into();
+        self.config = new_config.clone();
+        self.content_view.update(cx, |view, cx| {
+            view.set_view_mode(self.config.view, cx);
+        });
+        self.bar_mode = BarMode::Normal;
+
+        if let Some(stores) = &self.stores {
+            if let Some(id) = self.collection_id {
+                stores.views.update(cx, |s, cx| {
+                    s.update_view(id, new_name, &self.config, cx);
+                });
+                stores.collections.update(cx, |s, cx| {
+                    s.update_collection(id, new_name, &self.config, cx);
+                });
+            }
+        } else if let Some(id) = self.collection_id {
+            let is_prefab = id == crate::app::EXPLORER_VIEW_ID || id == crate::app::PENDING_VIEW_ID;
+            if !is_prefab {
+                let db = cx.global::<AppState>().db.clone();
+                let rt = cx.global::<AppState>().rt.clone();
+                let name_to_save = new_name.to_string();
+                let config_val = serde_json::to_value(&self.config).unwrap_or_default();
+
+                cx.spawn(async move |_this, _cx| {
+                    let _ = rt.block_on(crate::database::storage::collection::update_metadata(
+                        &db,
+                        id,
+                        Some(name_to_save),
+                        None,
+                        None,
+                        None,
+                        None,
+                    ));
+                    let _ = rt.block_on(crate::database::storage::collection::update_config(
+                        &db, id, config_val,
+                    ));
+                })
+                .detach();
+            }
+        }
+
+        self.reload_all(cx);
+        if let Some(window) = window {
+            window.push_notification(Notification::new().message("合集配置已保存"), cx);
+        }
+        cx.notify();
+    }
+
+    pub fn cancel_configuration(&mut self, cx: &mut Context<Self>) {
+        self.bar_mode = BarMode::Normal;
+        self.reload_all(cx);
+        cx.notify();
+    }
+
+    pub fn clear_selection(&mut self, cx: &mut Context<Self>) {
+        self.content_view.update(cx, |view, cx| {
+            view.clear_selection(cx);
+        });
+        if !matches!(self.bar_mode, BarMode::Configuring(_)) {
+            self.bar_mode = BarMode::Normal;
+        }
+        cx.notify();
+    }
+
+    pub fn sync_batch_editor(&mut self, cx: &mut Context<Self>) {
+        if matches!(self.bar_mode, BarMode::Configuring(_)) {
+            return;
+        }
+
+        let selected_items = self.content_view.read(cx).selected_items();
+
+        if selected_items.is_empty() {
+            self.bar_mode = BarMode::Normal;
+            cx.notify();
+            return;
+        }
+
+        self.bar_mode = BarMode::BatchEditing;
+
+        let mut candidate_tags: Vec<MacroTag> = Vec::new();
+
+        if self.config.include_view_tags {
+            for s in self.filter_bar.tags_summary().iter().take(8) {
+                candidate_tags.push(MacroTag::standard(s.tag_id, s.name.clone()));
+            }
+        }
+
+        for tag in &self.candidate_tags {
+            if !candidate_tags.iter().any(|t| t == tag) {
+                candidate_tags.push(tag.clone());
+            }
+        }
+
+        let pinned_tags = self.config.pinned_tags.clone();
+
+        self.batch_editor.update(cx, |editor, cx| {
+            editor.set_selection(&selected_items, &candidate_tags, &pinned_tags, cx);
+        });
+
+        cx.notify();
+    }
+
+    pub fn delete_files(&mut self, ids: &[Uuid], cx: &mut Context<Self>) {
+        if ids.is_empty() {
+            return;
+        }
+
+        let ids = ids.to_vec();
+        self.content_view.update(cx, |view, cx| {
+            view.clear_selection(cx);
+        });
+        if !matches!(self.bar_mode, BarMode::Configuring(_)) {
+            self.bar_mode = BarMode::Normal;
+        }
 
         let db = cx.global::<AppState>().db.clone();
         let rt = cx.global::<AppState>().rt.clone();
         let now = chrono::Utc::now();
 
-        cx.spawn_in(window, async move |this, cx| {
+        cx.spawn(async move |this, cx| {
             let res = cx
                 .background_spawn(async move {
                     rt.block_on(crate::database::storage::file::mark_files_deleted(
@@ -407,76 +630,6 @@ impl GenericView {
         .detach();
     }
 
-    fn build_context_menu(
-        &self,
-        mut menu: PopupMenu,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> PopupMenu {
-        if let Some(file_id) = self.last_select {
-            if self.selected_files.len() > 1 && self.selected_files.contains(&file_id) {
-                let count = self.selected_files.len();
-                menu = menu.item(
-                    PopupMenuItem::new(format!("删除内容 ({count})"))
-                        .icon(IconName::Delete)
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.delete_selected(window, cx);
-                        })),
-                );
-            } else {
-                if let Some(file) = self.file_list.iter().find(|f| f.file_id == file_id) {
-                    let open_p = file.path.clone();
-                    let reveal_p = file.path.clone();
-                    let copy_p = file.path.clone();
-
-                    menu = menu
-                        .item(
-                            PopupMenuItem::new("打开")
-                                .icon(IconName::ExternalLink)
-                                .on_click(move |_, _, _| {
-                                    components::utils::open_path(&open_p);
-                                }),
-                        )
-                        .item(
-                            PopupMenuItem::new("在文件管理器中显示")
-                                .icon(IconName::Folder)
-                                .on_click(move |_, _, _| {
-                                    components::utils::reveal_in_file_manager(&reveal_p);
-                                }),
-                        )
-                        .separator()
-                        .item(
-                            PopupMenuItem::new("复制路径")
-                                .icon(IconName::Copy)
-                                .on_click(move |_, _, cx| {
-                                    cx.write_to_clipboard(ClipboardItem::new_string(
-                                        copy_p.clone(),
-                                    ));
-                                }),
-                        );
-                }
-
-                menu = menu.separator().item(
-                    PopupMenuItem::new("删除内容")
-                        .icon(IconName::Delete)
-                        .on_click(cx.listener(|this, _, w, cx| {
-                            this.delete_selected(w, cx);
-                        })),
-                );
-            }
-        } else {
-            menu = menu.item(
-                PopupMenuItem::new("刷新")
-                    .icon(IconName::RefreshCw)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.reload_all(cx);
-                    })),
-            );
-        }
-
-        menu
-    }
-
     fn commit_tag_changes(
         &mut self,
         ensure: Vec<MacroTag>,
@@ -486,7 +639,13 @@ impl GenericView {
     ) {
         let db = cx.global::<AppState>().db.clone();
         let rt = cx.global::<AppState>().rt.clone();
-        let file_ids: Vec<Uuid> = self.selected_files.iter().copied().collect();
+        let file_ids: Vec<Uuid> = self.content_view.read(cx).selected_ids();
+        self.content_view.update(cx, |view, cx| {
+            view.clear_selection(cx);
+        });
+        if !matches!(self.bar_mode, BarMode::Configuring(_)) {
+            self.bar_mode = BarMode::Normal;
+        }
 
         cx.spawn_in(window, async move |this, cx| {
             let res = cx
@@ -502,8 +661,6 @@ impl GenericView {
                 if let Err(e) = res {
                     tracing::error!("批量应用标签失败: {:#}", e);
                 }
-                this.selected_files.clear();
-                this.last_editor_selection.clear();
                 this.reload_all(cx);
             })
             .ok();
@@ -513,244 +670,188 @@ impl GenericView {
 }
 
 impl Render for GenericView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let menu_entity = cx.entity().clone();
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let configuring_editor = match &self.bar_mode {
+            BarMode::Configuring(editor) => Some(editor.clone()),
+            _ => None,
+        };
 
-        let mut title_bar = div().h_flex().items_center().gap_2();
-        if let Some(on_back) = &self.on_back {
-            let on_back = on_back.clone();
-            title_bar = title_bar.child(
-                Button::new("scope-back")
-                    .ghost()
-                    .small()
-                    .icon(IconName::ChevronLeft)
-                    .on_click(move |_, window, cx| {
-                        on_back(window, cx);
-                    }),
-            );
-        }
-        let is_list = matches!(self.config.view, ViewOption::List);
-        title_bar = title_bar
-            .child(div().text_xl().font_bold().child(self.title.clone()))
+        let secondary_bar = match &self.bar_mode {
+            BarMode::Normal => {
+                if self.config.is_hide_tagbar {
+                    None
+                } else {
+                    Some(
+                        self.filter_bar
+                            .render(cx.processor(|this, event, _window, cx| {
+                                match event {
+                                    TagFilterEvent::All => this.filter_bar.select_all(),
+                                    TagFilterEvent::Untagged => this.filter_bar.toggle_untagged(),
+                                    TagFilterEvent::Tag(tag) => this.filter_bar.toggle_tag(&tag),
+                                }
+                                let current_tags = this.filter_bar.current_tags();
+                                this.apply_filter(current_tags, cx);
+                            })),
+                    )
+                }
+            }
+            BarMode::BatchEditing => Some(self.batch_editor.clone().into_any_element()),
+            BarMode::Configuring(_) => None,
+        };
+
+        let title_bar = div()
+            .h_flex()
+            .justify_between()
+            .items_center()
+            .px_6()
             .child(
-                Button::new("refresh")
-                    .icon(IconName::RefreshCw)
-                    .on_click(cx.listener(|this, _, _, cx| this.reload_all(cx))),
+                div()
+                    .h_flex()
+                    .items_center()
+                    .gap_2()
+                    .when_some(self.on_back.as_ref(), |this, on_back| {
+                        let on_back = on_back.clone();
+                        this.child(
+                            Button::new("scope-back")
+                                .ghost()
+                                .small()
+                                .icon(IconName::ChevronLeft)
+                                .on_click(move |_, window, cx| {
+                                    on_back(window, cx);
+                                }),
+                        )
+                    })
+                    .child(div().text_xl().font_bold().child(self.title.clone())),
             )
             .child(
-                Button::new("view-toggle")
-                    .icon(if is_list {
-                        IconName::LayoutGrid
-                    } else {
-                        IconName::List
+                div()
+                    .h_flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        Button::new("refresh")
+                            .icon(IconName::RefreshCw)
+                            .on_click(cx.listener(|this, _, _, cx| this.reload_all(cx))),
+                    )
+                    .child(
+                        Button::new("view-toggle")
+                            .icon(if matches!(self.config.view, ViewOption::List) {
+                                IconName::LayoutGrid
+                            } else {
+                                IconName::List
+                            })
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.toggle_view(cx);
+                            })),
+                    )
+                    .when_some(configuring_editor.as_ref(), |this, editor| {
+                        let editor = editor.clone();
+                        this.child(
+                            Button::new("config-save")
+                                .primary()
+                                .icon(IconName::Check)
+                                .on_click(cx.listener({
+                                    let editor = editor.clone();
+                                    move |this, _, window, cx| {
+                                        let name = editor.read(cx).current_name(cx);
+                                        let config = editor.read(cx).current_config().clone();
+                                        this.apply_saved_configuration(
+                                            &name,
+                                            &config,
+                                            Some(window),
+                                            cx,
+                                        );
+                                    }
+                                })),
+                            // Button::new("config-toggle")
+                            //     .primary()
+                            //     .icon(IconName::SlidersHorizontal)
+                            //     .on_click(cx.listener(|this, _, _, cx| {
+                            //         this.cancel_configuration(cx);
+                            //     })),
+                        )
                     })
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_view(cx))),
+                    .when_none(&configuring_editor, |this| {
+                        this.child(
+                            Button::new("config-toggle")
+                                .icon(IconName::SlidersHorizontal)
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.start_configuring(window, cx);
+                                })),
+                        )
+                    }),
             );
 
         div()
             .id("explorer-main")
+            .bg(cx.theme().muted)
+            .overflow_hidden()
             .v_flex()
             .size_full()
             .gap_3()
-            .p_6()
-            .pb_0()
-            .pr_0()
             .on_click(cx.listener(|this, _, _window, cx| {
-                if let Some(editor) = &this.batch_editor {
-                    let has_changes = editor.read(cx).has_changes();
-                    if has_changes {
-                        this.batch_editor = None;
-                    }
-                }
-                this.last_select = None;
-                this.selected_files.clear();
+                this.clear_selection(cx);
             }))
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(|this, _, _window, cx| {
-                    if let Some(editor) = &this.batch_editor {
-                        let has_changes = editor.read(cx).has_changes();
-                        if has_changes {
-                            this.batch_editor = None;
-                        }
-                    }
-                    this.last_select = None;
-                    this.selected_files.clear();
+                    this.clear_selection(cx);
                 }),
             )
             .on_drop(cx.listener(|this, e: &ExternalPaths, w, cx| {
                 this.handle_drag(w, e.paths().to_vec(), cx);
             }))
-            .context_menu({
-                let menu_entity = menu_entity.clone();
-                move |menu, window, cx| {
-                    menu_entity.update(cx, |this, cx| this.build_context_menu(menu, window, cx))
-                }
+            .when_some(configuring_editor.as_ref(), |this, editor| {
+                this.child(
+                    div()
+                        .w_full()
+                        .flex_shrink_0()
+                        .overflow_hidden()
+                        .with_animation(
+                            "config-editor-slide",
+                            Animation::new(Duration::from_millis(300))
+                                .with_easing(ease_out_quint()),
+                            |this, delta| {
+                                if delta < 1.0 {
+                                    this.max_h(px(delta * 400.0)).opacity(delta)
+                                } else {
+                                    this.opacity(1.0)
+                                }
+                            },
+                        )
+                        .child(editor.clone().into_any_element()),
+                )
             })
             .child(
                 div()
-                    .id("explorer-top-bar")
-                    .on_click(|_, _, cx| cx.stop_propagation())
-                    .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
-                    .v_flex()
-                    .gap_4()
-                    .child(title_bar)
-                    .child(if self.selected_files.is_empty() {
-                        self.batch_editor = None;
-                        self.last_editor_selection.clear();
-                        if self.config.is_hide_tagbar {
-                            div().into_any_element()
-                        } else {
-                            self.filter_bar.clone().into_any_element()
-                        }
-                    } else {
-                        if self.last_editor_selection != self.selected_files {
-                            self.last_editor_selection = self.selected_files.clone();
-                            self.batch_editor = None;
-                        }
-
-                        let selected_items: Vec<FileInfo> = self
-                            .file_list
-                            .iter()
-                            .filter(|f| self.selected_files.contains(&f.file_id))
-                            .cloned()
-                            .collect();
-
-                        let mut candidate_tags: Vec<MacroTag> = Vec::new();
-
-                        if self.config.include_view_tags {
-                            for s in self.filter_bar.read(cx).tags_summary().iter().take(8) {
-                                candidate_tags.push(MacroTag::standard(s.tag_id, s.name.clone()));
-                            }
-                        }
-
-                        for tag in &self.candidate_tags {
-                            if !candidate_tags.iter().any(|t| t == tag) {
-                                candidate_tags.push(tag.clone());
-                            }
-                        }
-
-                        let pinned_tags = self.config.pinned_tags.clone();
-                        let editor = self.batch_editor.get_or_insert_with(|| {
-                            let overall_entity = cx.entity().clone();
-                            cx.new(|cx| {
-                                let mut editor = TagBatchEditor::new(
-                                    &selected_items,
-                                    &candidate_tags,
-                                    &pinned_tags,
-                                    window,
-                                    cx,
-                                );
-
-                                let entity = overall_entity.clone();
-                                editor.on_commit(move |ensure, remove, window, cx| {
-                                    let ensure = ensure.to_vec();
-                                    let remove = remove.to_vec();
-                                    entity.update(cx, |this, cx| {
-                                        this.commit_tag_changes(ensure, remove, window, cx);
-                                    });
-                                });
-
-                                let entity = overall_entity.clone();
-                                editor.on_cancel(move |_window, cx| {
-                                    entity.update(cx, |this, cx| {
-                                        this.selected_files.clear();
-                                        this.batch_editor = None;
-                                        this.last_editor_selection.clear();
-                                        cx.notify();
-                                    });
-                                });
-
-                                editor
-                            })
-                        });
-
-                        editor.clone().into_any_element()
-                    }),
-            )
-            .child(match self.config.view {
-                ViewOption::List => {
-                    let entity = cx.entity().clone();
-                    let sec_entity = cx.entity().clone();
-
-                    ItemListView::new("file-list", self.file_list.clone())
-                        .selected_files(self.selected_files.clone())
-                        .scroll_handle(&self.scroll_handle)
-                        .empty_placeholder("当前筛选下暂无匹配文件")
-                        .on_select(move |file_id, is_ctrl, is_shift, _window, cx| {
-                            entity.update(cx, |this, cx| {
-                                this.handle_file_select(file_id, is_ctrl, is_shift, cx);
-                            });
-                        })
-                        .on_secondary_select(move |file_id, _window, cx| {
-                            sec_entity.update(cx, |this, cx| {
-                                this.handle_secondary_select(file_id, cx);
-                            });
-                        })
-                        .on_open(|path, _window, _cx| {
-                            components::utils::open_path(path);
-                        })
-                        .into_any_element()
-                }
-                ViewOption::Grid => {
-                    let selected_files = self.selected_files.clone();
-                    let entity = cx.entity().clone();
-
-                    ItemGridView::new(
-                        "file-grid",
-                        self.file_list.clone(),
-                        move |item, _idx, _window, _cx| {
-                            let extension = item
-                                .ext
-                                .as_deref()
-                                .unwrap_or_else(|| item.mime.split('/').nth(1).unwrap_or("file"))
-                                .to_uppercase();
-                            let file_id = item.file_id;
-                            let is_selected = selected_files.contains(&file_id);
-                            let file_path = SharedString::new(item.path.as_str());
-                            let path_open = file_path.clone();
-                            let hash = SharedString::new(item.hash.as_str());
-                            let mime = SharedString::new(item.mime.as_str());
-
-                            let select_entity = entity.clone();
-                            let sec_entity = entity.clone();
-
-                            components::file_card::FileCard::new(
-                                ElementId::Name(format!("file-card-{file_id}").into()),
-                                SharedString::new(item.file_name.as_str()),
-                                extension,
-                                item.size,
-                            )
-                            .path(file_path)
-                            .hash(hash)
-                            .mime(mime)
-                            .selected(is_selected)
-                            .on_click(move |_, window, cx| {
-                                cx.stop_propagation();
-                                let modifiers = window.modifiers();
-                                let is_ctrl = modifiers.control || modifiers.platform;
-                                let is_shift = modifiers.shift;
-
-                                select_entity.update(cx, |this, cx| {
-                                    this.handle_file_select(file_id, is_ctrl, is_shift, cx);
-                                });
-                            })
-                            .on_secondary_click(move |_window, cx| {
-                                sec_entity.update(cx, |this, cx| {
-                                    this.handle_secondary_select(file_id, cx);
-                                });
-                            })
-                            .on_double_click(move |_, _, _| {
-                                components::utils::open_path(&path_open);
-                            })
-                            .into_any_element()
-                        },
+                    .w_full()
+                    .flex_1()
+                    .min_h_0()
+                    .bg(cx.theme().background)
+                    .when(configuring_editor.is_some(), |this| {
+                        this.rounded_t_3xl().shadow_xl()
+                    })
+                    .child(
+                        div()
+                            .id("explorer-top-bar")
+                            .v_flex()
+                            .gap_4()
+                            .pt_6()
+                            .child(title_bar)
+                            .w_full()
+                            .min_w_0()
+                            .when_some(secondary_bar, |this, bar| this.child(bar)),
                     )
-                    .scroll_handle(&self.scroll_handle)
-                    .empty_placeholder("当前筛选下暂无匹配文件")
-                    .into_any_element()
-                }
-            })
+                    .child(
+                        div()
+                            .id("explorer-content")
+                            .size_full()
+                            .pl_3()
+                            .overflow_hidden()
+                            .child(self.content_view.clone()),
+                    ),
+            )
             .into_any_element()
     }
 }

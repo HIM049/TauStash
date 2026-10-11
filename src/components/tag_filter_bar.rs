@@ -1,15 +1,19 @@
 use std::collections::HashSet;
 use std::rc::Rc;
 
-use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::*;
 use gpui_kit::*;
-use uuid::Uuid;
 
-use crate::AppState;
 use crate::components::tag_chip::{TagChip, TagChipState};
 use crate::database::storage::query::{FileQueryer, TagFacetItem};
 use crate::services::MacroTag;
+
+#[derive(Clone, Debug)]
+pub enum TagFilterEvent {
+    All,
+    Untagged,
+    Tag(MacroTag),
+}
 
 pub struct TagFilterBar {
     base_query: FileQueryer,
@@ -21,21 +25,19 @@ pub struct TagFilterBar {
     loading: bool,
 
     active_tags: HashSet<MacroTag>,
-    on_change: Option<Rc<dyn Fn(&[MacroTag], &mut Window, &mut App) + 'static>>,
 }
 
 impl TagFilterBar {
-    pub fn new(base_query: FileQueryer, cx: &mut Context<Self>) -> Self {
-        Self::with_excluded_tags(base_query, Vec::new(), false, cx)
+    pub fn new(base_query: FileQueryer) -> Self {
+        Self::with_excluded_tags(base_query, Vec::new(), false)
     }
 
     pub fn with_excluded_tags(
         base_query: FileQueryer,
         excluded_tags: impl IntoIterator<Item = MacroTag>,
         is_empty_filter: bool,
-        cx: &mut Context<Self>,
     ) -> Self {
-        let mut bar = Self {
+        Self {
             base_query,
             excluded_tags: excluded_tags.into_iter().collect(),
             is_empty_filter,
@@ -44,125 +46,96 @@ impl TagFilterBar {
             untagged_files_count: 0,
             loading: false,
             active_tags: HashSet::new(),
-            on_change: None,
-        };
-        bar.reload_stats(cx);
-        bar
+        }
     }
 
-    pub fn on_change(&mut self, handler: impl Fn(&[MacroTag], &mut Window, &mut App) + 'static) {
-        self.on_change = Some(Rc::new(handler));
+    pub fn base_query(&self) -> &FileQueryer {
+        &self.base_query
+    }
+
+    pub fn is_empty_filter(&self) -> bool {
+        self.is_empty_filter
+    }
+
+    pub fn loading(&self) -> bool {
+        self.loading
+    }
+
+    pub fn set_loading(&mut self, loading: bool) {
+        self.loading = loading;
+    }
+
+    pub fn set_stats(
+        &mut self,
+        tags_summary: Vec<TagFacetItem>,
+        untagged_files_count: usize,
+        total_files_count: usize,
+    ) {
+        self.tags_summary = tags_summary;
+        self.untagged_files_count = untagged_files_count;
+        self.total_files_count = total_files_count;
+    }
+
+    pub fn clear_stats(&mut self) {
+        self.tags_summary.clear();
+        self.untagged_files_count = 0;
+        self.total_files_count = 0;
+        self.loading = false;
     }
 
     pub fn current_tags(&self) -> Vec<MacroTag> {
         self.active_tags.iter().cloned().collect()
     }
 
-    pub fn set_base_query(&mut self, base_query: FileQueryer, cx: &mut Context<Self>) {
+    pub fn set_base_query(&mut self, base_query: FileQueryer) {
         self.base_query = base_query;
-        self.reload_stats(cx);
     }
 
     pub fn set_excluded_tags(
         &mut self,
         tags: impl IntoIterator<Item = MacroTag>,
         is_empty_filter: bool,
-        cx: &mut Context<Self>,
     ) {
         self.excluded_tags = tags.into_iter().collect();
         self.is_empty_filter = is_empty_filter;
-        self.reload_stats(cx);
     }
 
     pub fn tags_summary(&self) -> &[TagFacetItem] {
         &self.tags_summary
     }
 
-    pub fn reload_stats(&mut self, cx: &mut Context<Self>) {
-        if self.loading {
-            return;
-        }
-
-        if self.is_empty_filter {
-            self.tags_summary.clear();
-            self.total_files_count = 0;
-            self.untagged_files_count = 0;
-            self.loading = false;
-            cx.notify();
-            return;
-        }
-
-        self.loading = true;
-
-        let db = cx.global::<AppState>().db.clone();
-        let rt = cx.global::<AppState>().rt.clone();
-        let query = self.base_query.clone();
-
-        cx.spawn(async move |this, cx| {
-            let stats_res = cx
-                .background_spawn(async move { rt.block_on(query.query_stats(&db)) })
-                .await;
-
-            this.update(cx, |this, cx| {
-                this.loading = false;
-                if let Ok(stats) = stats_res {
-                    this.tags_summary = stats.tags_summary;
-                    this.untagged_files_count = stats.untagged_files;
-                    this.total_files_count = stats.total_files;
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-    }
-
-    fn select_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn select_all(&mut self) {
         self.active_tags.clear();
-        cx.notify();
-        self.notify_change(window, cx);
     }
 
-    fn toggle_untagged(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn toggle_untagged(&mut self) {
         if self.active_tags.contains(&MacroTag::Untagged) {
             self.active_tags.remove(&MacroTag::Untagged);
         } else {
             self.active_tags.clear();
             self.active_tags.insert(MacroTag::Untagged);
         }
-
-        cx.notify();
-        self.notify_change(window, cx);
     }
 
-    fn toggle_tag(&mut self, tag_id: Uuid, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn toggle_tag(&mut self, tag: &MacroTag) {
         self.active_tags.remove(&MacroTag::Untagged);
 
-        let tag = MacroTag::standard(tag_id, name);
-        if self.active_tags.contains(&tag) {
-            self.active_tags.remove(&tag);
+        if self.active_tags.contains(tag) {
+            self.active_tags.remove(tag);
         } else {
-            self.active_tags.insert(tag);
-        }
-
-        cx.notify();
-        self.notify_change(window, cx);
-    }
-
-    fn notify_change(&self, window: &mut Window, cx: &mut App) {
-        if let Some(ref cb) = self.on_change {
-            let cb = cb.clone();
-            let tags = self.current_tags();
-            cb(&tags, window, cx);
+            self.active_tags.insert(tag.clone());
         }
     }
-}
 
-impl Render for TagFilterBar {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    /// Renders the filter bar with a decoupled toggle callback.
+    pub fn render(
+        &self,
+        on_toggle: impl Fn(TagFilterEvent, &mut Window, &mut App) + 'static,
+    ) -> AnyElement {
         let is_all = self.active_tags.is_empty();
         let is_untagged = self.active_tags.contains(&MacroTag::Untagged);
 
+        let on_toggle = Rc::new(on_toggle);
         let mut chips = Vec::with_capacity(self.tags_summary.len() + 2);
 
         let chip = TagChip::new("tag-filter-all", "全部")
@@ -172,9 +145,13 @@ impl Render for TagFilterBar {
             } else {
                 TagChipState::Default
             })
-            .on_click(cx.listener(|this, _ev, window, cx| {
-                this.select_all(window, cx);
-            }));
+            .on_click({
+                let on_toggle = on_toggle.clone();
+                move |_, window, cx| {
+                    cx.stop_propagation();
+                    on_toggle(TagFilterEvent::All, window, cx);
+                }
+            });
         chips.push(chip.into_any_element());
 
         if !self.excluded_tags.contains(&MacroTag::Untagged) {
@@ -185,15 +162,20 @@ impl Render for TagFilterBar {
                 } else {
                     TagChipState::Default
                 })
-                .on_click(cx.listener(|this, _ev, window, cx| {
-                    this.toggle_untagged(window, cx);
-                }));
+                .on_click({
+                    let on_toggle = on_toggle.clone();
+                    move |_, window, cx| {
+                        cx.stop_propagation();
+                        on_toggle(TagFilterEvent::Untagged, window, cx);
+                    }
+                });
             chips.push(chip.into_any_element());
         }
 
         for item in &self.tags_summary {
             let tag_id = item.tag_id;
             let tag_name = item.name.clone();
+            let macro_tag = MacroTag::standard(tag_id, &tag_name);
             if self.excluded_tags.contains(&MacroTag::standard_id(tag_id)) {
                 continue;
             }
@@ -207,20 +189,29 @@ impl Render for TagFilterBar {
                 } else {
                     TagChipState::Default
                 })
-                .on_click(cx.listener(move |this, _ev, window, cx| {
-                    this.toggle_tag(tag_id, &tag_name, window, cx);
-                }));
+                .on_click({
+                    let on_toggle = on_toggle.clone();
+                    let macro_tag = macro_tag.clone();
+                    move |_, window, cx| {
+                        cx.stop_propagation();
+                        on_toggle(TagFilterEvent::Tag(macro_tag.clone()), window, cx);
+                    }
+                });
 
             chips.push(chip.into_any_element());
         }
 
         div()
+            .id("filter-bar")
             .h_flex()
             .items_center()
             .gap_2()
             .w_full()
-            .overflow_x_scrollbar()
+            .min_h(px(34.0))
+            .overflow_x_scroll()
             .py_1()
+            .px_6()
             .children(chips)
+            .into_any_element()
     }
 }

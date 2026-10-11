@@ -8,6 +8,7 @@ use tracing_subscriber::{EnvFilter, fmt, prelude::*, registry};
 
 mod app;
 mod components;
+mod stores;
 mod views;
 use app::MyApp;
 
@@ -50,7 +51,7 @@ fn main() {
 
         cx.set_global(global);
         let window_bounds =
-            WindowBounds::Windowed(Bounds::centered(None, size(px(980.0), px(780.0)), cx));
+            WindowBounds::Windowed(Bounds::centered(None, size(px(970.0), px(780.0)), cx));
 
         cx.bind_keys([KeyBinding::new("ctrl", Select, None)]);
         cx.bind_keys([KeyBinding::new("shift", BatchSelect, None)]);

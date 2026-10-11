@@ -333,6 +333,7 @@ impl Render for ScannerView {
 
         div()
             .id("scanner-main")
+            .bg(cx.theme().background)
             .on_drop(cx.listener(Self::handle_drag))
             .v_flex()
             .size_full()

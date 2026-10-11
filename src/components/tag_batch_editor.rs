@@ -4,7 +4,6 @@ use std::rc::Rc;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Enter, Escape, Input, InputState};
-use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
@@ -45,14 +44,42 @@ pub struct TagBatchEditor {
 }
 
 impl TagBatchEditor {
-    pub fn new(
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let input_state = cx.new(|cx| InputState::new(window, cx).placeholder("输入标签名称"));
+
+        Self {
+            focus_handle: cx.focus_handle(),
+            selected_count: 0,
+            tracked_items: Vec::new(),
+            is_adding: false,
+            input_state,
+            on_commit: None,
+            on_cancel: None,
+        }
+    }
+
+    pub fn on_commit(
+        mut self,
+        handler: impl Fn(&[MacroTag], &[MacroTag], &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_commit = Some(Rc::new(handler));
+        self
+    }
+
+    pub fn on_cancel(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_cancel = Some(Rc::new(handler));
+        self
+    }
+
+    pub fn set_selection(
+        &mut self,
         selected_files: &[FileInfo],
         candidate_tags: &[MacroTag],
         pinned_tags: &[MacroTag],
-        window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> Self {
+    ) {
         let total = selected_files.len();
+        self.selected_count = total;
         let mut tracked_items: Vec<TrackedBatchItem> = Vec::new();
 
         // Process pinned tags
@@ -116,28 +143,9 @@ impl TagBatchEditor {
             }
         }
 
-        let input_state = cx.new(|cx| InputState::new(window, cx).placeholder("输入标签名称"));
-
-        Self {
-            focus_handle: cx.focus_handle(),
-            selected_count: total,
-            tracked_items,
-            is_adding: false,
-            input_state,
-            on_commit: None,
-            on_cancel: None,
-        }
-    }
-
-    pub fn on_commit(
-        &mut self,
-        handler: impl Fn(&[MacroTag], &[MacroTag], &mut Window, &mut App) + 'static,
-    ) {
-        self.on_commit = Some(Rc::new(handler));
-    }
-
-    pub fn on_cancel(&mut self, handler: impl Fn(&mut Window, &mut App) + 'static) {
-        self.on_cancel = Some(Rc::new(handler));
+        self.tracked_items = tracked_items;
+        self.is_adding = false;
+        cx.notify();
     }
 
     pub fn focus(&self, window: &mut Window, cx: &mut App) {
@@ -239,7 +247,9 @@ impl TagBatchEditor {
                 });
             }
         }
-        self.input_state = cx.new(|cx| InputState::new(window, cx).placeholder("输入标签名称"));
+        self.input_state.update(cx, |input, cx| {
+            input.set_value("", window, cx);
+        });
         self.is_adding = false;
         cx.notify();
     }
@@ -313,19 +323,20 @@ impl Render for TagBatchEditor {
             .items_center()
             .justify_between()
             .w_full()
-            .px_3()
+            // .px_6()
             .py_1()
             .gap_2()
             .bg(theme.accent.opacity(0.08))
-            .border_t_1()
             .border_color(theme.border)
+            .min_h(px(34.0))
+            .overflow_x_scroll()
             .child(
                 div()
                     .h_flex()
                     .items_center()
                     .gap_2()
                     .flex_1()
-                    .overflow_x_scrollbar()
+                    .pl_6()
                     .children(chips)
                     .child(
                         div()
@@ -347,8 +358,9 @@ impl Render for TagBatchEditor {
                                     Button::new("add-tag-btn")
                                         .icon(IconName::Plus)
                                         .ghost()
-                                        .xsmall()
+                                        .rounded_full()
                                         .on_click(cx.listener(|this, _ev, window, cx| {
+                                            cx.stop_propagation();
                                             this.is_adding = true;
                                             this.input_state.update(cx, |input, cx| {
                                                 input.focus(window, cx);
@@ -365,25 +377,24 @@ impl Render for TagBatchEditor {
                     .items_center()
                     .gap_1()
                     .flex_shrink_0()
-                    .child(
-                        Button::new("cancel-batch-btn")
-                            .label("取消")
-                            .ghost()
-                            .small()
-                            .on_click(cx.listener(|this, _ev, window, cx| {
-                                this.cancel(window, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("apply-batch-btn")
-                            .label("应用")
-                            .primary()
-                            .small()
-                            .disabled(!has_changes)
-                            .on_click(cx.listener(|this, _ev, window, cx| {
-                                this.commit(window, cx);
-                            })),
-                    ),
+                    // .child(
+                    //     Button::new("cancel-batch-btn")
+                    //         .label("取消")
+                    //         .ghost()
+                    //         .on_click(cx.listener(|this, _ev, window, cx| {
+                    //             this.cancel(window, cx);
+                    //         })),
+                    // )
+                    .when(has_changes, |this| {
+                        this.child(
+                            Button::new("apply-batch-btn")
+                                .primary()
+                                .icon(IconName::Check)
+                                .on_click(cx.listener(|this, _ev, window, cx| {
+                                    this.commit(window, cx);
+                                })),
+                        )
+                    }),
             )
     }
 }

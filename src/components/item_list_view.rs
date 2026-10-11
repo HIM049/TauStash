@@ -12,7 +12,7 @@ use crate::services::file::FileInfo;
 
 const ROW_HEIGHT: f32 = 36.0;
 
-pub type FileListSelectListener = Rc<dyn Fn(Uuid, bool, bool, &mut Window, &mut App) + 'static>;
+pub type FileListSelectListener = Rc<dyn Fn((Uuid, bool, bool), &mut Window, &mut App) + 'static>;
 pub type FileListActionHandler = Rc<dyn Fn(Uuid, &mut Window, &mut App) + 'static>;
 pub type FileListOpenHandler = Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>;
 
@@ -60,7 +60,7 @@ impl ItemListView {
 
     pub fn on_select(
         mut self,
-        listener: impl Fn(Uuid, bool, bool, &mut Window, &mut App) + 'static,
+        listener: impl Fn((Uuid, bool, bool), &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_select = Some(Rc::new(listener));
         self
@@ -210,11 +210,11 @@ impl RenderOnce for ItemListView {
                                         dbl(&path, window, cx);
                                     }
                                 } else if event.click_count() == 1 {
-                                    if let Some(ref sel) = select {
+                                    if let Some(ref select) = select {
                                         let modifiers = window.modifiers();
                                         let is_ctrl = modifiers.control || modifiers.platform;
                                         let is_shift = modifiers.shift;
-                                        sel(file_id, is_ctrl, is_shift, window, cx);
+                                        select((file_id, is_ctrl, is_shift), window, cx);
                                     }
                                 }
                             },
