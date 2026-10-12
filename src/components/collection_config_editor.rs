@@ -1,5 +1,5 @@
 use gpui_kit::assets::IconName;
-use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants};
 use gpui_kit::component::input::{Enter, Escape, Input, InputEvent, InputState};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder;
@@ -206,13 +206,18 @@ impl Render for CollectionConfigEditor {
 
         let can_create_new = !search_query.is_empty() && !is_query_in_results;
 
+        let btn_variant = ButtonCustomVariant::new(cx)
+            .color(cx.theme().transparent)
+            .foreground(cx.theme().muted_foreground)
+            .hover(cx.theme().muted.darken(0.05))
+            .active(cx.theme().muted.darken(0.10));
+
         div()
             .id("collection-config-editor")
             .v_flex()
-            .gap_4()
-            .px_6()
+            .gap_2()
+            // .px_6()
             .py_3()
-            // .bg(theme.background.darken(0.02))
             .on_action(cx.listener(|_this, _: &Escape, _window, cx| {
                 cx.stop_propagation();
                 cx.emit(ConfigEditorEvent::CancelRequested);
@@ -221,94 +226,82 @@ impl Render for CollectionConfigEditor {
                 div()
                     .h_flex()
                     .items_center()
-                    .justify_between()
-                    .child(div().text_xl().font_bold().child("视图属性编辑")),
-                // .child(
-                //     div()
-                //         .h_flex()
-                //         .items_center()
-                //         .gap_2()
-                //         .child(
-                //             Button::new("cfg-editor-cancel")
-                //                 .ghost()
-                //                 .icon(IconName::Close)
-                //                 .on_click(cx.listener(|_this, _, _window, cx| {
-                //                     cx.emit(ConfigEditorEvent::CancelRequested);
-                //                 })),
-                //         )
-                //         .child(
-                //             Button::new("cfg-editor-save")
-                //                 .primary()
-                //                 .icon(IconName::Check)
-                //                 .on_click(cx.listener(|_this, _, _window, cx| {
-                //                     cx.emit(ConfigEditorEvent::SaveRequested);
-                //                 })),
-                //         ),
-                // ),
-            )
-            .child(
-                div()
-                    .h_flex()
-                    .items_center()
-                    .gap_3()
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_medium()
-                            .text_color(theme.foreground)
-                            .child("名称:"),
-                    )
-                    .child(
-                        div()
-                            .w(px(240.0))
-                            .child(Input::new(&self.name_input).small()),
-                    ),
-            )
-            .child(
-                div()
-                    .h_flex()
-                    .items_center()
+                    .px_3()
                     .gap_2()
                     .child(
-                        div()
-                            .text_sm()
-                            .font_medium()
-                            .text_color(theme.foreground)
-                            .child("默认视图:"),
-                    )
-                    .child(
-                        Button::new("cfg-view-grid")
-                            .icon(IconName::LayoutGrid)
-                            .small()
-                            .when(self.draft_config.view == ViewOption::Grid, |b| {
-                                b.secondary()
-                            })
-                            .when(self.draft_config.view != ViewOption::Grid, |b| b.ghost())
-                            .on_click(cx.listener(|this, _, _window, cx| {
-                                this.draft_config.view = ViewOption::Grid;
-                                cx.emit(ConfigEditorEvent::DraftChanged);
-                                cx.notify();
+                        Button::new("scope-back")
+                            .custom(btn_variant)
+                            .icon(IconName::Close)
+                            .on_click(cx.listener(|_this, _, _window, cx| {
+                                cx.emit(ConfigEditorEvent::CancelRequested);
                             })),
                     )
-                    .child(
-                        Button::new("cfg-view-list")
-                            .icon(IconName::List)
-                            .small()
-                            .when(self.draft_config.view == ViewOption::List, |b| {
-                                b.secondary()
-                            })
-                            .when(self.draft_config.view != ViewOption::List, |b| b.ghost())
-                            .on_click(cx.listener(|this, _, _window, cx| {
-                                this.draft_config.view = ViewOption::List;
-                                cx.emit(ConfigEditorEvent::DraftChanged);
-                                cx.notify();
-                            })),
-                    ),
+                    .child(div().text_xl().font_bold().child("视图属性编辑")),
             )
             .child(
                 div()
+                    .px_6()
                     .v_flex()
                     .gap_2()
+                    .child(
+                        div()
+                            .h_flex()
+                            .items_center()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_medium()
+                                    .text_color(theme.foreground)
+                                    .child("名称:"),
+                            )
+                            .child(
+                                div()
+                                    .w(px(240.0))
+                                    .child(Input::new(&self.name_input).small()),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .h_flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_medium()
+                                    .text_color(theme.foreground)
+                                    .child("默认视图:"),
+                            )
+                            .child(
+                                Button::new("cfg-view-grid")
+                                    .icon(IconName::LayoutGrid)
+                                    .small()
+                                    .when(self.draft_config.view == ViewOption::Grid, |b| {
+                                        b.secondary()
+                                    })
+                                    .when(self.draft_config.view != ViewOption::Grid, |b| b.ghost())
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.draft_config.view = ViewOption::Grid;
+                                        cx.emit(ConfigEditorEvent::DraftChanged);
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                Button::new("cfg-view-list")
+                                    .icon(IconName::List)
+                                    .small()
+                                    .when(self.draft_config.view == ViewOption::List, |b| {
+                                        b.secondary()
+                                    })
+                                    .when(self.draft_config.view != ViewOption::List, |b| b.ghost())
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.draft_config.view = ViewOption::List;
+                                        cx.emit(ConfigEditorEvent::DraftChanged);
+                                        cx.notify();
+                                    })),
+                            ),
+                    )
                     .child(
                         div().h_flex().items_center().gap_2().child(
                             div()
@@ -349,110 +342,129 @@ impl Render for CollectionConfigEditor {
                                         }))
                                 },
                             )),
-                    ),
-            )
-            .child(
-                div()
-                    .v_flex()
-                    .gap_2p5()
-                    .child(
-                        div()
-                            .h_flex()
-                            .items_center()
-                            .gap_3()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_medium()
-                                    .text_color(theme.foreground)
-                                    .child("添加标签至规则:"),
-                            )
-                            .child(
-                                div()
-                                    .w(px(280.0))
-                                    .on_action(cx.listener(|this, _: &Enter, window, cx| {
-                                        cx.stop_propagation();
-                                        let q = this
-                                            .tag_search_input
-                                            .read(cx)
-                                            .value()
-                                            .trim()
-                                            .to_string();
-                                        if !q.is_empty() {
-                                            if let Some(first_tag) =
-                                                this.tag_search_results.first().cloned()
-                                            {
-                                                this.add_filter(first_tag, cx);
-                                                this.tag_search_input.update(cx, |inp, cx| {
-                                                    inp.set_value("", window, cx);
-                                                });
-                                                this.load_search_tags("", cx);
-                                            } else {
-                                                this.create_and_add_tag(&q, window, cx);
-                                            }
-                                        }
-                                    }))
-                                    .child(
-                                        Input::new(&self.tag_search_input).small().cleanable(true),
-                                    ),
-                            )
-                            .when(can_create_new, |this| {
-                                let q = search_query.clone();
-                                this.child(
-                                    Button::new("create-new-tag")
-                                        .ghost()
-                                        .small()
-                                        .icon(IconName::Plus)
-                                        .label(format!("新建并添加 \"{}\"", q))
-                                        .on_click(cx.listener(move |this, _, window, cx| {
-                                            this.create_and_add_tag(&q, window, cx);
-                                        })),
-                                )
-                            }),
                     )
-                    // 下方可选标签使用 TagChip 样式展示
                     .child(
                         div()
-                            .h_flex()
-                            .flex_wrap()
-                            .items_center()
-                            .gap_2()
-                            .when(self.tag_search_results.is_empty(), |this| {
-                                this.child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(theme.muted_foreground)
-                                        .child("未找到相关标签"),
-                                )
-                            })
-                            .children(self.tag_search_results.iter().enumerate().map(
-                                |(idx, tag)| {
-                                    let is_added =
-                                        self.draft_config.filters.iter().any(|t| t == tag);
-                                    let tag_clone = tag.clone();
+                            .v_flex()
+                            .gap_2p5()
+                            .child(
+                                div()
+                                    .h_flex()
+                                    .items_center()
+                                    .gap_3()
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .font_medium()
+                                            .text_color(theme.foreground)
+                                            .child("添加标签至规则:"),
+                                    )
+                                    .child(
+                                        div()
+                                            .w(px(280.0))
+                                            .on_action(cx.listener(
+                                                |this, _: &Enter, window, cx| {
+                                                    cx.stop_propagation();
+                                                    let q = this
+                                                        .tag_search_input
+                                                        .read(cx)
+                                                        .value()
+                                                        .trim()
+                                                        .to_string();
+                                                    if !q.is_empty() {
+                                                        if let Some(first_tag) =
+                                                            this.tag_search_results.first().cloned()
+                                                        {
+                                                            this.add_filter(first_tag, cx);
+                                                            this.tag_search_input.update(
+                                                                cx,
+                                                                |inp, cx| {
+                                                                    inp.set_value("", window, cx);
+                                                                },
+                                                            );
+                                                            this.load_search_tags("", cx);
+                                                        } else {
+                                                            this.create_and_add_tag(&q, window, cx);
+                                                        }
+                                                    }
+                                                },
+                                            ))
+                                            .child(
+                                                Input::new(&self.tag_search_input)
+                                                    .small()
+                                                    .cleanable(true),
+                                            ),
+                                    )
+                                    .when(can_create_new, |this| {
+                                        let q = search_query.clone();
+                                        this.child(
+                                            Button::new("create-new-tag")
+                                                .ghost()
+                                                .small()
+                                                .icon(IconName::Plus)
+                                                .label(format!("新建并添加 \"{}\"", q))
+                                                .on_click(cx.listener(
+                                                    move |this, _, window, cx| {
+                                                        this.create_and_add_tag(&q, window, cx);
+                                                    },
+                                                )),
+                                        )
+                                    }),
+                            )
+                            // 下方可选标签使用 TagChip 样式展示
+                            .child(
+                                div()
+                                    .h_flex()
+                                    .flex_wrap()
+                                    .items_center()
+                                    .gap_2()
+                                    .when(self.tag_search_results.is_empty(), |this| {
+                                        this.child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(theme.muted_foreground)
+                                                .child("未找到相关标签"),
+                                        )
+                                    })
+                                    .children(self.tag_search_results.iter().enumerate().map(
+                                        |(idx, tag)| {
+                                            let is_added =
+                                                self.draft_config.filters.iter().any(|t| t == tag);
+                                            let tag_clone = tag.clone();
 
-                                    if is_added {
-                                        TagChip::new(("candidate-chip", idx), tag.display_name())
-                                            .small()
-                                            .state(TagChipState::Selected)
-                                            .on_click(cx.listener(move |this, _, _window, cx| {
-                                                this.remove_filter(&tag_clone, cx);
-                                            }))
-                                    } else {
-                                        TagChip::new(("candidate-chip", idx), tag.display_name())
-                                            .small()
-                                            .state(TagChipState::Default)
-                                            .icon(
-                                                Icon::new(IconName::Plus)
-                                                    .size_3()
-                                                    .text_color(theme.muted_foreground),
-                                            )
-                                            .on_click(cx.listener(move |this, _, _window, cx| {
-                                                this.add_filter(tag_clone.clone(), cx);
-                                            }))
-                                    }
-                                },
-                            )),
+                                            if is_added {
+                                                TagChip::new(
+                                                    ("candidate-chip", idx),
+                                                    tag.display_name(),
+                                                )
+                                                .small()
+                                                .state(TagChipState::Selected)
+                                                .on_click(cx.listener(
+                                                    move |this, _, _window, cx| {
+                                                        this.remove_filter(&tag_clone, cx);
+                                                    },
+                                                ))
+                                            } else {
+                                                TagChip::new(
+                                                    ("candidate-chip", idx),
+                                                    tag.display_name(),
+                                                )
+                                                .small()
+                                                .state(TagChipState::Default)
+                                                .icon(
+                                                    Icon::new(IconName::Plus)
+                                                        .size_3()
+                                                        .text_color(theme.muted_foreground),
+                                                )
+                                                .on_click(cx.listener(
+                                                    move |this, _, _window, cx| {
+                                                        this.add_filter(tag_clone.clone(), cx);
+                                                    },
+                                                ))
+                                            }
+                                        },
+                                    )),
+                            ),
                     ),
             )
     }

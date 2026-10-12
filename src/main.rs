@@ -48,6 +48,7 @@ fn main() {
     let app = gpui_kit::application().with_assets(gpui_kit::assets::AllAssets);
     app.run(move |cx| {
         gpui_kit::init(cx);
+        Theme::global_mut(cx).notification.placement = Anchor::BottomLeft;
 
         cx.set_global(global);
         let window_bounds =

@@ -833,7 +833,11 @@ impl Render for GenericView {
                     .min_h_0()
                     .bg(cx.theme().background)
                     .when(configuring_editor.is_some(), |this| {
-                        this.rounded_t_3xl().shadow_xl()
+                        this.rounded_t_3xl().shadow(vec![
+                            BoxShadow::new(px(0.), px(0.), hsla(0., 0., 0., 0.2))
+                                .blur_radius(px(6.))
+                                .spread_radius(px(0.)),
+                        ])
                     })
                     .child(
                         div()
