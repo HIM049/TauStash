@@ -661,6 +661,9 @@ impl GenericView {
                 if let Err(e) = res {
                     tracing::error!("批量应用标签失败: {:#}", e);
                 }
+                if let Some(stores) = &this.stores {
+                    stores.tags.update(cx, |s, cx| s.reload(cx));
+                }
                 this.reload_all(cx);
             })
             .ok();

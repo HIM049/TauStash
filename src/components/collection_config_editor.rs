@@ -261,10 +261,6 @@ impl Render for CollectionConfigEditor {
                     .child(
                         div()
                             .w(px(240.0))
-                            // .on_action(cx.listener(|this, _: &Enter, window, cx| {
-                            //     cx.stop_propagation();
-                            //     // this.save(window, cx);
-                            // }))
                             .child(Input::new(&self.name_input).small()),
                     ),
             )
