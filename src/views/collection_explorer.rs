@@ -55,6 +55,13 @@ impl CollectionExplorerView {
     }
 
     pub fn reload(&mut self, cx: &mut Context<Self>) {
+        if let Some(stores) = &self.stores {
+            self.folders = stores.collections.read(cx).collections.clone();
+            self.editing_id = None;
+            cx.notify();
+            return;
+        }
+
         if self.loading {
             return;
         }
@@ -87,10 +94,13 @@ impl CollectionExplorerView {
     }
 
     pub fn stores(mut self, stores: AppStores, cx: &mut Context<Self>) -> Self {
-        cx.observe(&stores.collections, |this, _, cx| {
-            this.reload(cx);
+        cx.observe(&stores.collections, |this, store, cx| {
+            this.folders = store.read(cx).collections.clone();
+            this.editing_id = None;
+            cx.notify();
         })
         .detach();
+        self.folders = stores.collections.read(cx).collections.clone();
         self.stores = Some(stores);
         self
     }
@@ -247,11 +257,19 @@ impl CollectionExplorerView {
             return;
         }
 
-        let db = cx.global::<AppState>().db.clone();
-        let rt = cx.global::<AppState>().rt.clone();
-
         if target_id == Uuid::nil() {
             // New collection creation
+            if let Some(stores) = &self.stores {
+                stores.collections.update(cx, |s, cx| {
+                    s.create_collection(&name, cx);
+                });
+                self.name_input.update(cx, |input, cx| {
+                    input.set_value("", window, cx);
+                });
+                self.editing_id = None;
+                return;
+            }
+
             let config = match serde_json::to_value(CollectionConfig::default()) {
                 Ok(config) => config,
                 Err(err) => {
@@ -259,6 +277,9 @@ impl CollectionExplorerView {
                     return;
                 }
             };
+
+            let db = cx.global::<AppState>().db.clone();
+            let rt = cx.global::<AppState>().rt.clone();
 
             cx.spawn_in(window, async move |this, cx| {
                 let created = cx
@@ -289,6 +310,20 @@ impl CollectionExplorerView {
             .detach();
         } else {
             // Existing collection rename
+            if let Some(stores) = &self.stores {
+                stores.collections.update(cx, |s, cx| {
+                    s.rename_collection(target_id, &name, cx);
+                });
+                self.name_input.update(cx, |input, cx| {
+                    input.set_value("", window, cx);
+                });
+                self.editing_id = None;
+                return;
+            }
+
+            let db = cx.global::<AppState>().db.clone();
+            let rt = cx.global::<AppState>().rt.clone();
+
             cx.spawn_in(window, async move |this, cx| {
                 let updated = cx
                     .background_spawn(async move {
@@ -334,6 +369,13 @@ impl CollectionExplorerView {
         let ids: Vec<Uuid> = self.selected.iter().copied().collect();
         self.selected.clear();
         self.last_select = None;
+
+        if let Some(stores) = &self.stores {
+            stores.collections.update(cx, |s, cx| {
+                s.delete_collections(&ids, cx);
+            });
+            return;
+        }
 
         let db = cx.global::<AppState>().db.clone();
         let rt = cx.global::<AppState>().rt.clone();

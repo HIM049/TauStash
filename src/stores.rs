@@ -11,21 +11,18 @@ use crate::services::macrotag::MacroTag;
 
 pub struct ViewStore {
     pub views: Vec<collection::Model>,
-    pub loading: bool,
 }
 
 impl ViewStore {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let mut store = Self {
             views: prefab_views(),
-            loading: false,
         };
         store.reload(cx);
         store
     }
 
     pub fn reload(&mut self, cx: &mut Context<Self>) {
-        self.loading = true;
         let db = cx.global::<AppState>().db.clone();
         let rt = cx.global::<AppState>().rt.clone();
 
@@ -40,7 +37,6 @@ impl ViewStore {
                 .await;
 
             this.update(cx, |this, cx| {
-                this.loading = false;
                 if let Ok(db_views) = items {
                     let mut all_views = prefab_views();
                     all_views.extend(db_views);
@@ -93,21 +89,18 @@ impl ViewStore {
 
 pub struct CollectionStore {
     pub collections: Vec<collection::Model>,
-    pub loading: bool,
 }
 
 impl CollectionStore {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let mut store = Self {
             collections: Vec::new(),
-            loading: false,
         };
         store.reload(cx);
         store
     }
 
     pub fn reload(&mut self, cx: &mut Context<Self>) {
-        self.loading = true;
         let db = cx.global::<AppState>().db.clone();
         let rt = cx.global::<AppState>().rt.clone();
 
@@ -122,7 +115,6 @@ impl CollectionStore {
                 .await;
 
             this.update(cx, |this, cx| {
-                this.loading = false;
                 if let Ok(db_collections) = items {
                     this.collections = db_collections;
                     cx.notify();
@@ -166,6 +158,30 @@ impl CollectionStore {
         .detach();
     }
 
+    pub fn rename_collection(&mut self, id: Uuid, new_name: &str, cx: &mut Context<Self>) {
+        if let Some(col) = self.collections.iter_mut().find(|c| c.id == id) {
+            col.name = new_name.to_string();
+        }
+        cx.notify();
+
+        let db = cx.global::<AppState>().db.clone();
+        let rt = cx.global::<AppState>().rt.clone();
+        let name_to_save = new_name.to_string();
+
+        cx.spawn(async move |_this, _cx| {
+            let _ = rt.block_on(collection_store::update_metadata(
+                &db,
+                id,
+                Some(name_to_save),
+                None,
+                None,
+                None,
+                None,
+            ));
+        })
+        .detach();
+    }
+
     pub fn create_collection(&mut self, name: &str, cx: &mut Context<Self>) {
         let db = cx.global::<AppState>().db.clone();
         let rt = cx.global::<AppState>().rt.clone();
@@ -199,15 +215,17 @@ impl CollectionStore {
         .detach();
     }
 
-    pub fn delete_collection(&mut self, id: Uuid, cx: &mut Context<Self>) {
-        self.collections.retain(|c| c.id != id);
+    pub fn delete_collections(&mut self, ids: &[Uuid], cx: &mut Context<Self>) {
+        let id_set: std::collections::HashSet<Uuid> = ids.iter().copied().collect();
+        self.collections.retain(|c| !id_set.contains(&c.id));
         cx.notify();
 
         let db = cx.global::<AppState>().db.clone();
         let rt = cx.global::<AppState>().rt.clone();
+        let ids_vec = ids.to_vec();
 
         cx.spawn(async move |_this, _cx| {
-            let _ = rt.block_on(collection_store::delete(&db, &[id]));
+            let _ = rt.block_on(collection_store::delete(&db, &ids_vec));
         })
         .detach();
     }
@@ -215,21 +233,18 @@ impl CollectionStore {
 
 pub struct TagStore {
     pub cached_tags: Vec<MacroTag>,
-    pub loading: bool,
 }
 
 impl TagStore {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let mut store = Self {
             cached_tags: Vec::new(),
-            loading: false,
         };
         store.reload(cx);
         store
     }
 
     pub fn reload(&mut self, cx: &mut Context<Self>) {
-        self.loading = true;
         let db = cx.global::<AppState>().db.clone();
         let rt = cx.global::<AppState>().rt.clone();
 
@@ -241,7 +256,6 @@ impl TagStore {
                 .await;
 
             this.update(cx, |this, cx| {
-                this.loading = false;
                 if let Ok(tags) = items {
                     this.cached_tags = tags
                         .into_iter()
@@ -265,10 +279,6 @@ impl TagStore {
             .filter(|t| t.display_name().to_lowercase().contains(&q))
             .cloned()
             .collect()
-    }
-
-    pub fn find_or_create(&mut self, namespace: TagNamespace, name: &str, cx: &mut Context<Self>) {
-        self.find_or_create_then(namespace, name, |_tag, _cx| {}, cx);
     }
 
     pub fn find_or_create_then<F>(
