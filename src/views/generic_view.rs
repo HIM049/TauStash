@@ -20,8 +20,8 @@ use crate::services::collection::{CollectionConfig, ViewOption};
 use crate::services::file;
 use crate::services::importer;
 use crate::services::macrotag::MacroTag;
+use crate::services::store::AppStores;
 use crate::services::tags_queryer::MtagService;
-use crate::stores::AppStores;
 
 #[derive(Clone, Default)]
 pub enum BarMode {

@@ -4,7 +4,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::components::app_sidebar::{AppSidebar, NavTarget};
-use crate::stores::AppStores;
+use crate::services::store::AppStores;
 use crate::views::collection_explorer::CollectionExplorerView;
 use crate::views::generic_view::GenericView;
 use crate::views::scanner::ScannerView;

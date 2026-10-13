@@ -13,7 +13,7 @@ use crate::components::item_grid_view::ItemGridView;
 use crate::database::entities::collection;
 use crate::database::storage::collection as collection_store;
 use crate::services::collection::CollectionConfig;
-use crate::stores::AppStores;
+use crate::services::store::AppStores;
 use crate::views::generic_view::GenericView;
 
 const DEFAULT_FOLDER_NAME: &str = "未命名合集";

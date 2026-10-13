@@ -10,7 +10,7 @@ use crate::components::tag_chip::{TagChip, TagChipState};
 use crate::database::entities::TagNamespace;
 use crate::services::collection::{CollectionConfig, ViewOption};
 use crate::services::macrotag::MacroTag;
-use crate::stores::TagStore;
+use crate::services::store::TagStore;
 
 #[derive(Clone, Debug)]
 pub enum ConfigEditorEvent {

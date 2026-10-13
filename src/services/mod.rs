@@ -3,6 +3,7 @@ pub mod file;
 pub mod importer;
 pub mod macrotag;
 pub mod scanner;
+pub mod store;
 pub mod thumbnail;
 
 pub use file::*;
