@@ -218,7 +218,7 @@ impl GenericView {
                     this.working = false;
                     let message: SharedString = if let Ok(report) = res {
                         if report.failed.is_empty() {
-                            format!("{} 个内容导入成功", report.imported).into()
+                            format!("{} 个内容导入成功", report.newly_imported).into()
                         } else {
                             format!("{} 内容径导入失败", report.failed.len()).into()
                         }

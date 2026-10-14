@@ -35,9 +35,7 @@ pub struct MyApp {
 }
 
 impl MyApp {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let stores = AppStores::new(cx);
-
+    pub fn new(stores: AppStores, window: &mut Window, cx: &mut Context<Self>) -> Self {
         cx.observe(&stores.views, |_this, _, cx| {
             cx.notify();
         })

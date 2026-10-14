@@ -11,19 +11,32 @@ use crate::database::entities::{FileState, ReplicaState, file_replica};
 use crate::database::{storage, utils};
 
 #[derive(Debug, Clone, Default)]
-pub struct ScanReport {
+pub struct BatchReport {
     pub total_found: usize,
     pub newly_imported: usize,
     pub skipped_unchanged: usize,
     pub marked_missing: usize,
-}
-
-/// Outcome of a cross-source batch scan
-#[derive(Debug, Clone, Default)]
-pub struct BatchScanReport {
-    pub completed: usize,
     pub failed: Vec<String>,
 }
+
+impl BatchReport {
+    /// Whether this batch caused any repository changes
+    pub fn has_changes(&self) -> bool {
+        self.newly_imported > 0 || self.marked_missing > 0
+    }
+
+    /// Merge results from another batch report
+    pub fn merge(&mut self, other: BatchReport) {
+        self.total_found += other.total_found;
+        self.newly_imported += other.newly_imported;
+        self.skipped_unchanged += other.skipped_unchanged;
+        self.marked_missing += other.marked_missing;
+        self.failed.extend(other.failed);
+    }
+}
+
+pub type ScanReport = BatchReport;
+pub type BatchScanReport = BatchReport;
 
 /// Scan a directory and import
 pub async fn scan_directory(
@@ -31,7 +44,7 @@ pub async fn scan_directory(
     dir_path: impl AsRef<Path>,
     device_id: &str,
     default_state: FileState,
-) -> Result<ScanReport> {
+) -> Result<BatchReport> {
     let dir_path = dir_path.as_ref();
     if !dir_path.exists() || !dir_path.is_dir() {
         anyhow::bail!(
@@ -134,16 +147,18 @@ pub async fn scan_directory(
 }
 
 /// Scan every enabled scan source. A failing source does not abort the rest.
-pub async fn scan_all_sources(db: &DatabaseConnection, device_id: &str) -> Result<BatchScanReport> {
+pub async fn scan_all_sources(db: &DatabaseConnection, device_id: &str) -> Result<BatchReport> {
     let sources = storage::scan_source::list_active_scans(db).await?;
     if sources.is_empty() {
-        anyhow::bail!("no active scan source");
+        return Ok(BatchReport::default());
     }
 
-    let mut report = BatchScanReport::default();
+    let mut report = BatchReport::default();
     for source in sources {
         match scan_directory(db, &source.path, device_id, FileState::Pending).await {
-            Ok(_) => report.completed += 1,
+            Ok(rep) => {
+                report.merge(rep);
+            }
             Err(e) => {
                 tracing::error!("Failed to scan directory {}: {}", source.path, e);
                 report.failed.push(source.path)

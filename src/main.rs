@@ -3,6 +3,8 @@ pub mod services;
 
 use gpui_kit::component::*;
 use gpui_kit::*;
+use services::schedule::ScheduleService;
+use services::store::AppStores;
 use std::sync::Arc;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*, registry};
 
@@ -17,6 +19,7 @@ pub struct AppState {
     pub db: Arc<sea_orm::DatabaseConnection>,
     pub device_id: SharedString,
     pub rt: Arc<tokio::runtime::Runtime>,
+    pub schedule: Arc<ScheduleService>,
 }
 
 impl Global for AppState {}
@@ -38,10 +41,51 @@ fn main() {
             .expect("Failed to initialize database")
     });
     let db = Arc::new(db);
+
+    let (file_change_tx, mut file_change_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+
+    let schedule = Arc::new(ScheduleService::new(move || {
+        let _ = file_change_tx.send(());
+    }));
+
+    let dbc = db.clone();
+    let device_id = "1ec1f661-9da6-4ca9-a6d8-ce46c22719c6".to_string();
+    schedule.schedule(
+        "scan_all_sources",
+        std::time::Duration::from_secs(15),
+        Some(std::time::Duration::from_secs(30 * 60)),
+        move || {
+            let db = dbc.clone();
+            let device_id = device_id.clone();
+            async move {
+                let report = services::scanner::scan_all_sources(&db, &device_id)
+                    .await
+                    .unwrap_or_default();
+                report.has_changes()
+            }
+        },
+    );
+    let dbc = db.clone();
+    schedule.schedule(
+        "verify_replicas",
+        std::time::Duration::from_secs(30),
+        Some(std::time::Duration::from_secs(60 * 60)),
+        move || {
+            let db = dbc.clone();
+            async move {
+                services::schedule::verify_active_replicas(&db)
+                    .await
+                    .unwrap_or(0)
+                    > 0
+            }
+        },
+    );
+
     let global = AppState {
         db: db.clone(),
         device_id: SharedString::from("1ec1f661-9da6-4ca9-a6d8-ce46c22719c6"),
         rt: Arc::new(rt),
+        schedule,
     };
 
     let app = gpui_kit::application().with_assets(gpui_kit::assets::AllAssets);
@@ -50,12 +94,26 @@ fn main() {
         Theme::global_mut(cx).notification.placement = Anchor::BottomLeft;
 
         cx.set_global(global);
+
+        let stores = AppStores::new(cx);
+        let file_store = stores.file.clone();
+
+        cx.spawn(async move |cx| {
+            while let Some(()) = file_change_rx.recv().await {
+                cx.update(|cx| {
+                    file_store.update(cx, |_, cx| cx.notify());
+                });
+            }
+        })
+        .detach();
+
         let window_bounds =
             WindowBounds::Windowed(Bounds::centered(None, size(px(970.0), px(780.0)), cx));
 
         cx.bind_keys([KeyBinding::new("ctrl", Select, None)]);
         cx.bind_keys([KeyBinding::new("shift", BatchSelect, None)]);
 
+        let win_stores = stores.clone();
         cx.spawn(async move |cx| {
             cx.open_window(
                 WindowOptions {
@@ -68,7 +126,7 @@ fn main() {
                     ..Default::default()
                 },
                 |window, cx| {
-                    let view = cx.new(|cx| MyApp::new(window, cx));
+                    let view = cx.new(|cx| MyApp::new(win_stores, window, cx));
                     cx.new(|cx| Root::new(view, window, cx))
                 },
             )

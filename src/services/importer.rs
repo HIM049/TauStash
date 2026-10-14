@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 use uuid::Uuid;
 
+pub use super::scanner::BatchReport;
 use super::scanner::scan_directory;
 use crate::database::entities::{FileState, ReplicaState};
 use crate::database::storage::file::{ContentTimes, CreateFileParams, UpsertReplicaParams};
@@ -175,37 +176,37 @@ pub async fn import_file(
     Ok((file_id, is_duplicate))
 }
 
-/// Outcome of inporting paths the user handed over directly
-#[derive(Debug, Clone, Default)]
-pub struct ImportReport {
-    pub imported: usize,
-    pub failed: Vec<String>,
-}
-
 /// Import from paths, can handle file or dir paths. Used to handle dragging input.
 pub async fn import_from_paths(
     db: &DatabaseConnection,
     paths: &[PathBuf],
     device_id: &str,
-) -> Result<ImportReport> {
-    let mut report = ImportReport::default();
+) -> Result<BatchReport> {
+    let mut report = BatchReport::default();
 
     for path in paths {
-        let result = if path.is_dir() {
-            scan_directory(db, path, device_id, FileState::Managed)
-                .await
-                .map(|scan| scan.total_found)
+        if path.is_dir() {
+            match scan_directory(db, path, device_id, FileState::Managed).await {
+                Ok(rep) => report.merge(rep),
+                Err(err) => {
+                    tracing::warn!(path = %path.display(), error = %err, "import failed");
+                    report.failed.push(path.to_string_lossy().into_owned());
+                }
+            }
         } else {
-            import_file(db, path, device_id, FileState::Managed)
-                .await
-                .map(|_| 1)
-        };
-
-        match result {
-            Ok(count) => report.imported += count,
-            Err(err) => {
-                tracing::warn!(path = %path.display(), error = %err, "import failed");
-                report.failed.push(path.to_string_lossy().into_owned());
+            match import_file(db, path, device_id, FileState::Managed).await {
+                Ok((_id, is_duplicate)) => {
+                    report.total_found += 1;
+                    if is_duplicate {
+                        report.skipped_unchanged += 1;
+                    } else {
+                        report.newly_imported += 1;
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(path = %path.display(), error = %err, "import failed");
+                    report.failed.push(path.to_string_lossy().into_owned());
+                }
             }
         }
     }
