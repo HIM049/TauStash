@@ -10,16 +10,19 @@ use tracing_subscriber::{EnvFilter, fmt, prelude::*, registry};
 
 mod app;
 mod components;
+mod config;
 mod views;
 use app::MyApp;
+
+use crate::config::AppConfig;
 
 actions!([Select, BatchSelect]);
 
 pub struct AppState {
     pub db: Arc<sea_orm::DatabaseConnection>,
-    pub device_id: SharedString,
     pub rt: Arc<tokio::runtime::Runtime>,
     pub schedule: Arc<ScheduleService>,
+    pub config: Arc<AppConfig>,
 }
 
 impl Global for AppState {}
@@ -35,8 +38,10 @@ fn main() {
     let rt = tokio::runtime::Runtime::new().expect("Failed to start Tokio runtime");
     let _guard = rt.enter();
 
+    let config = config::AppConfig::load_or_default(config::DEFAULT_CONFIG_PATH);
+
     let db = rt.block_on(async {
-        database::init_db("./app_data/picargo.db")
+        database::init_db(&config.db_path)
             .await
             .expect("Failed to initialize database")
     });
@@ -48,44 +53,50 @@ fn main() {
         let _ = file_change_tx.send(());
     }));
 
-    let dbc = db.clone();
-    let device_id = "1ec1f661-9da6-4ca9-a6d8-ce46c22719c6".to_string();
-    schedule.schedule(
-        "scan_all_sources",
-        std::time::Duration::from_secs(15),
-        Some(std::time::Duration::from_secs(30 * 60)),
-        move || {
-            let db = dbc.clone();
-            let device_id = device_id.clone();
-            async move {
-                let report = services::scanner::scan_all_sources(&db, &device_id)
-                    .await
-                    .unwrap_or_default();
-                report.has_changes()
-            }
-        },
-    );
-    let dbc = db.clone();
-    schedule.schedule(
-        "verify_replicas",
-        std::time::Duration::from_secs(30),
-        Some(std::time::Duration::from_secs(60 * 60)),
-        move || {
-            let db = dbc.clone();
-            async move {
-                services::schedule::verify_active_replicas(&db)
-                    .await
-                    .unwrap_or(0)
-                    > 0
-            }
-        },
-    );
+    if config.schedule_enable {
+        let dbc = db.clone();
+        let device_id = config.device_id.clone();
+        schedule.schedule(
+            "scan_all_sources",
+            std::time::Duration::from_secs(15),
+            Some(std::time::Duration::from_secs(
+                config.schedule_scan_min as u64 * 60,
+            )),
+            move || {
+                let db = dbc.clone();
+                let device_id = device_id.clone();
+                async move {
+                    let report = services::scanner::scan_all_sources(&db, &device_id)
+                        .await
+                        .unwrap_or_default();
+                    report.has_changes()
+                }
+            },
+        );
+        let dbc = db.clone();
+        schedule.schedule(
+            "verify_replicas",
+            std::time::Duration::from_secs(30),
+            Some(std::time::Duration::from_secs(
+                config.schedule_maintain_min as u64 * 60,
+            )),
+            move || {
+                let db = dbc.clone();
+                async move {
+                    services::schedule::verify_active_replicas(&db)
+                        .await
+                        .unwrap_or(0)
+                        > 0
+                }
+            },
+        );
+    }
 
     let global = AppState {
         db: db.clone(),
-        device_id: SharedString::from("1ec1f661-9da6-4ca9-a6d8-ce46c22719c6"),
         rt: Arc::new(rt),
         schedule,
+        config: Arc::new(config),
     };
 
     let app = gpui_kit::application().with_assets(gpui_kit::assets::AllAssets);

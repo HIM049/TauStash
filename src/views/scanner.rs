@@ -220,7 +220,7 @@ impl ScannerView {
         cx.notify();
 
         let db = cx.global::<AppState>().db.clone();
-        let device_id = cx.global::<AppState>().device_id.clone();
+        let device_id = cx.global::<AppState>().config.device_id.clone();
         let rt = cx.global::<AppState>().rt.clone();
 
         cx.spawn_in(window, async move |this, cx| {
