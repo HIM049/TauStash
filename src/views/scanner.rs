@@ -15,12 +15,14 @@ use crate::AppState;
 use crate::database::entities::{ScanMode, scan_source};
 use crate::database::storage::scan_source as scan_storage;
 use crate::services::scanner;
+use crate::services::store::AppStores;
 
 pub struct ScannerView {
     sources: Vec<scan_source::Model>,
     scan_dir_input: Entity<InputState>,
     /// Batch scan in progress, all controls are disabled
     is_scanning: bool,
+    stores: Option<AppStores>,
 }
 
 impl ScannerView {
@@ -31,9 +33,15 @@ impl ScannerView {
             sources: Vec::new(),
             scan_dir_input,
             is_scanning: false,
+            stores: None,
         };
         view.reload_sources(cx);
         view
+    }
+
+    pub fn stores(mut self, stores: AppStores) -> Self {
+        self.stores = Some(stores);
+        self
     }
 
     /// Quickly register the dropped directories as scan sources
@@ -227,6 +235,9 @@ impl ScannerView {
                     this.is_scanning = false;
                     // is_scanning is view-only state, nothing else notifies
                     cx.notify();
+                    if let Some(stores) = &this.stores {
+                        stores.file.update(cx, |_, cx| cx.notify());
+                    }
                     match res {
                         Ok(report) if report.failed.is_empty() => SharedString::new("扫描完成"),
                         Ok(report) => SharedString::from(format!(

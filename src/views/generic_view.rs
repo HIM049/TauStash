@@ -164,6 +164,10 @@ impl GenericView {
             cx.notify();
         })
         .detach();
+        cx.observe(&stores.file, |this, _, cx| {
+            this.reload_all(cx);
+        })
+        .detach();
         self.candidate_tags = stores.tags.read(cx).cached_tags.clone();
         self.stores = Some(stores);
         self
@@ -222,7 +226,11 @@ impl GenericView {
                         "导入成功".into()
                     };
 
-                    this.reload_all(cx);
+                    if let Some(stores) = &this.stores {
+                        stores.file.update(cx, |_, cx| cx.notify());
+                    } else {
+                        this.reload_all(cx);
+                    }
                     message
                 })
                 .ok();
@@ -623,7 +631,11 @@ impl GenericView {
                 if let Err(err) = res {
                     tracing::error!("删除失败: {err:#}");
                 }
-                this.reload_all(cx);
+                if let Some(stores) = &this.stores {
+                    stores.file.update(cx, |_, cx| cx.notify());
+                } else {
+                    this.reload_all(cx);
+                }
             })
             .ok();
         })
@@ -662,9 +674,11 @@ impl GenericView {
                     tracing::error!("批量应用标签失败: {:#}", e);
                 }
                 if let Some(stores) = &this.stores {
+                    stores.file.update(cx, |_, cx| cx.notify());
                     stores.tags.update(cx, |s, cx| s.reload(cx));
+                } else {
+                    this.reload_all(cx);
                 }
-                this.reload_all(cx);
             })
             .ok();
         })

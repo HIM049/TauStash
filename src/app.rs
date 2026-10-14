@@ -50,7 +50,8 @@ impl MyApp {
                 .enable_drag()
                 .stores(view_stores, cx)
         }));
-        let scanner_view = cx.new(|cx| ScannerView::new(window, cx));
+        let scanner_stores = stores.clone();
+        let scanner_view = cx.new(|cx| ScannerView::new(window, cx).stores(scanner_stores));
         let explorer_stores = stores.clone();
         let collection_view =
             cx.new(|cx| CollectionExplorerView::new(window, cx).stores(explorer_stores, cx));
