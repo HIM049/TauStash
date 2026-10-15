@@ -11,15 +11,15 @@ use crate::services::{FileState, MacroTag};
 fn prefab_views() -> Vec<collection::Model> {
     let now = chrono::Utc::now();
     let explorer_config = CollectionConfig {
-        filters: vec![MacroTag::FileState(FileState::Managed)],
+        filters: vec![MacroTag::State(FileState::Managed)],
         ..Default::default()
     };
     let pending_config = CollectionConfig {
-        filters: vec![MacroTag::FileState(FileState::Pending)],
+        filters: vec![MacroTag::State(FileState::Pending)],
         pinned_tags: vec![
-            MacroTag::FileState(FileState::Managed),
-            MacroTag::FileState(FileState::Ignore),
-            MacroTag::FileState(FileState::Blocked),
+            MacroTag::State(FileState::Managed),
+            MacroTag::State(FileState::Ignored),
+            MacroTag::State(FileState::Deleted),
         ],
         include_view_tags: false,
         candidate_filter: Some(CandidateTagRule {

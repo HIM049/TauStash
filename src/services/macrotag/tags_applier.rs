@@ -2,6 +2,7 @@ use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
 use crate::database::storage;
+use crate::services::FileState;
 use crate::services::tags_queryer::MtagService;
 
 impl MtagService {
@@ -21,10 +22,11 @@ impl MtagService {
                 super::MacroTag::Standard(meta) => {
                     storage::tag::unlink(db, file_ids, &[meta.id]).await?;
                 }
-                super::MacroTag::FileState(_) => {
+                super::MacroTag::State(FileState::Managed)
+                | super::MacroTag::State(FileState::Ignored) => {
                     storage::file::set_file_states(db, file_ids, super::FileState::Pending).await?;
                 }
-                super::MacroTag::Deleted(_) => {
+                super::MacroTag::State(FileState::Deleted) => {
                     storage::file::unmark_files_deleted(db, file_ids).await?;
                 }
                 _ => {}
@@ -39,11 +41,12 @@ impl MtagService {
                         storage::tag::find_or_create(db, meta.namespace, meta.name.clone()).await?;
                     storage::tag::link(db, file_ids, &[tag_record.id]).await?;
                 }
-                super::MacroTag::FileState(state) => {
-                    storage::file::set_file_states(db, file_ids, *state).await?;
+
+                super::MacroTag::State(FileState::Deleted) => {
+                    storage::file::mark_files_deleted(db, file_ids).await?;
                 }
-                super::MacroTag::Deleted(date_time) => {
-                    storage::file::mark_files_deleted(db, file_ids, *date_time).await?;
+                super::MacroTag::State(s) => {
+                    storage::file::set_file_states(db, file_ids, *s).await?;
                 }
                 _ => {}
             }

@@ -58,11 +58,14 @@ impl From<tag::Model> for TagMetadata {
 pub enum MacroTag {
     Untagged,
     Standard(TagMetadata),
-    FileState(FileState),
     Ext(String),
     MediaType(String),
     HasReplica(u32),
-    Deleted(DateTimeUtc),
+    State(FileState),
+    // Pending,
+    // Managed,
+    // Ignored,
+    // Deleted(Option<DateTimeUtc>),
 }
 
 impl MacroTag {
@@ -79,10 +82,6 @@ impl MacroTag {
         })
     }
 
-    pub fn state(state: FileState) -> Self {
-        Self::FileState(state)
-    }
-
     pub fn id(&self) -> Option<Uuid> {
         match self {
             Self::Standard(meta) => Some(meta.id),
@@ -93,23 +92,25 @@ impl MacroTag {
     pub fn display_name(&self) -> String {
         match self {
             Self::Standard(meta) => meta.name.clone(),
-            Self::FileState(st) => st.display_name().to_string(),
             Self::Ext(ext) => ext.to_uppercase(),
             Self::MediaType(mime) => mime.clone(),
             Self::Untagged => "未标记".to_string(),
-            Self::Deleted(_) => "已删除".to_string(),
             Self::HasReplica(n) => format!("副本数: {}", n),
+            Self::State(s) => s.display_name().to_string(),
         }
     }
 
     pub fn is_exclusive(&self) -> bool {
-        matches!(self, Self::FileState(_))
+        matches!(self, Self::State(_))
     }
 
     pub fn is_writable(&self) -> bool {
         matches!(
             self,
-            Self::Standard(_) | Self::FileState(_) | Self::Deleted(_)
+            Self::Standard(_)
+                | Self::State(FileState::Managed)
+                | Self::State(FileState::Ignored)
+                | Self::State(FileState::Deleted)
         )
     }
 }

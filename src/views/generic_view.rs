@@ -616,13 +616,12 @@ impl GenericView {
 
         let db = cx.global::<AppState>().db.clone();
         let rt = cx.global::<AppState>().rt.clone();
-        let now = chrono::Utc::now();
 
         cx.spawn(async move |this, cx| {
             let res = cx
                 .background_spawn(async move {
                     rt.block_on(crate::database::storage::file::mark_files_deleted(
-                        &db, &ids, now,
+                        &db, &ids,
                     ))
                 })
                 .await;

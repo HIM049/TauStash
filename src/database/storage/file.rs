@@ -7,7 +7,7 @@ use crate::database::{
 };
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set, UpdateResult,
     prelude::DateTimeUtc, sea_query::Expr,
 };
 use uuid::Uuid;
@@ -99,9 +99,45 @@ pub async fn create_file(
         exif_taken_at: Set(None),
         created_at: Set(now),
         updated_at: Set(now),
+        deleted_at: Set(None),
     };
     let inserted = new_file.insert(db).await?;
     Ok(inserted)
+}
+
+pub async fn block_file(db: &DatabaseConnection, file_id: &[Uuid]) -> anyhow::Result<UpdateResult> {
+    let st = file::ActiveModel {
+        state: Set(FileState::Deleted),
+        updated_at: Set(Utc::now()),
+        deleted_at: Set(Some(Utc::now())),
+        ..Default::default()
+    };
+    let res = file::Entity::update_many()
+        .filter(file::Column::Id.is_in(file_id.iter().copied()))
+        .set(st)
+        .exec(db)
+        .await?;
+
+    Ok(res)
+}
+
+pub async fn unblock_file(
+    db: &DatabaseConnection,
+    file_id: &[Uuid],
+) -> anyhow::Result<UpdateResult> {
+    let st = file::ActiveModel {
+        // TODO: pending is a default behavior.
+        state: Set(FileState::Pending),
+        updated_at: Set(Utc::now()),
+        deleted_at: Set(None),
+        ..Default::default()
+    };
+    let res = file::Entity::update_many()
+        .filter(file::Column::Id.is_in(file_id.iter().copied()))
+        .set(st)
+        .exec(db)
+        .await?;
+    Ok(res)
 }
 
 /// Find a replica by device_id and URI
@@ -233,24 +269,15 @@ pub async fn set_file_states(
 }
 
 /// Soft delete files and mark replicas as deleted at the given timestamp.
-pub async fn mark_files_deleted(
-    db: &DatabaseConnection,
-    file_ids: &[Uuid],
-    deleted_at: DateTimeUtc,
-) -> anyhow::Result<()> {
+pub async fn mark_files_deleted(db: &DatabaseConnection, file_ids: &[Uuid]) -> anyhow::Result<()> {
     if file_ids.is_empty() {
         return Ok(());
     }
 
-    file::Entity::update_many()
-        .col_expr(file::Column::State, Expr::value(FileState::Blocked))
-        .col_expr(file::Column::UpdatedAt, Expr::value(deleted_at))
-        .filter(file::Column::Id.is_in(file_ids.iter().copied()))
-        .exec(db)
-        .await?;
+    block_file(db, file_ids).await?;
 
     file_replica::Entity::update_many()
-        .col_expr(file_replica::Column::DeletedAt, Expr::value(deleted_at))
+        .col_expr(file_replica::Column::DeletedAt, Expr::value(Utc::now()))
         .filter(file_replica::Column::FileId.is_in(file_ids.iter().copied()))
         .exec(db)
         .await?;
@@ -267,8 +294,13 @@ pub async fn unmark_files_deleted(
         return Ok(());
     }
 
+    unblock_file(db, file_ids).await?;
+
     file_replica::Entity::update_many()
-        .col_expr(file_replica::Column::DeletedAt, Expr::value(None::<DateTimeUtc>))
+        .col_expr(
+            file_replica::Column::DeletedAt,
+            Expr::value(None::<DateTimeUtc>),
+        )
         .filter(file_replica::Column::FileId.is_in(file_ids.iter().copied()))
         .exec(db)
         .await?;
@@ -277,7 +309,7 @@ pub async fn unmark_files_deleted(
 }
 
 /// Get detail of a single file by id
-pub async fn get_file_record_by_id(
+pub async fn get_file_by_id(
     db: &DatabaseConnection,
     file_id: Uuid,
 ) -> anyhow::Result<Option<DbFileRecord>> {
@@ -333,10 +365,7 @@ pub async fn get_files_tags_batch(
         .all(db)
         .await?;
 
-    let tag_map: HashMap<_, _> = tags
-        .into_iter()
-        .map(|t| (t.id, t))
-        .collect();
+    let tag_map: HashMap<_, _> = tags.into_iter().map(|t| (t.id, t)).collect();
 
     let mut result: HashMap<Uuid, Vec<tag::Model>> = HashMap::new();
     for link in links {
@@ -349,7 +378,10 @@ pub async fn get_files_tags_batch(
 }
 
 /// Retrieve all tag records for a given file
-pub async fn get_file_tags(db: &DatabaseConnection, file_id: Uuid) -> anyhow::Result<Vec<tag::Model>> {
+pub async fn get_file_tags(
+    db: &DatabaseConnection,
+    file_id: Uuid,
+) -> anyhow::Result<Vec<tag::Model>> {
     let links = file_tag::Entity::find()
         .filter(file_tag::Column::FileId.eq(file_id))
         .all(db)

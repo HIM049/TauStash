@@ -49,11 +49,10 @@ impl MtagService {
             match tag {
                 super::MacroTag::Ext(name) => extensions.push(name),
                 super::MacroTag::MediaType(prefix) => mime_prefixes.push(prefix),
-                super::MacroTag::FileState(state) => query = query.state(state),
                 super::MacroTag::HasReplica(_) => query = query.has_replica(true),
                 super::MacroTag::Standard(meta) => named.push(meta.id),
                 super::MacroTag::Untagged => query = query.untagged(),
-                super::MacroTag::Deleted(time) => query = query.deleted_since(time),
+                super::MacroTag::State(s) => query = query.state(s),
             }
         }
 

@@ -23,7 +23,7 @@ pub struct FileInfo {
 impl FileInfo {
     pub fn has_tag(&self, tag: &MacroTag) -> bool {
         match tag {
-            MacroTag::FileState(s) => self.state == *s,
+            MacroTag::State(s) => self.state == *s,
             MacroTag::Standard(meta) => self.tags.iter().any(|t| match t {
                 MacroTag::Standard(m) => m.id == meta.id,
                 _ => false,
@@ -41,7 +41,7 @@ impl FileInfo {
 
 /// Fetch full UI detail for a given file_id (including tags)
 pub async fn get_file_detail(db: &DatabaseConnection, file_id: Uuid) -> Result<Option<FileInfo>> {
-    let Some(record) = storage::file::get_file_record_by_id(db, file_id).await? else {
+    let Some(record) = storage::file::get_file_by_id(db, file_id).await? else {
         return Ok(None);
     };
 

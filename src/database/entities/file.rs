@@ -1,7 +1,9 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, EnumIter, DeriveActiveEnum, Serialize, Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::None)")]
 pub enum FileState {
@@ -9,19 +11,19 @@ pub enum FileState {
     Pending,
     #[sea_orm(string_value = "managed")]
     Managed,
-    #[sea_orm(string_value = "blocked")]
-    Blocked,
+    #[sea_orm(string_value = "deleted")]
+    Deleted,
     #[sea_orm(string_value = "ignore")]
-    Ignore,
+    Ignored,
 }
 
 impl FileState {
     pub fn display_name(&self) -> &'static str {
         match self {
-            Self::Pending => "待审核",
+            Self::Pending => "待处理",
             Self::Managed => "归档",
-            Self::Ignore => "忽略",
-            Self::Blocked => "丢弃",
+            Self::Ignored => "忽略",
+            Self::Deleted => "删除",
         }
     }
 }
@@ -51,6 +53,7 @@ pub struct Model {
     #[sea_orm(indexed)]
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
+    pub deleted_at: Option<DateTimeUtc>,
     #[sea_orm(has_many)]
     pub file_replicas: HasMany<super::file_replica::Entity>,
     #[sea_orm(has_many, via = "file_tag")]

@@ -115,7 +115,7 @@ pub async fn import_file(
 
         // Upgrade state for pending or ignore file if wanna be managed by default
         if default_state == FileState::Managed
-            && matches!(existing.state, FileState::Pending | FileState::Ignore)
+            && matches!(existing.state, FileState::Pending | FileState::Ignored)
         {
             storage::file::set_file_state(db, existing.id, default_state).await?;
         }
