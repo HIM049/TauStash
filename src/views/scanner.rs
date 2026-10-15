@@ -96,7 +96,8 @@ impl ScannerView {
                 let mut failed = 0usize;
 
                 for path in &paths {
-                    match scan_storage::create_scan(&db, path.clone(), ScanMode::Manual, None).await {
+                    match scan_storage::create_scan(&db, path.clone(), ScanMode::Manual, None).await
+                    {
                         Ok(_) => added += 1,
                         Err(err) => {
                             tracing::warn!(
@@ -319,9 +320,7 @@ impl ScannerView {
                                 .child(Icon::new(IconName::Inbox).size_5()),
                         )
                         .title(EmptyTitle::new().child("尚未登记扫描源"))
-                        .description(EmptyDescription::new().child(
-                            "在上方填入要监控的目录绝对路径，扫描器会按修改时间与大小做增量比对。",
-                        )),
+                        .description(EmptyDescription::new().child("可拖入文件夹或在上方添加目录")),
                 )
                 .into_any_element();
         }
@@ -352,77 +351,48 @@ impl Render for ScannerView {
             .p_6()
             .child(
                 div()
-                    .v_flex()
-                    .gap_1()
+                    .id("scanner-top-bar")
+                    .h_flex()
+                    .w_full()
+                    .justify_between()
+                    .items_center()
                     .child(
-                        div()
-                            .text_base()
-                            .font_weight(FontWeight::BOLD)
-                            .child("扫描源"),
+                        div().text_xl().font_bold().child("扫描管理"),
+                        // .child(
+                        //     div()
+                        //         .text_xs()
+                        //         .text_color(muted)
+                        //         .child(format!("{} 个目录", self.sources.len())),
+                        // ),
                     )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(muted)
-                            .child("按目录登记来源，扫描器按修改时间与大小做增量比对。"),
-                    ),
-            )
-            .child(
-                div()
-                    .v_flex()
-                    .gap_2()
-                    .p_4()
-                    .bg(cx.theme().secondary)
-                    .border_1()
-                    .border_color(cx.theme().border)
-                    .rounded(cx.theme().radius)
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("源目录绝对路径"),
-                    )
+                    // .child(
+                    //     div()
+                    //         .w(px(260.0))
+                    //         .child(Input::new(&self.scan_dir_input).small().disabled(busy)),
+                    // )
                     .child(
                         div()
                             .h_flex()
                             .gap_2()
                             .child(
-                                div()
-                                    .flex_1()
-                                    .child(Input::new(&self.scan_dir_input).disabled(busy)),
-                            )
-                            .child(
                                 Button::new("scan-source-add")
-                                    .label("添加源")
                                     .icon(IconName::Plus)
                                     .disabled(busy)
                                     .on_click(cx.listener(Self::on_add_source)),
+                            )
+                            .child(
+                                Button::new("scan-source-scan-all")
+                                    .label("开始扫描")
+                                    .icon(IconName::RotateCw)
+                                    .loading(busy)
+                                    .on_click(cx.listener(Self::on_scan_all)),
                             ),
                     ),
             )
             .child(
                 div()
-                    .h_flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(format!("已登记的源 ({})", self.sources.len())),
-                    )
-                    .child(div().flex_1())
-                    .child(
-                        Button::new("scan-source-scan-all")
-                            .label("开始扫描")
-                            .icon(IconName::RotateCw)
-                            .loading(busy)
-                            .on_click(cx.listener(Self::on_scan_all)),
-                    ),
-            )
-            .child(
-                div()
                     .flex_1()
+                    .min_h_0()
                     .overflow_y_scrollbar()
                     .child(self.render_source_list(cx)),
             )
