@@ -19,7 +19,7 @@ use crate::database::entities::collection;
 use crate::services::collection::{CollectionConfig, ViewOption};
 use crate::services::file;
 use crate::services::importer;
-use crate::services::macrotag::MacroTag;
+use crate::services::macrotag::{FileState, MacroTag};
 use crate::services::store::AppStores;
 use crate::services::tags_queryer::MtagService;
 
@@ -44,6 +44,7 @@ pub struct GenericView {
     batch_editor: Entity<TagBatchEditor>,
     bar_mode: BarMode,
     current_filter_tags: Vec<MacroTag>,
+    preview_filter_tags: Option<Vec<MacroTag>>,
     candidate_tags: Vec<MacroTag>,
     // for any working state
     working: bool,
@@ -71,12 +72,12 @@ impl GenericView {
             TagBatchEditor::new(window, cx)
                 .on_commit({
                     let entity = overall_entity.clone();
-                    move |ensure, remove, window, cx| {
+                    move |ensure, remove, _, cx| {
                         if let Some(entity) = entity.upgrade() {
                             let ensure = ensure.to_vec();
                             let remove = remove.to_vec();
                             entity.update(cx, |this, cx| {
-                                this.commit_tag_changes(ensure, remove, window, cx);
+                                this.commit_tag_changes(ensure, remove, cx);
                             });
                         }
                     }
@@ -93,10 +94,10 @@ impl GenericView {
                 })
         });
 
-        let content_view = cx.new(|_cx| FilePoolView::new(config.view));
+        let content_view = cx.new(|_| FilePoolView::new(config.view));
         cx.subscribe(
             &content_view,
-            |this, _view, event: &FileContentEvent, cx| match event {
+            |this, _, event: &FileContentEvent, cx| match event {
                 FileContentEvent::SelectionChanged => {
                     this.sync_batch_editor(cx);
                 }
@@ -123,6 +124,7 @@ impl GenericView {
             batch_editor,
             bar_mode: BarMode::Normal,
             current_filter_tags: Vec::new(),
+            preview_filter_tags: None,
             candidate_tags: Vec::new(),
             working: false,
             enable_drag: false,
@@ -289,8 +291,17 @@ impl GenericView {
     pub fn reload_files(&mut self, cx: &mut Context<Self>) {
         let db = cx.global::<AppState>().db.clone();
         let rt = cx.global::<AppState>().rt.clone();
-        let config_filters = self.config.filters.clone();
-        let filter_tags = self.current_filter_tags.clone();
+        let config_filters = if let Some(f) = self.preview_filter_tags.as_ref() {
+            f
+        } else {
+            &self.config.filters
+        };
+
+        let filter_tags = if self.preview_filter_tags.is_some() {
+            &vec![]
+        } else {
+            &self.current_filter_tags
+        };
 
         if config_filters.is_empty() && filter_tags.is_empty() {
             self.content_view.update(cx, |view, cx| {
@@ -300,13 +311,11 @@ impl GenericView {
             return;
         }
 
+        let mts = MtagService::new().tags(&config_filters).tags(&filter_tags);
         cx.spawn(async move |this, cx| {
             let files_res = cx
                 .background_spawn(async move {
-                    let query = MtagService::new()
-                        .tags(&config_filters)
-                        .tags(&filter_tags)
-                        .build()?;
+                    let query = mts.build()?;
 
                     rt.block_on(file::list_files(&db, &query))
                 })
@@ -414,9 +423,7 @@ impl GenericView {
     }
 
     pub fn start_configuring(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.content_view.update(cx, |view, cx| {
-            view.clear_selection(cx);
-        });
+        self.clear_selection(cx);
 
         let tag_store = self.stores.as_ref().map(|s| s.tags.clone());
         let editor = cx.new(|cx| {
@@ -436,8 +443,9 @@ impl GenericView {
             &editor,
             |this, editor, event: &ConfigEditorEvent, cx| match event {
                 ConfigEditorEvent::DraftChanged => {
-                    let filters = editor.read(cx).current_config().filters.clone();
-                    this.reload_draft_files(&filters, cx);
+                    let config = editor.read(cx).current_config().filters.clone();
+                    this.preview_filter_tags = Some(config);
+                    this.reload_files(cx);
                 }
                 ConfigEditorEvent::CancelRequested => {
                     this.cancel_configuration(cx);
@@ -452,43 +460,7 @@ impl GenericView {
         .detach();
 
         self.bar_mode = BarMode::Configuring(editor);
-        let filters = self.config.filters.clone();
-        self.reload_draft_files(&filters, cx);
         cx.notify();
-    }
-
-    pub fn reload_draft_files(&mut self, filters: &[MacroTag], cx: &mut Context<Self>) {
-        let db = cx.global::<AppState>().db.clone();
-        let rt = cx.global::<AppState>().rt.clone();
-        let config_filters = filters.to_vec();
-
-        if config_filters.is_empty() {
-            self.content_view.update(cx, |view, cx| {
-                view.set_files(Vec::new(), cx);
-            });
-            cx.notify();
-            return;
-        }
-
-        cx.spawn(async move |this, cx| {
-            let files_res = cx
-                .background_spawn(async move {
-                    let query = MtagService::new().tags(&config_filters).build()?;
-                    rt.block_on(file::list_files(&db, &query))
-                })
-                .await;
-
-            this.update(cx, |this, cx| {
-                if let Ok(files) = files_res {
-                    this.content_view.update(cx, |view, cx| {
-                        view.set_files(files, cx);
-                    });
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
     }
 
     pub fn apply_saved_configuration(
@@ -504,7 +476,7 @@ impl GenericView {
             view.set_view_mode(self.config.view, cx);
         });
         self.bar_mode = BarMode::Normal;
-
+        self.preview_filter_tags = None;
         if let Some(stores) = &self.stores {
             if let Some(id) = self.collection_id {
                 stores.views.update(cx, |s, cx| {
@@ -549,6 +521,7 @@ impl GenericView {
 
     pub fn cancel_configuration(&mut self, cx: &mut Context<Self>) {
         self.bar_mode = BarMode::Normal;
+        self.preview_filter_tags = None;
         self.reload_all(cx);
         cx.notify();
     }
@@ -606,59 +579,24 @@ impl GenericView {
             return;
         }
 
-        let ids = ids.to_vec();
-        self.content_view.update(cx, |view, cx| {
-            view.clear_selection(cx);
-        });
-        if !matches!(self.bar_mode, BarMode::Configuring(_)) {
-            self.bar_mode = BarMode::Normal;
-        }
+        let ensure = vec![MacroTag::State(FileState::Deleted)];
+        let remove = vec![];
 
-        let db = cx.global::<AppState>().db.clone();
-        let rt = cx.global::<AppState>().rt.clone();
-
-        cx.spawn(async move |this, cx| {
-            let res = cx
-                .background_spawn(async move {
-                    rt.block_on(crate::database::storage::file::mark_files_deleted(
-                        &db, &ids,
-                    ))
-                })
-                .await;
-
-            this.update(cx, |this, cx| {
-                if let Err(err) = res {
-                    tracing::error!("删除失败: {err:#}");
-                }
-                if let Some(stores) = &this.stores {
-                    stores.file.update(cx, |_, cx| cx.notify());
-                } else {
-                    this.reload_all(cx);
-                }
-            })
-            .ok();
-        })
-        .detach();
+        self.commit_tag_changes(ensure, remove, cx);
     }
 
     fn commit_tag_changes(
         &mut self,
         ensure: Vec<MacroTag>,
         remove: Vec<MacroTag>,
-        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let db = cx.global::<AppState>().db.clone();
         let rt = cx.global::<AppState>().rt.clone();
         let file_ids: Vec<Uuid> = self.content_view.read(cx).selected_ids();
-        self.content_view.update(cx, |view, cx| {
-            view.clear_selection(cx);
-        });
-        if !matches!(self.bar_mode, BarMode::Configuring(_)) {
-            self.bar_mode = BarMode::Normal;
-        }
+        self.clear_selection(cx);
 
-        cx.spawn_in(window, async move |this, cx| {
+        cx.spawn(async |this, cx| {
             let res = cx
                 .background_spawn(async move {
                     rt.block_on(async {
@@ -780,12 +718,6 @@ impl Render for GenericView {
                                         );
                                     }
                                 })),
-                            // Button::new("config-toggle")
-                            //     .primary()
-                            //     .icon(IconName::SlidersHorizontal)
-                            //     .on_click(cx.listener(|this, _, _, cx| {
-                            //         this.cancel_configuration(cx);
-                            //     })),
                         )
                     })
                     .when_none(&configuring_editor, |this| {
@@ -793,6 +725,7 @@ impl Render for GenericView {
                             Button::new("config-toggle")
                                 .icon(IconName::SlidersHorizontal)
                                 .on_click(cx.listener(|this, _, window, cx| {
+                                    cx.stop_propagation();
                                     this.start_configuring(window, cx);
                                 })),
                         )
@@ -821,6 +754,8 @@ impl Render for GenericView {
             .when_some(configuring_editor.as_ref(), |this, editor| {
                 this.child(
                     div()
+                        // .id("config-editor-main")
+                        // .on_click(|_, _, cx| cx.stop_propagation())
                         .w_full()
                         .flex_shrink_0()
                         .overflow_hidden()
