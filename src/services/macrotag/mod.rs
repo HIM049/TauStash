@@ -1,4 +1,3 @@
-use sea_orm::entity::prelude::DateTimeUtc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

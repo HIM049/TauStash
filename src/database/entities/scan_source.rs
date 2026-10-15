@@ -21,6 +21,7 @@ pub struct Model {
     pub path: String,
     pub mode: ScanMode,
     pub is_active: bool,
+    pub initial_tags: Option<Json>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
 }

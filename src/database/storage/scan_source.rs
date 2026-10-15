@@ -16,6 +16,7 @@ pub async fn create_scan(
     db: &DatabaseConnection,
     path: PathBuf,
     mode: ScanMode,
+    initial_tags: Option<serde_json::Value>,
 ) -> anyhow::Result<scan_source::Model> {
     let path = path.canonicalize()?.to_string_lossy().into_owned();
     let path = utils::standardize_path(path);
@@ -33,6 +34,7 @@ pub async fn create_scan(
         path: Set(path),
         mode: Set(mode),
         is_active: Set(true),
+        initial_tags: Set(initial_tags),
         created_at: Set(now),
         updated_at: Set(now),
         ..Default::default()
@@ -40,6 +42,23 @@ pub async fn create_scan(
 
     let model = scan_source.insert(db).await?;
     Ok(model)
+}
+
+/// Update initial tags for a scan source
+pub async fn update_scan_initial_tags(
+    db: &DatabaseConnection,
+    id: i32,
+    initial_tags: Option<serde_json::Value>,
+) -> anyhow::Result<scan_source::Model> {
+    let Some(existing) = get_scan_by_id(db, id).await? else {
+        anyhow::bail!("Scan source not found: id={id}");
+    };
+
+    let mut active: scan_source::ActiveModel = existing.into();
+    active.initial_tags = Set(initial_tags);
+    active.updated_at = Set(Utc::now());
+    let updated = active.update(db).await?;
+    Ok(updated)
 }
 
 /// Fetch a single scan source by id

@@ -96,7 +96,7 @@ impl ScannerView {
                 let mut failed = 0usize;
 
                 for path in &paths {
-                    match scan_storage::create_scan(&db, path.clone(), ScanMode::Manual).await {
+                    match scan_storage::create_scan(&db, path.clone(), ScanMode::Manual, None).await {
                         Ok(_) => added += 1,
                         Err(err) => {
                             tracing::warn!(

@@ -8,10 +8,11 @@ use std::time::UNIX_EPOCH;
 use uuid::Uuid;
 
 pub use super::scanner::BatchReport;
-use super::scanner::scan_directory;
 use crate::database::entities::{FileState, ReplicaState};
 use crate::database::storage::file::{ContentTimes, CreateFileParams, UpsertReplicaParams};
 use crate::database::storage::{self};
+use crate::services::macrotag::MacroTag;
+use crate::services::tags_queryer::MtagService;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileMetadata {
@@ -74,11 +75,11 @@ pub fn compute_file_metadata(path: &Path) -> Result<FileMetadata> {
     })
 }
 
-pub async fn import_file(
+pub async fn import_file_with_tags(
     db: &DatabaseConnection,
     path: impl AsRef<Path>,
     device_id: &str,
-    default_state: FileState,
+    initial_tags: &[MacroTag],
 ) -> Result<(Uuid, bool)> {
     let path = path.as_ref();
     if !path.exists() || !path.is_file() {
@@ -106,6 +107,14 @@ pub async fn import_file(
     if mime.starts_with("image/") {
         super::thumbnail::ensure_thumbnail(path, &hash);
     }
+
+    let default_state = initial_tags
+        .iter()
+        .find_map(|t| match t {
+            MacroTag::State(s) => Some(*s),
+            _ => None,
+        })
+        .unwrap_or_default();
 
     // Deduplication check
     let existing_file = storage::file::find_file_by_hash(db, &hash).await?;
@@ -170,6 +179,11 @@ pub async fn import_file(
             },
         )
         .await?;
+
+        if !initial_tags.is_empty() {
+            MtagService::apply_changes(db, &[new_id], initial_tags, &[]).await?;
+        }
+
         (new_id, false)
     };
 
@@ -183,10 +197,22 @@ pub async fn import_from_paths(
     device_id: &str,
 ) -> Result<BatchReport> {
     let mut report = BatchReport::default();
+    let sources = storage::scan_source::list_active_scans(db)
+        .await
+        .unwrap_or_default();
+    let mut rules = super::scanner::build_scan_rules(&sources);
 
     for path in paths {
         if path.is_dir() {
-            match scan_directory(db, path, device_id, FileState::Managed).await {
+            let p = path.as_path();
+            let canonical_p = p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+            rules.push(super::scanner::ScanTask {
+                path: canonical_p,
+                initial_tags: vec![MacroTag::State(FileState::Managed)],
+            });
+            rules.sort_by_key(|r| r.path.components().count());
+
+            match super::scanner::scan_task(db, path, device_id, &rules).await {
                 Ok(rep) => report.merge(rep),
                 Err(err) => {
                     tracing::warn!(path = %path.display(), error = %err, "import failed");
@@ -194,7 +220,8 @@ pub async fn import_from_paths(
                 }
             }
         } else {
-            match import_file(db, path, device_id, FileState::Managed).await {
+            let tags = super::scanner::resolve_tags_by_path(&rules, path);
+            match import_file_with_tags(db, path, device_id, &tags).await {
                 Ok((_id, is_duplicate)) => {
                     report.total_found += 1;
                     if is_duplicate {
