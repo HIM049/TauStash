@@ -13,8 +13,8 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::components::collection_config_editor::{CollectionConfigEditor, ConfigEditorEvent};
 use crate::components::file_content_view::{FileContentEvent, FilePoolView};
-use crate::components::tag_batch_editor::TagBatchEditor;
-use crate::components::tag_filter_bar::{TagFilterBar, TagFilterEvent};
+use crate::components::tag_bar_editor::TagBatchEditor;
+use crate::components::tag_bar_filter::{TagFilterBar, TagFilterEvent};
 use crate::database::entities::collection;
 use crate::services::collection::{CollectionConfig, ViewOption};
 use crate::services::file;
@@ -657,7 +657,6 @@ impl Render for GenericView {
             .h_flex()
             .justify_between()
             .items_center()
-            .px_6()
             .child(
                 div()
                     .h_flex()
@@ -793,6 +792,7 @@ impl Render for GenericView {
                             .v_flex()
                             .gap_4()
                             .pt_6()
+                            .px_6()
                             .child(title_bar)
                             .w_full()
                             .min_w_0()

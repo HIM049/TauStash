@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::rc::Rc;
 
 use gpui_kit::component::*;
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
 use crate::components::tag_chip::{TagChip, TagChipState};
@@ -23,6 +24,7 @@ pub struct TagFilterBar {
     total_files_count: usize,
     untagged_files_count: usize,
     loading: bool,
+    padding_x: bool,
 
     active_tags: HashSet<MacroTag>,
 }
@@ -30,6 +32,11 @@ pub struct TagFilterBar {
 impl TagFilterBar {
     pub fn new(base_query: FileQueryer) -> Self {
         Self::with_excluded_tags(base_query, Vec::new(), false)
+    }
+
+    pub fn padding_x(mut self) -> Self {
+        self.padding_x = true;
+        self
     }
 
     pub fn with_excluded_tags(
@@ -45,6 +52,7 @@ impl TagFilterBar {
             total_files_count: 0,
             untagged_files_count: 0,
             loading: false,
+            padding_x: false,
             active_tags: HashSet::new(),
         }
     }
@@ -210,7 +218,7 @@ impl TagFilterBar {
             .min_h(px(34.0))
             .overflow_x_scroll()
             .py_1()
-            .px_6()
+            .when(self.padding_x, |this| this.px_6())
             .children(chips)
             .into_any_element()
     }

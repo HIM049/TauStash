@@ -37,6 +37,7 @@ pub struct TagBatchEditor {
     tracked_items: Vec<TrackedBatchItem>,
 
     is_adding: bool,
+    padding_x: bool,
     input_state: Entity<InputState>,
 
     on_commit: Option<CommitListener>,
@@ -52,10 +53,16 @@ impl TagBatchEditor {
             selected_count: 0,
             tracked_items: Vec::new(),
             is_adding: false,
+            padding_x: false,
             input_state,
             on_commit: None,
             on_cancel: None,
         }
+    }
+
+    pub fn padding_x(mut self) -> Self {
+        self.padding_x = true;
+        self
     }
 
     pub fn on_commit(
@@ -71,20 +78,49 @@ impl TagBatchEditor {
         self
     }
 
-    pub fn set_selection(
+    /// Construct from files directly
+    pub fn from_files(
+        window: &mut Window,
+        selected_files: &[FileInfo],
+        candidate_tags: &[MacroTag],
+        pinned_tags: &[MacroTag],
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let mut editor = Self::new(window, cx);
+        editor.set_files(selected_files, candidate_tags, pinned_tags, cx);
+        editor
+    }
+
+    /// Set selection from FileInfo slice
+    pub fn set_files(
         &mut self,
         selected_files: &[FileInfo],
         candidate_tags: &[MacroTag],
         pinned_tags: &[MacroTag],
         cx: &mut Context<Self>,
     ) {
-        let total = selected_files.len();
+        let slices: Vec<&[MacroTag]> = selected_files.iter().map(|f| f.tags.as_slice()).collect();
+        self.set_tags(&slices, candidate_tags, pinned_tags, cx);
+    }
+
+    /// Update batch selection using raw tag slices
+    pub fn set_tags(
+        &mut self,
+        items_tags: &[&[MacroTag]],
+        candidate_tags: &[MacroTag],
+        pinned_tags: &[MacroTag],
+        cx: &mut Context<Self>,
+    ) {
+        let total = items_tags.len();
         self.selected_count = total;
         let mut tracked_items: Vec<TrackedBatchItem> = Vec::new();
 
         // Process pinned tags
         for pinned in pinned_tags {
-            let count = selected_files.iter().filter(|f| f.has_tag(pinned)).count();
+            let count = items_tags
+                .iter()
+                .filter(|tags| tags.contains(pinned))
+                .count();
             let original = if count == total && total > 0 {
                 EditState::All
             } else if count > 0 {
@@ -100,10 +136,10 @@ impl TagBatchEditor {
             });
         }
 
-        // Count existing tags across selected files
+        // Count existing tags across selected items
         let mut tag_counts: HashMap<MacroTag, usize> = HashMap::new();
-        for file in selected_files {
-            for tag in &file.tags {
+        for tags in items_tags {
+            for tag in *tags {
                 *tag_counts.entry(tag.clone()).or_insert(0) += 1;
             }
         }
@@ -146,6 +182,16 @@ impl TagBatchEditor {
         self.tracked_items = tracked_items;
         self.is_adding = false;
         cx.notify();
+    }
+
+    pub fn set_selection(
+        &mut self,
+        selected_files: &[FileInfo],
+        candidate_tags: &[MacroTag],
+        pinned_tags: &[MacroTag],
+        cx: &mut Context<Self>,
+    ) {
+        self.set_files(selected_files, candidate_tags, pinned_tags, cx);
     }
 
     pub fn focus(&self, window: &mut Window, cx: &mut App) {
@@ -323,8 +369,8 @@ impl Render for TagBatchEditor {
             .items_center()
             .justify_between()
             .w_full()
-            // .px_6()
             .py_1()
+            .when(self.padding_x, |this| this.px_6())
             .gap_2()
             .bg(theme.accent.opacity(0.08))
             .border_color(theme.border)
@@ -336,7 +382,6 @@ impl Render for TagBatchEditor {
                     .items_center()
                     .gap_2()
                     .flex_1()
-                    .pl_6()
                     .children(chips)
                     .child(
                         div()
