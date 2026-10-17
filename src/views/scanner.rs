@@ -8,14 +8,15 @@ use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::*;
-use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
 use crate::AppState;
 use crate::components::tag_bar_editor::TagBatchEditor;
 use crate::components::tag_chip::TagChip;
+use crate::components::view_scaffold::ViewScaffold;
 use crate::database::entities::{FileState, ScanMode, scan_source};
-use crate::database::storage::scan_source as scan_storage;
+use crate::database::storage;
 use crate::services::macrotag::MacroTag;
 use crate::services::scanner;
 use crate::services::store::AppStores;
@@ -138,7 +139,13 @@ impl ScannerView {
                 let mut failed = 0usize;
 
                 for path in &paths {
-                    match scan_storage::create_scan(&db, path.clone(), ScanMode::Manual, None).await
+                    match storage::scan_source::create_scan(
+                        &db,
+                        path.clone(),
+                        ScanMode::Manual,
+                        None,
+                    )
+                    .await
                     {
                         Ok(_) => added += 1,
                         Err(err) => {
@@ -162,7 +169,7 @@ impl ScannerView {
         let db = cx.global::<AppState>().db.clone();
 
         cx.spawn(async move |this, cx| {
-            let Ok(sources) = scan_storage::list_scans(&db).await else {
+            let Ok(sources) = storage::scan_source::list_scans(&db).await else {
                 return;
             };
             this.update(cx, |this, cx| {
@@ -228,9 +235,9 @@ impl ScannerView {
 
         cx.spawn_in(window, async move |this, cx| {
             let res = cx
-                .background_spawn(
-                    async move { rt.block_on(scan_storage::delete_scan(&db, source_id)) },
-                )
+                .background_spawn(async move {
+                    rt.block_on(storage::scan_source::delete_scan(&db, source_id))
+                })
                 .await;
 
             let msg = this
@@ -428,8 +435,12 @@ impl ScannerView {
                 .background_spawn(async move {
                     rt.block_on(async {
                         for (source_id, initial_tags) in updates {
-                            scan_storage::update_scan_initial_tags(&db, source_id, initial_tags)
-                                .await?;
+                            storage::scan_source::update_scan_initial_tags(
+                                &db,
+                                source_id,
+                                initial_tags,
+                            )
+                            .await?;
                         }
                         Ok::<(), anyhow::Error>(())
                     })
@@ -602,87 +613,62 @@ impl Render for ScannerView {
         let busy = self.is_scanning;
         let has_selection = !self.selected_ids.is_empty();
 
-        div()
-            .id("scanner-main")
-            .bg(cx.theme().background)
+        let sub_bar = if has_selection {
+            div()
+                .id("scanner-batch-editor-container")
+                .h(px(34.))
+                .w_full()
+                .on_click(|_, _, cx| cx.stop_propagation())
+                .child(self.batch_editor.clone())
+                .into_any_element()
+        } else {
+            div()
+                .h_flex()
+                .items_center()
+                .w_full()
+                .h(px(34.))
+                .text_color(cx.theme().muted_foreground)
+                .child(
+                    div()
+                        .flex()
+                        .justify_center()
+                        .items_center()
+                        .bg(cx.theme().muted)
+                        .rounded_full()
+                        .px_4()
+                        .py_1()
+                        .text_xs()
+                        .font_medium()
+                        .child(format!("{} 条来源", self.sources.len())),
+                )
+                .into_any_element()
+        };
+
+        ViewScaffold::new("scanner-scaffold", "扫描管理")
             .on_drop(cx.listener(Self::handle_drag))
             .on_click(cx.listener(|this, _, _, cx| {
                 this.clear_selection(cx);
             }))
-            .v_flex()
-            .size_full()
-            .gap_4()
-            .p_6()
-            .child(
-                div()
-                    .id("scanner-top-bar")
-                    .h_flex()
-                    .w_full()
-                    .justify_between()
-                    .items_center()
-                    .child(div().text_xl().font_bold().child("扫描管理"))
-                    .child(
-                        div()
-                            .h_flex()
-                            .gap_2()
-                            .child(
-                                Button::new("scan-source-add")
-                                    .icon(IconName::Plus)
-                                    .disabled(busy)
-                                    .on_click(cx.listener(Self::start_create_sourse)),
-                            )
-                            .child(
-                                Button::new("scan-source-scan-all")
-                                    .label("立即扫描")
-                                    .icon(IconName::Search)
-                                    .loading(busy)
-                                    .on_click(cx.listener(Self::on_scan_all)),
-                            ),
-                    ),
-            )
-            .when_else(
-                has_selection,
-                |this| {
-                    this.child(
-                        div()
-                            .id("scanner-batch-editor-container")
-                            .h(px(34.))
-                            .w_full()
-                            .on_click(|_, _, cx| cx.stop_propagation())
-                            .child(self.batch_editor.clone()),
-                    )
-                },
-                |this| {
-                    this.child(
-                        div()
-                            .h_flex()
-                            .items_center()
-                            .w_full()
-                            .h(px(34.))
-                            .text_color(cx.theme().muted_foreground)
-                            // .px_6()
-                            .child(
-                                div()
-                                    .flex()
-                                    .justify_center()
-                                    .items_center()
-                                    .bg(cx.theme().muted)
-                                    .rounded_full()
-                                    .px_4()
-                                    .py_1()
-                                    .text_xs()
-                                    .font_medium()
-                                    .child(format!("{} 条来源", self.sources.len())),
-                            ),
-                    )
-                },
-            )
+            .actions(vec![
+                Button::new("scan-source-add")
+                    .icon(IconName::Plus)
+                    .disabled(busy)
+                    .on_click(cx.listener(Self::start_create_sourse)),
+                Button::new("scan-source-scan-all")
+                    .label("立即扫描")
+                    .icon(IconName::Search)
+                    .loading(busy)
+                    .on_click(cx.listener(Self::on_scan_all)),
+            ])
+            .sub_bar(sub_bar)
             .child(
                 div()
                     .v_flex()
                     .w_full()
                     .gap_2()
                     .min_h_0()
+                    .px_6()
+                    .pb_6()
                     .overflow_y_scrollbar()
                     .when_some(self.draft.as_mut(), |this, draft| {
                         this.child(

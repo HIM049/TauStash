@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::*;
-use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
 pub type CollectionCardClickListener = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;

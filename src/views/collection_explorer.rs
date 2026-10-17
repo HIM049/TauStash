@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Enter, Escape, InputState};
-use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
+use gpui_kit::component::menu::{ContextMenuExt, PopupMenu, PopupMenuItem};
 use gpui_kit::component::*;
 use gpui_kit::*;
 use uuid::Uuid;
@@ -10,6 +10,7 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::components::collection_card::CollectionCard;
 use crate::components::item_grid_view::ItemGridView;
+use crate::components::view_scaffold::ViewScaffold;
 use crate::database::entities::collection;
 use crate::database::storage::collection as collection_store;
 use crate::services::collection::CollectionConfig;
@@ -470,13 +471,7 @@ impl Render for CollectionExplorerView {
 
         div()
             .id("collection-explorer-main")
-            .v_flex()
-            .bg(cx.theme().background)
             .size_full()
-            .gap_3()
-            .p_6()
-            .pb_0()
-            .pr_0()
             .track_focus(&self.focus_handle)
             .on_click(cx.listener(|this, _, window, cx| {
                 if this.editing_id.is_some() {
@@ -508,90 +503,85 @@ impl Render for CollectionExplorerView {
                 }
             })
             .child(
-                div()
-                    .id("collection-top-bar")
-                    .h_flex()
-                    .items_center()
-                    .gap_2()
-                    .on_click(|_, _, cx| cx.stop_propagation())
-                    .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
-                    .child(div().text_xl().font_bold().child("全部合集"))
-                    .child(
+                ViewScaffold::new("collection-explorer-scaffold", "全部合集")
+                    .actions(vec![
                         Button::new("collection-refresh")
                             .icon(IconName::RefreshCw)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 cx.stop_propagation();
                                 this.reload(cx);
                             })),
-                    )
-                    .child(Button::new("collection-new").icon(IconName::Plus).on_click(
-                        cx.listener(|this, _, window, cx| {
-                            cx.stop_propagation();
-                            this.start_create(window, cx);
-                        }),
-                    )),
-            )
-            .child(
-                ItemGridView::new("collection-grid", self.folders.clone(), {
-                    let selected = self.selected.clone();
-                    let editing_id = self.editing_id;
-                    let name_input = self.name_input.clone();
-                    let entity = cx.entity().clone();
+                        Button::new("collection-new")
+                            .icon(IconName::Plus)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                cx.stop_propagation();
+                                this.start_create(window, cx);
+                            })),
+                    ])
+                    .child(
+                        div().size_full().pl_6().child(
+                            ItemGridView::new("collection-grid", self.folders.clone(), {
+                                let selected = self.selected.clone();
+                                let editing_id = self.editing_id;
+                                let name_input = self.name_input.clone();
+                                let entity = cx.entity().clone();
 
-                    move |folder, _idx, _window, _cx| {
-                        let id = folder.id;
-                        let is_selected = selected.contains(&id);
-                        let is_editing = editing_id == Some(id);
+                                move |folder, _idx, _window, _cx| {
+                                    let id = folder.id;
+                                    let is_selected = selected.contains(&id);
+                                    let is_editing = editing_id == Some(id);
 
-                        let cell_entity = entity.clone();
-                        let sec_entity = entity.clone();
-                        let dbl_entity = entity.clone();
-                        let dbl_folder = folder.clone();
+                                    let cell_entity = entity.clone();
+                                    let sec_entity = entity.clone();
+                                    let dbl_entity = entity.clone();
+                                    let dbl_folder = folder.clone();
 
-                        CollectionCard::new(
-                            ElementId::Name(format!("collection-card-{id}").into()),
-                            SharedString::new(folder.name.as_str()),
-                        )
-                        .icon(folder.icon.as_str())
-                        .cover(folder.cover.as_str())
-                        .selected(is_selected)
-                        .editing(is_editing)
-                        .input(if is_editing {
-                            Some(name_input.clone())
-                        } else {
-                            None
-                        })
-                        .on_click(move |_, window, cx| {
-                            if is_editing {
-                                return;
-                            }
-                            let modifiers = window.modifiers();
-                            let is_ctrl = modifiers.control || modifiers.platform;
-                            let is_shift = modifiers.shift;
+                                    CollectionCard::new(
+                                        ElementId::Name(format!("collection-card-{id}").into()),
+                                        SharedString::new(folder.name.as_str()),
+                                    )
+                                    .icon(folder.icon.as_str())
+                                    .cover(folder.cover.as_str())
+                                    .selected(is_selected)
+                                    .editing(is_editing)
+                                    .input(if is_editing {
+                                        Some(name_input.clone())
+                                    } else {
+                                        None
+                                    })
+                                    .on_click(move |_, window, cx| {
+                                        if is_editing {
+                                            return;
+                                        }
+                                        let modifiers = window.modifiers();
+                                        let is_ctrl = modifiers.control || modifiers.platform;
+                                        let is_shift = modifiers.shift;
 
-                            cell_entity.update(cx, |this, cx| {
-                                this.handle_select(id, is_ctrl, is_shift, cx);
-                            });
-                        })
-                        .on_double_click(move |_, window, cx| {
-                            dbl_entity.update(cx, |this, cx| {
-                                this.open_collection(&dbl_folder, window, cx);
-                            });
-                        })
-                        .on_secondary_click(move |_window, cx| {
-                            sec_entity.update(cx, |this, cx| {
-                                this.handle_secondary_click(id, cx);
-                            });
-                        })
-                        .into_any_element()
-                    }
-                })
-                .scroll_handle(&self.scroll_handle)
-                .empty_placeholder(if self.loading {
-                    "加载中..."
-                } else {
-                    "暂无合集"
-                }),
+                                        cell_entity.update(cx, |this, cx| {
+                                            this.handle_select(id, is_ctrl, is_shift, cx);
+                                        });
+                                    })
+                                    .on_double_click(move |_, window, cx| {
+                                        dbl_entity.update(cx, |this, cx| {
+                                            this.open_collection(&dbl_folder, window, cx);
+                                        });
+                                    })
+                                    .on_secondary_click(move |_window, cx| {
+                                        sec_entity.update(cx, |this, cx| {
+                                            this.handle_secondary_click(id, cx);
+                                        });
+                                    })
+                                    .into_any_element()
+                                }
+                            })
+                            .scroll_handle(&self.scroll_handle)
+                            .empty_placeholder(if self.loading {
+                                "加载中..."
+                            } else {
+                                "暂无合集"
+                            }),
+                        ),
+                    ),
             )
             .into_any_element()
     }

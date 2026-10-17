@@ -10,3 +10,4 @@ pub mod tag_bar_editor;
 pub mod tag_bar_filter;
 pub mod tag_chip;
 pub mod utils;
+pub mod view_scaffold;

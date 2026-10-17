@@ -1,6 +1,6 @@
 use gpui_fps::fps_monitor;
 use gpui_kit::component::*;
-use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
 use crate::components::app_sidebar::{AppSidebar, NavTarget};

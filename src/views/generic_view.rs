@@ -15,6 +15,7 @@ use crate::components::collection_config_editor::{CollectionConfigEditor, Config
 use crate::components::file_content_view::{FileContentEvent, FilePoolView};
 use crate::components::tag_bar_editor::TagBatchEditor;
 use crate::components::tag_bar_filter::{TagFilterBar, TagFilterEvent};
+use crate::components::view_scaffold::ViewScaffold;
 use crate::database::entities::collection;
 use crate::services::collection::{CollectionConfig, ViewOption};
 use crate::services::file;
@@ -653,82 +654,72 @@ impl Render for GenericView {
             BarMode::Configuring(_) => None,
         };
 
-        let title_bar = div()
-            .h_flex()
-            .justify_between()
-            .items_center()
-            .child(
-                div()
-                    .h_flex()
-                    .items_center()
-                    .gap_2()
-                    .when_some(self.on_back.as_ref(), |this, on_back| {
-                        let on_back = on_back.clone();
-                        this.child(
-                            Button::new("scope-back")
-                                .ghost()
-                                .small()
-                                .icon(IconName::ChevronLeft)
-                                .on_click(move |_, window, cx| {
-                                    on_back(window, cx);
-                                }),
-                        )
+        let mut scaffold =
+            ViewScaffold::new("generic-view-scaffold", self.title.clone()).actions(vec![
+                Button::new("refresh")
+                    .icon(IconName::RefreshCw)
+                    .on_click(cx.listener(|this, _, _, cx| this.reload_all(cx))),
+                Button::new("view-toggle")
+                    .icon(if matches!(self.config.view, ViewOption::List) {
+                        IconName::LayoutGrid
+                    } else {
+                        IconName::List
                     })
-                    .child(div().text_xl().font_bold().child(self.title.clone())),
-            )
-            .child(
-                div()
-                    .h_flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        Button::new("refresh")
-                            .icon(IconName::RefreshCw)
-                            .on_click(cx.listener(|this, _, _, cx| this.reload_all(cx))),
-                    )
-                    .child(
-                        Button::new("view-toggle")
-                            .icon(if matches!(self.config.view, ViewOption::List) {
-                                IconName::LayoutGrid
-                            } else {
-                                IconName::List
-                            })
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                cx.stop_propagation();
-                                this.toggle_view(cx);
-                            })),
-                    )
-                    .when_some(configuring_editor.as_ref(), |this, editor| {
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.toggle_view(cx);
+                    })),
+            ]);
+
+        if let Some(on_back) = self.on_back.clone() {
+            scaffold = scaffold.on_back(move |w, cx| on_back(w, cx));
+        }
+
+        if let Some(editor) = configuring_editor.as_ref() {
+            let editor = editor.clone();
+            scaffold = scaffold.action(
+                Button::new("config-save")
+                    .primary()
+                    .icon(IconName::Check)
+                    .on_click(cx.listener({
                         let editor = editor.clone();
-                        this.child(
-                            Button::new("config-save")
-                                .primary()
-                                .icon(IconName::Check)
-                                .on_click(cx.listener({
-                                    let editor = editor.clone();
-                                    move |this, _, window, cx| {
-                                        let name = editor.read(cx).current_name(cx);
-                                        let config = editor.read(cx).current_config().clone();
-                                        this.apply_saved_configuration(
-                                            &name,
-                                            &config,
-                                            Some(window),
-                                            cx,
-                                        );
-                                    }
-                                })),
-                        )
-                    })
-                    .when_none(&configuring_editor, |this| {
-                        this.child(
-                            Button::new("config-toggle")
-                                .icon(IconName::SlidersHorizontal)
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    cx.stop_propagation();
-                                    this.start_configuring(window, cx);
-                                })),
-                        )
-                    }),
+                        move |this, _, window, cx| {
+                            let name = editor.read(cx).current_name(cx);
+                            let config = editor.read(cx).current_config().clone();
+                            this.apply_saved_configuration(&name, &config, Some(window), cx);
+                        }
+                    })),
+            );
+        } else {
+            scaffold = scaffold.action(
+                Button::new("config-toggle")
+                    .icon(IconName::SlidersHorizontal)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.start_configuring(window, cx);
+                    })),
+            );
+        }
+
+        if let Some(bar) = secondary_bar {
+            scaffold = scaffold.sub_bar(bar);
+        }
+
+        scaffold = scaffold
+            .when(configuring_editor.is_some(), |this| {
+                this.rounded_t_3xl().shadow(vec![
+                    BoxShadow::new(px(0.), px(0.), hsla(0., 0., 0., 0.2))
+                        .blur_radius(px(6.))
+                        .spread_radius(px(0.)),
+                ])
+            })
+            .child(
+                div()
+                    .id("explorer-content")
+                    .size_full()
+                    .pl_3()
+                    .overflow_hidden()
+                    .child(self.content_view.clone()),
             );
 
         div()
@@ -773,40 +764,6 @@ impl Render for GenericView {
                         .child(editor.clone().into_any_element()),
                 )
             })
-            .child(
-                div()
-                    .w_full()
-                    .flex_1()
-                    .min_h_0()
-                    .bg(cx.theme().background)
-                    .when(configuring_editor.is_some(), |this| {
-                        this.rounded_t_3xl().shadow(vec![
-                            BoxShadow::new(px(0.), px(0.), hsla(0., 0., 0., 0.2))
-                                .blur_radius(px(6.))
-                                .spread_radius(px(0.)),
-                        ])
-                    })
-                    .child(
-                        div()
-                            .id("explorer-top-bar")
-                            .v_flex()
-                            .gap_4()
-                            .pt_6()
-                            .px_6()
-                            .child(title_bar)
-                            .w_full()
-                            .min_w_0()
-                            .when_some(secondary_bar, |this, bar| this.child(bar)),
-                    )
-                    .child(
-                        div()
-                            .id("explorer-content")
-                            .size_full()
-                            .pl_3()
-                            .overflow_hidden()
-                            .child(self.content_view.clone()),
-                    ),
-            )
-            .into_any_element()
+            .child(scaffold)
     }
 }
