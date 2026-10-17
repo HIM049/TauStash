@@ -53,6 +53,8 @@ pub struct Model {
     pub media_meta: Option<String>,
     #[sea_orm(indexed)]
     pub state: FileState,
+
+    pub file_name: String,
     /// Aggregated from replicas: MIN(replica.ctime)
     #[sea_orm(indexed)]
     pub content_created_at: Option<DateTimeUtc>,
@@ -61,10 +63,12 @@ pub struct Model {
     pub content_modified_at: Option<DateTimeUtc>,
     /// Content-intrinsic time such as EXIF
     pub exif_taken_at: Option<DateTimeUtc>,
+
     #[sea_orm(indexed)]
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub deleted_at: Option<DateTimeUtc>,
+
     #[sea_orm(has_many)]
     pub file_replicas: HasMany<super::file_replica::Entity>,
     #[sea_orm(has_many, via = "file_tag")]

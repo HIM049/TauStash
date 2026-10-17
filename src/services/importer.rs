@@ -153,6 +153,7 @@ pub async fn import_file_with_tags(
             db,
             CreateFileParams {
                 id: new_id,
+                file_name: &file_name,
                 hash: &hash,
                 size,
                 mime: Some(mime),

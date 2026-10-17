@@ -179,9 +179,7 @@ impl FileQueryer {
     pub fn mime_prefix(mut self, prefix: impl Into<String>) -> Self {
         let p = prefix.into().trim().to_lowercase();
         if !p.is_empty() {
-            self.mime_prefixes
-                .get_or_insert_with(Vec::new)
-                .push(p);
+            self.mime_prefixes.get_or_insert_with(Vec::new).push(p);
         }
         self
     }
@@ -346,7 +344,7 @@ impl FileQueryer {
                 let replica = replica_map.get(&f.id)?;
                 Some(DbFileRecord {
                     file_id: f.id,
-                    file_name: replica.file_name.clone(),
+                    file_name: f.file_name,
                     path: replica.uri.clone(),
                     hash: f.hash,
                     size: f.size,
@@ -400,9 +398,7 @@ fn build_filter_conditions(spec: &FileQueryer) -> sea_orm::Condition {
             .from(file_replica::Entity)
             .and_where(Expr::col(file_replica::Column::State).ne("missing"))
             .group_by_col(file_replica::Column::FileId)
-            .and_having(
-                Expr::expr(Func::count(Expr::col(file_replica::Column::Id))).gt(1),
-            )
+            .and_having(Expr::expr(Func::count(Expr::col(file_replica::Column::Id))).gt(1))
             .to_owned();
 
         cond = cond.add(Expr::col(file::Column::Id).in_subquery(replica_count_subquery));

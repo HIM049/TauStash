@@ -61,6 +61,7 @@ pub struct ContentTimes {
 #[derive(Debug, Clone)]
 pub struct CreateFileParams<'a> {
     pub id: Uuid,
+    pub file_name: &'a str,
     pub hash: &'a str,
     pub size: i64,
     pub mime: Option<String>,
@@ -77,6 +78,7 @@ pub async fn create_file(
 ) -> anyhow::Result<file::Model> {
     let CreateFileParams {
         id,
+        file_name,
         hash,
         size,
         mime,
@@ -88,6 +90,7 @@ pub async fn create_file(
     let now = Utc::now();
     let new_file = file::ActiveModel {
         id: Set(id),
+        file_name: Set(file_name.to_string()),
         hash: Set(hash.to_string()),
         size: Set(size),
         mime: Set(mime),
@@ -321,15 +324,14 @@ pub async fn get_file_by_id(
         .filter(file_replica::Column::FileId.eq(f.id))
         .one(db)
         .await?;
-
-    let (path, file_name) = match replica {
-        Some(r) => (r.uri, r.file_name),
-        None => ("(None)".to_string(), "unknown".to_string()),
+    let path = match replica {
+        Some(r) => r.uri,
+        None => "(Missed)".into(),
     };
 
     Ok(Some(DbFileRecord {
         file_id: f.id,
-        file_name,
+        file_name: f.file_name,
         path,
         hash: f.hash,
         size: f.size,
