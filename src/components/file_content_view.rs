@@ -211,35 +211,34 @@ impl FilePoolView {
             self.commit_rename(window, cx);
         }
 
-        if is_shift {
-            let start = self.last_select.and_then(|id| self.index_of(id));
-            let end = self.index_of(file_id);
-
-            match (start, end) {
-                (Some(s), Some(e)) => {
-                    let (min, max) = if s < e { (s, e) } else { (e, s) };
-                    for item in &self.file_list[min..=max] {
-                        self.selected_files.insert(item.file_id);
-                    }
-                }
-                _ => {
-                    self.selected_files.insert(file_id);
-                }
-            }
-            self.last_select = Some(file_id);
-        } else if is_ctrl {
+        if is_ctrl {
             if self.selected_files.contains(&file_id) {
                 self.selected_files.remove(&file_id);
             } else {
                 self.selected_files.insert(file_id);
             }
             self.last_select = Some(file_id);
-        } else {
-            self.selected_files.clear();
-            self.selected_files.insert(file_id);
-            self.last_select = Some(file_id);
+            cx.emit(FileContentEvent::SelectionChanged);
+            cx.notify();
+            return;
         }
 
+        if is_shift && let Some(anchor) = self.last_select {
+            if let (Some(from), Some(to)) = (self.index_of(anchor), self.index_of(file_id)) {
+                self.selected_files.clear();
+                let (start, end) = (from.min(to), from.max(to));
+                for item in &self.file_list[start..=end] {
+                    self.selected_files.insert(item.file_id);
+                }
+                cx.emit(FileContentEvent::SelectionChanged);
+                cx.notify();
+                return;
+            }
+        }
+
+        self.selected_files.clear();
+        self.selected_files.insert(file_id);
+        self.last_select = Some(file_id);
         cx.emit(FileContentEvent::SelectionChanged);
         cx.notify();
     }
