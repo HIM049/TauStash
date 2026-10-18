@@ -250,7 +250,7 @@ impl RenderOnce for GridCard {
             .rounded(cx.theme().radius)
             .when(is_editing, |s| {
                 s.border_1()
-                    .border_color(cx.theme().primary)
+                    .border_color(cx.theme().border)
                     .bg(cx.theme().accent.opacity(0.9))
             })
             .when(!is_editing && is_selected, |s| {

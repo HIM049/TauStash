@@ -119,6 +119,10 @@ impl FilePoolView {
         &self.scroll_handle
     }
 
+    pub fn is_renaming(&self) -> bool {
+        self.editing_id.is_some()
+    }
+
     pub fn start_rename(
         &mut self,
         file_id: Uuid,
@@ -435,17 +439,6 @@ impl Render for FilePoolView {
             }))
             .on_action(cx.listener(|this, _: &Escape, window, cx| {
                 this.cancel_rename(window, cx);
-            }))
-            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                if event.keystroke.key == "f2" && this.editing_id.is_none() {
-                    if this.selected_files.len() == 1 {
-                        let id = *this.selected_files.iter().next().unwrap();
-                        if let Some(file) = this.file_list.iter().find(|f| f.file_id == id) {
-                            let name = file.file_name.clone();
-                            this.start_rename(id, &name, window, cx);
-                        }
-                    }
-                }
             }))
             .context_menu({
                 let menu_entity = menu_entity.clone();

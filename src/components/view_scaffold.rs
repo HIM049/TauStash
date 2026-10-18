@@ -6,6 +6,7 @@ use gpui_kit::*;
 
 pub type BackHandler = Box<dyn Fn(&mut Window, &mut App) + 'static>;
 pub type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+pub type SubClickHandler = Box<dyn Fn(&MouseDownEvent, &mut Window, &mut App) + 'static>;
 pub type DropHandler = Box<dyn Fn(&ExternalPaths, &mut Window, &mut App) + 'static>;
 
 #[derive(IntoElement)]
@@ -18,6 +19,7 @@ pub struct ViewScaffold {
     sub_bar: Option<AnyElement>,
     content: Option<AnyElement>,
     on_click: Option<ClickHandler>,
+    on_sub_click: Option<SubClickHandler>,
     on_drop: Option<DropHandler>,
 }
 
@@ -38,6 +40,7 @@ impl ViewScaffold {
             sub_bar: None,
             content: None,
             on_click: None,
+            on_sub_click: None,
             on_drop: None,
         }
     }
@@ -75,6 +78,14 @@ impl ViewScaffold {
         self
     }
 
+    pub fn on_sub_click(
+        mut self,
+        handler: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_sub_click = Some(Box::new(handler));
+        self
+    }
+
     pub fn on_drop(
         mut self,
         handler: impl Fn(&ExternalPaths, &mut Window, &mut App) + 'static,
@@ -96,6 +107,9 @@ impl RenderOnce for ViewScaffold {
             .gap_4()
             .when_some(self.on_click, |this, on_click| {
                 this.on_click(move |event, window, cx| on_click(event, window, cx))
+            })
+            .when_some(self.on_sub_click, |this, on_click| {
+                this.on_mouse_down(MouseButton::Right, move |e, w, cx| on_click(e, w, cx))
             })
             .when_some(self.on_drop, |this, on_drop| {
                 this.on_drop(move |paths, window, cx| on_drop(paths, window, cx))

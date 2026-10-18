@@ -58,7 +58,6 @@ impl CollectionExplorerView {
     pub fn reload(&mut self, cx: &mut Context<Self>) {
         if let Some(stores) = &self.stores {
             self.folders = stores.collections.read(cx).collections.clone();
-            self.editing_id = None;
             cx.notify();
             return;
         }
@@ -473,23 +472,6 @@ impl Render for CollectionExplorerView {
             .id("collection-explorer-main")
             .size_full()
             .track_focus(&self.focus_handle)
-            .on_click(cx.listener(|this, _, window, cx| {
-                if this.editing_id.is_some() {
-                    this.commit_edit(window, cx);
-                } else {
-                    this.clear_selection(cx);
-                }
-            }))
-            .on_mouse_down(
-                MouseButton::Right,
-                cx.listener(|this, _, window, cx| {
-                    if this.editing_id.is_some() {
-                        this.commit_edit(window, cx);
-                    } else {
-                        this.clear_selection(cx);
-                    }
-                }),
-            )
             .on_action(cx.listener(|this, _: &Enter, window, cx| {
                 this.commit_edit(window, cx);
             }))
@@ -576,7 +558,21 @@ impl Render for CollectionExplorerView {
                                 "暂无合集"
                             }),
                         ),
-                    ),
+                    )
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        if this.editing_id.is_some() {
+                            this.commit_edit(window, cx);
+                        } else {
+                            this.clear_selection(cx);
+                        }
+                    }))
+                    .on_sub_click(cx.listener(|this, _, window, cx| {
+                        if this.editing_id.is_some() {
+                            this.commit_edit(window, cx);
+                        } else {
+                            this.clear_selection(cx);
+                        }
+                    })),
             )
             .into_any_element()
     }

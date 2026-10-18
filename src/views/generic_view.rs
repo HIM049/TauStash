@@ -470,7 +470,12 @@ impl GenericView {
         window: Option<&mut Window>,
         cx: &mut Context<Self>,
     ) {
-        self.title = new_name.to_string().into();
+        let new_name = if new_name.trim().is_empty() {
+            self.title.to_string()
+        } else {
+            new_name.trim().to_string()
+        };
+        self.title = new_name.clone().into();
         self.config = new_config.clone();
         self.content_view.update(cx, |view, cx| {
             view.set_view_mode(self.config.view, cx);
@@ -480,16 +485,16 @@ impl GenericView {
         if let Some(stores) = &self.stores {
             if let Some(id) = self.collection_id {
                 stores.views.update(cx, |s, cx| {
-                    s.update_view(id, new_name, &self.config, cx);
+                    s.update_view(id, &new_name, &self.config, cx);
                 });
                 stores.collections.update(cx, |s, cx| {
-                    s.update_collection(id, new_name, &self.config, cx);
+                    s.update_collection(id, &new_name, &self.config, cx);
                 });
             }
         } else if let Some(id) = self.collection_id {
             let db = cx.global::<AppState>().db.clone();
             let rt = cx.global::<AppState>().rt.clone();
-            let name_to_save = new_name.to_string();
+            let name_to_save = new_name;
             let config_val = serde_json::to_value(&self.config).unwrap_or_default();
 
             cx.spawn(async move |_this, _cx| {
@@ -650,8 +655,31 @@ impl Render for GenericView {
             BarMode::Configuring(_) => None,
         };
 
-        let mut scaffold =
-            ViewScaffold::new("generic-view-scaffold", self.title.clone()).actions(vec![
+        let edit_action = if let Some(editor) = configuring_editor.as_ref() {
+            let editor = editor.clone();
+            Button::new("config-save")
+                .primary()
+                .icon(IconName::Check)
+                .on_click(cx.listener({
+                    let editor = editor.clone();
+                    move |this, _, window, cx| {
+                        cx.stop_propagation();
+                        let name = editor.read(cx).current_name(cx);
+                        let config = editor.read(cx).current_config().clone();
+                        this.apply_saved_configuration(&name, &config, Some(window), cx);
+                    }
+                }))
+        } else {
+            Button::new("config-toggle")
+                .icon(IconName::SlidersHorizontal)
+                .on_click(cx.listener(|this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.start_configuring(window, cx);
+                }))
+        };
+
+        let mut scaffold = ViewScaffold::new("generic-view-scaffold", self.title.clone())
+            .actions(vec![
                 Button::new("refresh")
                     .icon(IconName::RefreshCw)
                     .on_click(cx.listener(|this, _, _, cx| this.reload_all(cx))),
@@ -665,43 +693,19 @@ impl Render for GenericView {
                         cx.stop_propagation();
                         this.toggle_view(cx);
                     })),
-            ]);
-
-        if let Some(on_back) = self.on_back.clone() {
-            scaffold = scaffold.on_back(move |w, cx| on_back(w, cx));
-        }
-
-        if let Some(editor) = configuring_editor.as_ref() {
-            let editor = editor.clone();
-            scaffold = scaffold.action(
-                Button::new("config-save")
-                    .primary()
-                    .icon(IconName::Check)
-                    .on_click(cx.listener({
-                        let editor = editor.clone();
-                        move |this, _, window, cx| {
-                            let name = editor.read(cx).current_name(cx);
-                            let config = editor.read(cx).current_config().clone();
-                            this.apply_saved_configuration(&name, &config, Some(window), cx);
-                        }
-                    })),
-            );
-        } else {
-            scaffold = scaffold.action(
-                Button::new("config-toggle")
-                    .icon(IconName::SlidersHorizontal)
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        cx.stop_propagation();
-                        this.start_configuring(window, cx);
-                    })),
-            );
-        }
-
-        if let Some(bar) = secondary_bar {
-            scaffold = scaffold.sub_bar(bar);
-        }
-
-        scaffold = scaffold
+                edit_action,
+            ])
+            .on_click(cx.listener(|this, _, window, cx| {
+                this.content_view.update(cx, |view, cx| {
+                    if view.is_renaming() {
+                        view.commit_rename(window, cx);
+                    }
+                });
+                this.clear_selection(cx);
+            }))
+            .on_sub_click(cx.listener(|this, _, _window, cx| {
+                this.clear_selection(cx);
+            }))
             .when(configuring_editor.is_some(), |this| {
                 this.rounded_t_3xl().shadow(vec![
                     BoxShadow::new(px(0.), px(0.), hsla(0., 0., 0., 0.2))
@@ -718,6 +722,14 @@ impl Render for GenericView {
                     .child(self.content_view.clone()),
             );
 
+        if let Some(on_back) = self.on_back.clone() {
+            scaffold = scaffold.on_back(move |w, cx| on_back(w, cx));
+        }
+
+        if let Some(bar) = secondary_bar {
+            scaffold = scaffold.sub_bar(bar);
+        }
+
         div()
             .id("explorer-main")
             .bg(cx.theme().muted)
@@ -725,23 +737,12 @@ impl Render for GenericView {
             .v_flex()
             .size_full()
             .gap_3()
-            .on_click(cx.listener(|this, _, _window, cx| {
-                this.clear_selection(cx);
-            }))
-            .on_mouse_down(
-                MouseButton::Right,
-                cx.listener(|this, _, _window, cx| {
-                    this.clear_selection(cx);
-                }),
-            )
             .on_drop(cx.listener(|this, e: &ExternalPaths, w, cx| {
                 this.handle_drag(w, e.paths().to_vec(), cx);
             }))
             .when_some(configuring_editor.as_ref(), |this, editor| {
                 this.child(
                     div()
-                        // .id("config-editor-main")
-                        // .on_click(|_, _, cx| cx.stop_propagation())
                         .w_full()
                         .flex_shrink_0()
                         .overflow_hidden()
