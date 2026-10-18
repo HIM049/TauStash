@@ -311,6 +311,33 @@ pub async fn unmark_files_deleted(
     Ok(())
 }
 
+pub async fn rename_file(
+    db: &DatabaseConnection,
+    file_id: Uuid,
+    new_name: &str,
+) -> anyhow::Result<()> {
+    let new_name = new_name.trim();
+    if new_name.is_empty() {
+        anyhow::bail!("filename cannot be empty");
+    }
+    if new_name
+        .chars()
+        .any(|c| matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+    {
+        anyhow::bail!("illegal filename");
+    }
+
+    let now = Utc::now();
+    file::Entity::update_many()
+        .filter(file::Column::Id.eq(file_id))
+        .col_expr(file::Column::FileName, Expr::value(new_name.to_string()))
+        .col_expr(file::Column::UpdatedAt, Expr::value(now))
+        .exec(db)
+        .await?;
+
+    Ok(())
+}
+
 /// Get detail of a single file by id
 pub async fn get_file_by_id(
     db: &DatabaseConnection,

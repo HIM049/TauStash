@@ -1,0 +1,287 @@
+use std::path::PathBuf;
+use std::rc::Rc;
+
+use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::*;
+use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::*;
+
+use crate::database::entities::collection;
+use crate::services::file::FileInfo;
+
+pub type FileCardClickListener = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+pub type FileCardActionHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
+
+#[derive(Clone, Debug)]
+pub enum CardImage {
+    Image(PathBuf),
+    Icon {
+        name: SharedString,
+        label: Option<SharedString>,
+    },
+}
+
+#[derive(IntoElement)]
+pub struct GridCard {
+    id: ElementId,
+    title: SharedString,
+    image: CardImage,
+    selected: bool,
+    editing: bool,
+    input: Option<Entity<InputState>>,
+    on_click: Option<FileCardClickListener>,
+    on_double_click: Option<FileCardClickListener>,
+    on_secondary_click: Option<FileCardActionHandler>,
+}
+
+impl GridCard {
+    pub fn new(id: impl Into<ElementId>, title: impl Into<SharedString>, image: CardImage) -> Self {
+        Self {
+            id: id.into(),
+            title: title.into(),
+            image,
+            selected: false,
+            editing: false,
+            input: None,
+            on_click: None,
+            on_double_click: None,
+            on_secondary_click: None,
+        }
+    }
+
+    pub fn selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
+        self
+    }
+
+    pub fn editing(mut self, editing: bool) -> Self {
+        self.editing = editing;
+        self
+    }
+
+    pub fn input(mut self, input: impl Into<Option<Entity<InputState>>>) -> Self {
+        self.input = input.into();
+        self
+    }
+
+    pub fn on_click(
+        mut self,
+        listener: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_click = Some(Rc::new(listener));
+        self
+    }
+
+    pub fn on_double_click(
+        mut self,
+        listener: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_double_click = Some(Rc::new(listener));
+        self
+    }
+
+    pub fn on_secondary_click(
+        mut self,
+        listener: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_secondary_click = Some(Rc::new(listener));
+        self
+    }
+}
+
+impl From<&FileInfo> for GridCard {
+    fn from(file: &FileInfo) -> Self {
+        let visual = if file.mime.starts_with("image/") {
+            let p = crate::services::thumbnail::get_thumbnail_path(&file.hash);
+            if p.is_file() {
+                CardImage::Image(p)
+            } else {
+                let ext = file.ext.as_deref().unwrap_or("IMG").to_uppercase();
+                CardImage::Icon {
+                    name: "file".into(),
+                    label: Some(ext.into()),
+                }
+            }
+        } else {
+            let ext = file.ext.as_deref().unwrap_or("FILE").to_uppercase();
+            CardImage::Icon {
+                name: "file".into(),
+                label: Some(ext.into()),
+            }
+        };
+
+        GridCard::new(
+            ElementId::Name(format!("file-card-{}", file.file_id).into()),
+            SharedString::new(file.file_name.as_str()),
+            visual,
+        )
+    }
+}
+
+impl From<FileInfo> for GridCard {
+    fn from(file: FileInfo) -> Self {
+        GridCard::from(&file)
+    }
+}
+
+impl From<&collection::Model> for GridCard {
+    fn from(folder: &collection::Model) -> Self {
+        let visual = if !folder.cover.is_empty() && std::path::Path::new(&folder.cover).is_file() {
+            CardImage::Image(PathBuf::from(&folder.cover))
+        } else {
+            let icon = if folder.icon.is_empty() {
+                "folder"
+            } else {
+                folder.icon.as_str()
+            };
+            CardImage::Icon {
+                name: icon.into(),
+                label: None,
+            }
+        };
+
+        GridCard::new(
+            ElementId::Name(format!("collection-card-{}", folder.id).into()),
+            SharedString::new(folder.name.as_str()),
+            visual,
+        )
+    }
+}
+
+impl From<collection::Model> for GridCard {
+    fn from(folder: collection::Model) -> Self {
+        GridCard::from(&folder)
+    }
+}
+
+impl RenderOnce for GridCard {
+    fn render(
+        self,
+        _: &mut gpui_kit::Window,
+        cx: &mut gpui_kit::App,
+    ) -> impl gpui_kit::prelude::IntoElement {
+        let is_selected = self.selected;
+        let is_editing = self.editing;
+
+        let on_click_handler = self.on_click;
+        let on_double_click_handler = self.on_double_click;
+        let on_secondary_click = self.on_secondary_click;
+
+        let image = match &self.image {
+            CardImage::Image(path) => div()
+                .size_full()
+                .h_flex()
+                .items_center()
+                .justify_center()
+                .overflow_hidden()
+                .rounded_md()
+                .child(
+                    img(ImageSource::from(path.clone()))
+                        .size_full()
+                        .object_fit(ObjectFit::Contain),
+                ),
+            CardImage::Icon { name, label } => {
+                let icon_path = if name.is_empty() {
+                    "icons/folder.svg".to_string()
+                } else {
+                    format!("icons/{name}.svg")
+                };
+
+                div()
+                    .v_flex()
+                    .items_center()
+                    .justify_center()
+                    .size_full()
+                    .gap_1p5()
+                    .child(
+                        div()
+                            .w_10()
+                            .h_10()
+                            .rounded_md()
+                            .h_flex()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                Icon::default()
+                                    .path(icon_path)
+                                    .size_5()
+                                    .text_color(cx.theme().primary),
+                            ),
+                    )
+                    .when_some(label.clone(), |this, label| {
+                        this.child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(label.clone()),
+                        )
+                    })
+            }
+        };
+
+        let label_zone = if is_editing && let Some(ref input) = self.input {
+            div()
+                .id("file-card-input-wrap")
+                .w_full()
+                .on_click(|_, _, cx| cx.stop_propagation())
+                .child(Input::new(input).small().focus_bordered(false))
+                .into_any_element()
+        } else {
+            div()
+                .text_xs()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(cx.theme().foreground)
+                .line_clamp(2)
+                .w_full()
+                .text_ellipsis()
+                .text_center()
+                .child(self.title)
+                .into_any_element()
+        };
+
+        div()
+            .id(self.id)
+            .v_flex()
+            .items_center()
+            .justify_between()
+            .w(px(140.0))
+            .h(px(150.0))
+            .p_2p5()
+            .rounded(cx.theme().radius)
+            .when(is_editing, |s| {
+                s.border_1()
+                    .border_color(cx.theme().primary)
+                    .bg(cx.theme().accent.opacity(0.9))
+            })
+            .when(!is_editing && is_selected, |s| {
+                s.bg(cx.theme().accent.opacity(0.9))
+            })
+            .when(!is_editing && !is_selected, |d| {
+                d.hover(|style| style.bg(cx.theme().accent.opacity(0.6)))
+            })
+            .when_some(on_secondary_click.clone(), |this, on_sec| {
+                this.on_mouse_down(MouseButton::Right, move |_, window, cx| {
+                    cx.stop_propagation();
+                    on_sec(window, cx);
+                })
+            })
+            .on_click(
+                move |event: &ClickEvent, window: &mut Window, cx: &mut App| {
+                    if is_editing {
+                        return;
+                    }
+                    if event.click_count() == 2 {
+                        if let Some(ref dbl_click) = on_double_click_handler {
+                            dbl_click(event, window, cx);
+                        }
+                    } else if event.click_count() == 1
+                        && let Some(ref click) = on_click_handler
+                    {
+                        click(event, window, cx);
+                    }
+                },
+            )
+            .child(div().flex_1().min_h_0().w_full().child(image))
+            .child(label_zone)
+    }
+}

@@ -153,7 +153,6 @@ impl RenderOnce for ItemListView {
                         .px_3()
                         .gap_3()
                         .rounded_sm()
-                        .cursor_pointer()
                         .when(is_selected, |s| s.bg(cx.theme().accent.opacity(0.9)))
                         .when(!is_selected, |d| {
                             d.hover(|style| style.bg(cx.theme().accent.opacity(0.4)))

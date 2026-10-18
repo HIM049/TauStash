@@ -95,7 +95,7 @@ impl GenericView {
                 })
         });
 
-        let content_view = cx.new(|_| FilePoolView::new(config.view));
+        let content_view = cx.new(|cx| FilePoolView::new(config.view, window, cx));
         cx.subscribe(
             &content_view,
             |this, _, event: &FileContentEvent, cx| match event {
@@ -106,7 +106,11 @@ impl GenericView {
                     this.delete_files(ids, cx);
                 }
                 FileContentEvent::RefreshRequested => {
-                    this.reload_all(cx);
+                    if let Some(stores) = &this.stores {
+                        stores.file.update(cx, |_, cx| cx.notify());
+                    } else {
+                        this.reload_all(cx);
+                    }
                 }
             },
         )

@@ -89,7 +89,7 @@ pub async fn import_file_with_tags(
     let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let uri = canonical_path.to_string_lossy().to_string();
     let file_name = path
-        .file_name()
+        .file_stem()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown")
         .to_string();

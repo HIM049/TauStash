@@ -8,7 +8,7 @@ use gpui_kit::*;
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::components::collection_card::CollectionCard;
+use crate::components::grid_card::GridCard;
 use crate::components::item_grid_view::ItemGridView;
 use crate::components::view_scaffold::ViewScaffold;
 use crate::database::entities::collection;
@@ -536,42 +536,37 @@ impl Render for CollectionExplorerView {
                                     let dbl_entity = entity.clone();
                                     let dbl_folder = folder.clone();
 
-                                    CollectionCard::new(
-                                        ElementId::Name(format!("collection-card-{id}").into()),
-                                        SharedString::new(folder.name.as_str()),
-                                    )
-                                    .icon(folder.icon.as_str())
-                                    .cover(folder.cover.as_str())
-                                    .selected(is_selected)
-                                    .editing(is_editing)
-                                    .input(if is_editing {
-                                        Some(name_input.clone())
-                                    } else {
-                                        None
-                                    })
-                                    .on_click(move |_, window, cx| {
-                                        if is_editing {
-                                            return;
-                                        }
-                                        let modifiers = window.modifiers();
-                                        let is_ctrl = modifiers.control || modifiers.platform;
-                                        let is_shift = modifiers.shift;
+                                    GridCard::from(folder)
+                                        .selected(is_selected)
+                                        .editing(is_editing)
+                                        .input(if is_editing {
+                                            Some(name_input.clone())
+                                        } else {
+                                            None
+                                        })
+                                        .on_click(move |_, window, cx| {
+                                            if is_editing {
+                                                return;
+                                            }
+                                            let modifiers = window.modifiers();
+                                            let is_ctrl = modifiers.control || modifiers.platform;
+                                            let is_shift = modifiers.shift;
 
-                                        cell_entity.update(cx, |this, cx| {
-                                            this.handle_select(id, is_ctrl, is_shift, cx);
-                                        });
-                                    })
-                                    .on_double_click(move |_, window, cx| {
-                                        dbl_entity.update(cx, |this, cx| {
-                                            this.open_collection(&dbl_folder, window, cx);
-                                        });
-                                    })
-                                    .on_secondary_click(move |_window, cx| {
-                                        sec_entity.update(cx, |this, cx| {
-                                            this.handle_secondary_click(id, cx);
-                                        });
-                                    })
-                                    .into_any_element()
+                                            cell_entity.update(cx, |this, cx| {
+                                                this.handle_select(id, is_ctrl, is_shift, cx);
+                                            });
+                                        })
+                                        .on_double_click(move |_, window, cx| {
+                                            dbl_entity.update(cx, |this, cx| {
+                                                this.open_collection(&dbl_folder, window, cx);
+                                            });
+                                        })
+                                        .on_secondary_click(move |_window, cx| {
+                                            sec_entity.update(cx, |this, cx| {
+                                                this.handle_secondary_click(id, cx);
+                                            });
+                                        })
+                                        .into_any_element()
                                 }
                             })
                             .scroll_handle(&self.scroll_handle)

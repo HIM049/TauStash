@@ -1,11 +1,13 @@
 use std::collections::HashSet;
 
+use gpui_kit::assets::IconName;
+use gpui_kit::component::input::{Enter, Escape, InputState};
 use gpui_kit::component::menu::{ContextMenuExt, PopupMenu, PopupMenuItem};
-use gpui_kit::component::*;
 use gpui_kit::*;
 use uuid::Uuid;
 
-use crate::components::file_card::FileCard;
+use crate::AppState;
+use crate::components::grid_card::GridCard;
 use crate::components::item_grid_view::ItemGridView;
 use crate::components::item_list_view::ItemListView;
 use crate::components::utils;
@@ -24,6 +26,9 @@ pub struct FilePoolView {
     view_mode: ViewOption,
     selected_files: HashSet<Uuid>,
     last_select: Option<Uuid>,
+    name_input: Entity<InputState>,
+    focus_handle: FocusHandle,
+    editing_id: Option<Uuid>,
     scroll_handle: UniformListScrollHandle,
     empty_placeholder: SharedString,
 }
@@ -31,18 +36,25 @@ pub struct FilePoolView {
 impl EventEmitter<FileContentEvent> for FilePoolView {}
 
 impl FilePoolView {
-    pub fn new(view_mode: ViewOption) -> Self {
+    pub fn new(view_mode: ViewOption, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let name_input = cx.new(|cx| InputState::new(window, cx));
+        let focus_handle = cx.focus_handle();
+
         Self {
             file_list: Vec::new(),
             view_mode,
             selected_files: HashSet::new(),
             last_select: None,
+            name_input,
+            focus_handle,
+            editing_id: None,
             scroll_handle: UniformListScrollHandle::new(),
             empty_placeholder: "当前筛选下暂无匹配文件".into(),
         }
     }
 
     pub fn set_files(&mut self, files: Vec<FileInfo>, cx: &mut Context<Self>) {
+        self.editing_id = None;
         self.file_list = files;
         let valid_ids: HashSet<Uuid> = self.file_list.iter().map(|f| f.file_id).collect();
         let prev_count = self.selected_files.len();
@@ -107,6 +119,82 @@ impl FilePoolView {
         &self.scroll_handle
     }
 
+    pub fn start_rename(
+        &mut self,
+        file_id: Uuid,
+        initial_name: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.editing_id = Some(file_id);
+        self.selected_files.clear();
+        self.selected_files.insert(file_id);
+        self.last_select = Some(file_id);
+
+        self.name_input.update(cx, |input, cx| {
+            input.set_value(initial_name, window, cx);
+            input.select_all(window, cx);
+        });
+
+        let focus = self.name_input.read(cx).focus_handle(cx);
+        focus.focus(window, cx);
+
+        cx.emit(FileContentEvent::SelectionChanged);
+        cx.notify();
+    }
+
+    pub fn cancel_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.editing_id.is_none() {
+            return;
+        }
+        self.editing_id = None;
+        self.name_input.update(cx, |input, cx| {
+            input.set_value("", window, cx);
+        });
+        cx.notify();
+    }
+
+    pub fn commit_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(file_id) = self.editing_id.take() else {
+            return;
+        };
+
+        let new_name = self.name_input.read(cx).value().trim().to_string();
+        if new_name.is_empty() {
+            self.cancel_rename(window, cx);
+            return;
+        }
+
+        if let Some(existing) = self.file_list.iter().find(|f| f.file_id == file_id) {
+            if existing.file_name == new_name {
+                cx.notify();
+                return;
+            }
+        }
+
+        let db = cx.global::<AppState>().db.clone();
+        let rt = cx.global::<AppState>().rt.clone();
+
+        cx.spawn_in(window, async move |this, cx| {
+            let res = cx
+                .background_spawn(async move {
+                    rt.block_on(crate::database::storage::file::rename_file(
+                        &db, file_id, &new_name,
+                    ))
+                })
+                .await;
+
+            this.update(cx, |_, cx| {
+                if let Err(err) = res {
+                    tracing::error!("重命名文件失败: {err:#}");
+                }
+                cx.emit(FileContentEvent::RefreshRequested);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     fn index_of(&self, file_id: Uuid) -> Option<usize> {
         self.file_list.iter().position(|f| f.file_id == file_id)
     }
@@ -116,8 +204,13 @@ impl FilePoolView {
         file_id: Uuid,
         is_ctrl: bool,
         is_shift: bool,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.editing_id.is_some() {
+            self.commit_rename(window, cx);
+        }
+
         if is_shift {
             let start = self.last_select.and_then(|id| self.index_of(id));
             let end = self.index_of(file_id);
@@ -151,7 +244,16 @@ impl FilePoolView {
         cx.notify();
     }
 
-    pub fn handle_secondary_select(&mut self, file_id: Uuid, cx: &mut Context<Self>) {
+    pub fn handle_secondary_select(
+        &mut self,
+        file_id: Uuid,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.editing_id.is_some() {
+            self.commit_rename(window, cx);
+        }
+
         if !self.selected_files.contains(&file_id) {
             self.selected_files.clear();
             self.selected_files.insert(file_id);
@@ -178,6 +280,8 @@ impl FilePoolView {
                 let reveal_p = file.path.clone();
                 let copy_p = file.path.clone();
                 let ids = vec![file_id];
+                let rename_id = file_id;
+                let raw_name = file.file_name.clone();
 
                 menu = menu
                     .item(
@@ -195,6 +299,13 @@ impl FilePoolView {
                             }),
                     )
                     .separator()
+                    .item(
+                        PopupMenuItem::new("重命名")
+                            .icon(IconName::Replace)
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.start_rename(rename_id, &raw_name, window, cx);
+                            })),
+                    )
                     .item(
                         PopupMenuItem::new("复制路径")
                             .icon(IconName::Copy)
@@ -228,17 +339,21 @@ impl FilePoolView {
 impl Render for FilePoolView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let menu_entity = cx.entity().clone();
+        let editing_id = self.editing_id;
+        let name_input = self.name_input.clone();
 
         let inner_view = match self.view_mode {
             ViewOption::List => ItemListView::new("file-list", self.file_list.clone())
                 .selected_files(self.selected_files.clone())
                 .scroll_handle(&self.scroll_handle)
                 .empty_placeholder(self.empty_placeholder.clone())
-                .on_select(cx.processor(|this, (file_id, is_ctrl, is_shift), _, cx| {
-                    this.handle_file_select(file_id, is_ctrl, is_shift, cx);
-                }))
-                .on_secondary_select(cx.processor(|this, file_id, _, cx| {
-                    this.handle_secondary_select(file_id, cx);
+                .on_select(
+                    cx.processor(|this, (file_id, is_ctrl, is_shift), window, cx| {
+                        this.handle_file_select(file_id, is_ctrl, is_shift, window, cx);
+                    }),
+                )
+                .on_secondary_select(cx.processor(|this, file_id, window, cx| {
+                    this.handle_secondary_select(file_id, window, cx);
                 }))
                 .on_open(|path, _, _| {
                     utils::open_path(path);
@@ -252,50 +367,41 @@ impl Render for FilePoolView {
                     "file-grid",
                     self.file_list.clone(),
                     move |item, _idx, _, _cx| {
-                        let extension = item
-                            .ext
-                            .as_deref()
-                            .unwrap_or_else(|| item.mime.split('/').nth(1).unwrap_or("file"))
-                            .to_uppercase();
                         let file_id = item.file_id;
                         let is_selected = selected_files.contains(&file_id);
-                        let file_path = SharedString::new(item.path.as_str());
-                        let path_open = file_path.clone();
-                        let hash = SharedString::new(item.hash.as_str());
-                        let mime = SharedString::new(item.mime.as_str());
+                        let is_editing = editing_id == Some(file_id);
+                        let path_open = SharedString::new(item.path.as_str());
 
                         let select_entity = entity.clone();
                         let sec_entity = entity.clone();
 
-                        FileCard::new(
-                            ElementId::Name(format!("file-card-{file_id}").into()),
-                            SharedString::new(item.file_name.as_str()),
-                            extension,
-                            item.size,
-                        )
-                        .path(file_path)
-                        .hash(hash)
-                        .mime(mime)
-                        .selected(is_selected)
-                        .on_click(move |_, window, cx| {
-                            cx.stop_propagation();
-                            let modifiers = window.modifiers();
-                            let is_ctrl = modifiers.control || modifiers.platform;
-                            let is_shift = modifiers.shift;
+                        GridCard::from(item)
+                            .selected(is_selected)
+                            .editing(is_editing)
+                            .input(if is_editing {
+                                Some(name_input.clone())
+                            } else {
+                                None
+                            })
+                            .on_click(move |_, window, cx| {
+                                cx.stop_propagation();
+                                let modifiers = window.modifiers();
+                                let is_ctrl = modifiers.control || modifiers.platform;
+                                let is_shift = modifiers.shift;
 
-                            select_entity.update(cx, |this, cx| {
-                                this.handle_file_select(file_id, is_ctrl, is_shift, cx);
-                            });
-                        })
-                        .on_secondary_click(move |_window, cx| {
-                            sec_entity.update(cx, |this, cx| {
-                                this.handle_secondary_select(file_id, cx);
-                            });
-                        })
-                        .on_double_click(move |_, _, _| {
-                            utils::open_path(&path_open);
-                        })
-                        .into_any_element()
+                                select_entity.update(cx, |this, cx| {
+                                    this.handle_file_select(file_id, is_ctrl, is_shift, window, cx);
+                                });
+                            })
+                            .on_secondary_click(move |window, cx| {
+                                sec_entity.update(cx, |this, cx| {
+                                    this.handle_secondary_select(file_id, window, cx);
+                                });
+                            })
+                            .on_double_click(move |_, _, _| {
+                                utils::open_path(&path_open);
+                            })
+                            .into_any_element()
                     },
                 )
                 .scroll_handle(&self.scroll_handle)
@@ -307,15 +413,41 @@ impl Render for FilePoolView {
         div()
             .id("file-content-view")
             .size_full()
-            .on_click(cx.listener(|this, _, _window, cx| {
-                this.clear_selection(cx);
+            .track_focus(&self.focus_handle)
+            .on_click(cx.listener(|this, _, window, cx| {
+                if this.editing_id.is_some() {
+                    this.commit_rename(window, cx);
+                } else {
+                    this.clear_selection(cx);
+                }
             }))
             .on_mouse_down(
                 MouseButton::Right,
-                cx.listener(|this, _, _window, cx| {
-                    this.clear_selection(cx);
+                cx.listener(|this, _, window, cx| {
+                    if this.editing_id.is_some() {
+                        this.commit_rename(window, cx);
+                    } else {
+                        this.clear_selection(cx);
+                    }
                 }),
             )
+            .on_action(cx.listener(|this, _: &Enter, window, cx| {
+                this.commit_rename(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &Escape, window, cx| {
+                this.cancel_rename(window, cx);
+            }))
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                if event.keystroke.key == "f2" && this.editing_id.is_none() {
+                    if this.selected_files.len() == 1 {
+                        let id = *this.selected_files.iter().next().unwrap();
+                        if let Some(file) = this.file_list.iter().find(|f| f.file_id == id) {
+                            let name = file.file_name.clone();
+                            this.start_rename(id, &name, window, cx);
+                        }
+                    }
+                }
+            }))
             .context_menu({
                 let menu_entity = menu_entity.clone();
                 move |menu, _window, cx| {

@@ -213,7 +213,6 @@ impl RenderOnce for TagChip {
                 |this| this.rounded_full(),
             )
             .when(is_dimmed, |this| this.opacity(0.6))
-            .when(is_clickable, |this| this.cursor_pointer())
             .hover(|style| match self.state {
                 TagChipState::Active | TagChipState::Selected => {
                     if is_clickable {
