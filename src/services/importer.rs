@@ -11,6 +11,7 @@ pub use super::scanner::BatchReport;
 use crate::database::entities::{FileState, ReplicaState};
 use crate::database::storage::file::{ContentTimes, CreateFileParams, UpsertReplicaParams};
 use crate::database::storage::{self};
+use crate::services::FileState::Managed;
 use crate::services::macrotag::MacroTag;
 use crate::services::tags_queryer::MtagService;
 
@@ -75,7 +76,7 @@ pub fn compute_file_metadata(path: &Path) -> Result<FileMetadata> {
     })
 }
 
-pub async fn import_file_with_tags(
+pub async fn import_file(
     db: &DatabaseConnection,
     path: impl AsRef<Path>,
     device_id: &str,
@@ -108,26 +109,11 @@ pub async fn import_file_with_tags(
         super::thumbnail::ensure_thumbnail(path, &hash);
     }
 
-    let default_state = initial_tags
-        .iter()
-        .find_map(|t| match t {
-            MacroTag::State(s) => Some(*s),
-            _ => None,
-        })
-        .unwrap_or_default();
-
     // Deduplication check
     let existing_file = storage::file::find_file_by_hash(db, &hash).await?;
 
     let (file_id, is_duplicate) = if let Some(existing) = existing_file {
         // found duplicated file
-
-        // Upgrade state for pending or ignore file if wanna be managed by default
-        if default_state == FileState::Managed
-            && matches!(existing.state, FileState::Pending | FileState::Ignored)
-        {
-            storage::file::set_file_state(db, existing.id, default_state).await?;
-        }
 
         storage::file::upsert_replica(
             db,
@@ -158,7 +144,7 @@ pub async fn import_file_with_tags(
                 size,
                 mime: Some(mime),
                 ext,
-                state: default_state,
+                state: FileState::Pending,
                 content_times: ContentTimes {
                     created_at: ctime,
                     modified_at: utime,
@@ -198,46 +184,50 @@ pub async fn import_from_paths(
     device_id: &str,
 ) -> Result<BatchReport> {
     let mut report = BatchReport::default();
-    let sources = storage::scan_source::list_active_scans(db)
-        .await
-        .unwrap_or_default();
-    let mut rules = super::scanner::build_scan_rules(&sources);
+    let paths = flat_paths(paths.to_vec());
 
     for path in paths {
-        if path.is_dir() {
-            let p = path.as_path();
-            let canonical_p = p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
-            rules.push(super::scanner::ScanTask {
-                path: canonical_p,
-                initial_tags: vec![MacroTag::State(FileState::Managed)],
-            });
-            rules.sort_by_key(|r| r.path.components().count());
-
-            match super::scanner::scan_task(db, path, device_id, &rules).await {
-                Ok(rep) => report.merge(rep),
-                Err(err) => {
-                    tracing::warn!(path = %path.display(), error = %err, "import failed");
-                    report.failed.push(path.to_string_lossy().into_owned());
+        let tags = vec![MacroTag::State(Managed)];
+        match import_file(db, &path, device_id, &tags).await {
+            Ok((_id, is_duplicate)) => {
+                report.total_found += 1;
+                if is_duplicate {
+                    report.skipped_unchanged += 1;
+                } else {
+                    report.newly_imported += 1;
                 }
             }
-        } else {
-            let tags = super::scanner::resolve_tags_by_path(&rules, path);
-            match import_file_with_tags(db, path, device_id, &tags).await {
-                Ok((_id, is_duplicate)) => {
-                    report.total_found += 1;
-                    if is_duplicate {
-                        report.skipped_unchanged += 1;
-                    } else {
-                        report.newly_imported += 1;
-                    }
-                }
-                Err(err) => {
-                    tracing::warn!(path = %path.display(), error = %err, "import failed");
-                    report.failed.push(path.to_string_lossy().into_owned());
-                }
+            Err(e) => {
+                tracing::warn!("failed to import {}: {}", path.display(), e);
+                report.failed.push(path.to_string_lossy().into_owned());
             }
         }
     }
 
     Ok(report)
+}
+
+fn flat_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut list = vec![];
+    for path in paths {
+        if path.is_dir() {
+            match std::fs::read_dir(path) {
+                Ok(d) => {
+                    let paths = d
+                        .into_iter()
+                        .filter_map(|c| c.ok())
+                        .map(|d| d.path())
+                        .collect::<Vec<_>>();
+                    list.extend(flat_paths(paths));
+                }
+                Err(e) => {
+                    tracing::error!("failed to read dir, skipped: {}", e);
+                    continue;
+                }
+            }
+        } else {
+            list.push(path);
+        }
+    }
+    list
 }

@@ -202,7 +202,7 @@ pub async fn scan_task(
         }
 
         let initial_tags = resolve_tags_by_path(rules, p);
-        if importer::import_file_with_tags(db, p, device_id, &initial_tags)
+        if importer::import_file(db, p, device_id, &initial_tags)
             .await
             .is_ok()
         {
