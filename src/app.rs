@@ -10,9 +10,6 @@ use crate::views::generic_view::GenericView;
 use crate::views::scanner::ScannerView;
 use uuid::Uuid;
 
-pub const EXPLORER_VIEW_ID: Uuid = Uuid::from_u128(1);
-pub const PENDING_VIEW_ID: Uuid = Uuid::from_u128(2);
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CurrentNav {
     Tab(NavTab),
@@ -41,22 +38,24 @@ impl MyApp {
         })
         .detach();
 
-        let initial_model = stores.views.read(cx).views[0].clone();
-        let view_stores = stores.clone();
-        let current_view = Some(cx.new(|cx| {
-            GenericView::from_collection(&initial_model, window, cx)
-                .enable_drag()
-                .stores(view_stores, cx)
-        }));
-        let scanner_stores = stores.clone();
-        let scanner_view = cx.new(|cx| ScannerView::new(window, cx).stores(scanner_stores));
-        let explorer_stores = stores.clone();
+        let initial_model = stores.views.read(cx).views.first().cloned();
+        let current_view = initial_model.as_ref().map(|model| {
+            cx.new(|cx| {
+                GenericView::from_collection(model, window, cx).stores(stores.clone(), cx)
+            })
+        });
+        let scanner_view = cx.new(|cx| ScannerView::new(window, cx).stores(stores.clone()));
         let collection_view =
-            cx.new(|cx| CollectionExplorerView::new(window, cx).stores(explorer_stores, cx));
+            cx.new(|cx| CollectionExplorerView::new(window, cx).stores(stores.clone(), cx));
+
+        let current_nav = match &initial_model {
+            Some(model) => CurrentNav::View(model.id),
+            None => CurrentNav::Tab(NavTab::Collections),
+        };
 
         Self {
             stores,
-            current_nav: CurrentNav::View(EXPLORER_VIEW_ID),
+            current_nav,
             sidebar_collapsed: false,
             current_view,
             scanner_view,
@@ -76,12 +75,7 @@ impl MyApp {
                     self.current_nav = CurrentNav::View(id);
                     let stores = self.stores.clone();
                     self.current_view = Some(cx.new(|cx| {
-                        let mut view =
-                            GenericView::from_collection(&model, window, cx).stores(stores, cx);
-                        if id == EXPLORER_VIEW_ID {
-                            view = view.enable_drag();
-                        }
-                        view
+                        GenericView::from_collection(&model, window, cx).stores(stores, cx)
                     }));
                     cx.notify();
                 }

@@ -132,7 +132,7 @@ impl GenericView {
             preview_filter_tags: None,
             candidate_tags: Vec::new(),
             working: false,
-            enable_drag: false,
+            enable_drag: config.enable_drag,
         };
 
         view.reload_files(cx);
@@ -182,11 +182,6 @@ impl GenericView {
 
     pub fn icon(mut self, icon: impl Into<Option<SharedString>>) -> Self {
         self.icon = icon.into();
-        self
-    }
-
-    pub fn enable_drag(mut self) -> Self {
-        self.enable_drag = true;
         self
     }
 
@@ -492,29 +487,26 @@ impl GenericView {
                 });
             }
         } else if let Some(id) = self.collection_id {
-            let is_prefab = id == crate::app::EXPLORER_VIEW_ID || id == crate::app::PENDING_VIEW_ID;
-            if !is_prefab {
-                let db = cx.global::<AppState>().db.clone();
-                let rt = cx.global::<AppState>().rt.clone();
-                let name_to_save = new_name.to_string();
-                let config_val = serde_json::to_value(&self.config).unwrap_or_default();
+            let db = cx.global::<AppState>().db.clone();
+            let rt = cx.global::<AppState>().rt.clone();
+            let name_to_save = new_name.to_string();
+            let config_val = serde_json::to_value(&self.config).unwrap_or_default();
 
-                cx.spawn(async move |_this, _cx| {
-                    let _ = rt.block_on(crate::database::storage::collection::update_metadata(
-                        &db,
-                        id,
-                        Some(name_to_save),
-                        None,
-                        None,
-                        None,
-                        None,
-                    ));
-                    let _ = rt.block_on(crate::database::storage::collection::update_config(
-                        &db, id, config_val,
-                    ));
-                })
-                .detach();
-            }
+            cx.spawn(async move |_this, _cx| {
+                let _ = rt.block_on(crate::database::storage::collection::update_metadata(
+                    &db,
+                    id,
+                    Some(name_to_save),
+                    None,
+                    None,
+                    None,
+                    None,
+                ));
+                let _ = rt.block_on(crate::database::storage::collection::update_config(
+                    &db, id, config_val,
+                ));
+            })
+            .detach();
         }
 
         self.reload_all(cx);

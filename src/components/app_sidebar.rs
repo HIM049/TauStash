@@ -125,7 +125,7 @@ impl RenderOnce for AppSidebar {
 
                 let sel = on_select.clone();
                 menu = menu.child(
-                    SidebarMenuItem::new("扫描状态")
+                    SidebarMenuItem::new("扫描管理")
                         .icon(IconName::Search)
                         .active(self.active == NavTarget::Fixed(NavTab::Scanner))
                         .on_click(move |_, window, cx| {

@@ -70,6 +70,8 @@ pub struct CollectionConfig {
     pub include_view_tags: bool,
     #[serde(default)]
     pub candidate_filter: Option<CandidateTagRule>,
+    #[serde(default)]
+    pub enable_drag: bool,
 }
 
 impl Default for CollectionConfig {
@@ -84,6 +86,7 @@ impl Default for CollectionConfig {
             pinned_tags: Vec::new(),
             include_view_tags: true,
             candidate_filter: None,
+            enable_drag: false,
         }
     }
 }

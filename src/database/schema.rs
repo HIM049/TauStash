@@ -1,6 +1,11 @@
-use sea_orm::{ConnectionTrait, DatabaseConnection, DbErr, EntityTrait, Schema};
+use sea_orm::{
+    ActiveModelTrait, ConnectionTrait, DatabaseConnection, DbErr, EntityTrait, Schema, Set,
+};
+use uuid::Uuid;
 
 use super::entities::*;
+use crate::services::collection::{CandidateTagRule, CollectionConfig, ViewOption};
+use crate::services::{FileState, MacroTag};
 
 /// Initialize all database tables and their indexes derived directly from Entity models
 pub async fn create_tables(db: &DatabaseConnection) -> Result<(), DbErr> {
@@ -13,6 +18,68 @@ pub async fn create_tables(db: &DatabaseConnection) -> Result<(), DbErr> {
     init_entity(db, &schema, FileTag).await?;
     init_entity(db, &schema, ScanSource).await?;
     init_entity(db, &schema, Collection).await?;
+
+    Ok(())
+}
+
+pub async fn seed_default_views(db: &DatabaseConnection) -> anyhow::Result<()> {
+    let now = chrono::Utc::now();
+
+    let explorer_config = CollectionConfig {
+        filters: vec![MacroTag::State(FileState::Managed)],
+        enable_drag: true,
+        ..Default::default()
+    };
+
+    collection::ActiveModel {
+        id: Set(Uuid::now_v7()),
+        name: Set("文件总览".to_string()),
+        icon: Set("file".to_string()),
+        cover: Set(String::new()),
+        color: Set(String::new()),
+        order: Set(0),
+        parent_id: Set(None),
+        typ: Set(collection::CollectionType::View),
+        config: Set(serde_json::to_value(&explorer_config)?),
+        created_at: Set(now),
+        updated_at: Set(now),
+        deleted_at: Set(None),
+    }
+    .insert(db)
+    .await?;
+
+    let pending_config = CollectionConfig {
+        filters: vec![MacroTag::State(FileState::Pending)],
+        pinned_tags: vec![
+            MacroTag::State(FileState::Managed),
+            MacroTag::State(FileState::Ignored),
+            MacroTag::State(FileState::Deleted),
+        ],
+        include_view_tags: false,
+        candidate_filter: Some(CandidateTagRule {
+            namespaces: vec![TagNamespace::User],
+            limit: 12,
+        }),
+        view: ViewOption::List,
+        ..Default::default()
+    };
+
+    collection::ActiveModel {
+        id: Set(Uuid::now_v7()),
+        name: Set("审核队列".to_string()),
+        icon: Set("check".to_string()),
+        cover: Set(String::new()),
+        color: Set(String::new()),
+        order: Set(1),
+        parent_id: Set(None),
+        typ: Set(collection::CollectionType::View),
+        config: Set(serde_json::to_value(&pending_config)?),
+        created_at: Set(now),
+        updated_at: Set(now),
+        deleted_at: Set(None),
+    }
+    .insert(db)
+    .await?;
 
     Ok(())
 }
