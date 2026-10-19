@@ -104,7 +104,7 @@ impl RenderOnce for ViewScaffold {
             .size_full()
             .bg(theme.background)
             .v_flex()
-            .gap_4()
+            .gap_2()
             .when_some(self.on_click, |this, on_click| {
                 this.on_click(move |event, window, cx| on_click(event, window, cx))
             })
@@ -118,9 +118,9 @@ impl RenderOnce for ViewScaffold {
                 div()
                     .id((self.id.clone(), "top-bar"))
                     .v_flex()
-                    .gap_4()
+                    .gap_2()
                     .w_full()
-                    .pt_6()
+                    .pt_4()
                     .px_6()
                     .child(
                         div()
@@ -161,7 +161,6 @@ impl RenderOnce for ViewScaffold {
                             div()
                                 .id((self.id.clone(), "sub-bar"))
                                 .w_full()
-                                .h(px(34.0))
                                 .child(sub_bar),
                         )
                     }),

@@ -107,21 +107,14 @@ impl FilePoolView {
     }
 
     pub fn clear_selection(&mut self, cx: &mut Context<Self>) {
-        if !self.selected_files.is_empty() || self.last_select.is_some() || self.cursor_id.is_some() {
+        if !self.selected_files.is_empty() || self.last_select.is_some() || self.cursor_id.is_some()
+        {
             self.selected_files.clear();
             self.last_select = None;
             self.cursor_id = None;
             cx.emit(FileContentEvent::SelectionChanged);
             cx.notify();
         }
-    }
-
-    pub fn select_all(&mut self, cx: &mut Context<Self>) {
-        self.selected_files = self.file_list.iter().map(|f| f.file_id).collect();
-        self.last_select = self.file_list.last().map(|f| f.file_id);
-        self.cursor_id = self.file_list.last().map(|f| f.file_id);
-        cx.emit(FileContentEvent::SelectionChanged);
-        cx.notify();
     }
 
     pub fn scroll_handle(&self) -> &UniformListScrollHandle {
@@ -363,6 +356,12 @@ impl Render for FilePoolView {
             ViewOption::List => ItemListView::new("file-list", self.file_list.clone())
                 .selected_files(self.selected_files.clone())
                 .cursor_id(self.cursor_id)
+                .editing_id(editing_id)
+                .name_input(if editing_id.is_some() {
+                    Some(name_input.clone())
+                } else {
+                    None
+                })
                 .scroll_handle(&self.scroll_handle)
                 .empty_placeholder(self.empty_placeholder.clone())
                 .on_select(

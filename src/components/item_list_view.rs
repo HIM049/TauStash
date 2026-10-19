@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::rc::Rc;
 
+use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder;
@@ -23,6 +24,8 @@ pub struct ItemListView {
     file_list: Vec<FileInfo>,
     selected_files: HashSet<Uuid>,
     cursor_id: Option<Uuid>,
+    editing_id: Option<Uuid>,
+    name_input: Option<Entity<InputState>>,
     scroll_handle: UniformListScrollHandle,
     empty_placeholder: SharedString,
     on_select: Option<FileListSelectListener>,
@@ -37,6 +40,8 @@ impl ItemListView {
             file_list,
             selected_files: HashSet::new(),
             cursor_id: None,
+            editing_id: None,
+            name_input: None,
             scroll_handle: UniformListScrollHandle::new(),
             empty_placeholder: "当前筛选下暂无匹配文件".into(),
             on_select: None,
@@ -52,6 +57,16 @@ impl ItemListView {
 
     pub fn cursor_id(mut self, cursor_id: Option<Uuid>) -> Self {
         self.cursor_id = cursor_id;
+        self
+    }
+
+    pub fn editing_id(mut self, editing_id: Option<Uuid>) -> Self {
+        self.editing_id = editing_id;
+        self
+    }
+
+    pub fn name_input(mut self, name_input: Option<Entity<InputState>>) -> Self {
+        self.name_input = name_input;
         self
     }
 
@@ -144,6 +159,8 @@ impl RenderOnce for ItemListView {
         let file_list = self.file_list;
         let selected_files = self.selected_files;
         let cursor_id = self.cursor_id;
+        let editing_id = self.editing_id;
+        let name_input = self.name_input;
         let on_select = self.on_select;
         let on_secondary_select = self.on_secondary_select;
         let on_open = self.on_open;
@@ -158,6 +175,7 @@ impl RenderOnce for ItemListView {
                     let file_id = item.file_id;
                     let is_selected = selected_files.contains(&file_id);
                     let is_cursor = cursor_id == Some(file_id);
+                    let is_editing = editing_id == Some(file_id);
                     let path = item.path.clone();
                     let extension = item
                         .ext
@@ -204,13 +222,28 @@ impl RenderOnce for ItemListView {
                                         .size_4()
                                         .text_color(cx.theme().primary),
                                 )
-                                .child(
+                                .child(if is_editing && let Some(ref input) = name_input {
+                                    div()
+                                        .id("filelist-input-wrap")
+                                        .flex_1()
+                                        .min_w_0()
+                                        .on_click(|_, _, cx| cx.stop_propagation())
+                                        .child(
+                                            Input::new(input)
+                                                .xsmall()
+                                                .px_0()
+                                                .w(px(400.))
+                                                .focus_bordered(false),
+                                        )
+                                        .into_any_element()
+                                } else {
                                     div()
                                         .text_xs()
                                         .truncate()
                                         .text_color(cx.theme().foreground)
-                                        .child(item.file_name.clone()),
-                                ),
+                                        .child(item.file_name.clone())
+                                        .into_any_element()
+                                }),
                         )
                         .child(
                             div()
@@ -238,6 +271,9 @@ impl RenderOnce for ItemListView {
                         .on_click(
                             move |event: &ClickEvent, window: &mut Window, cx: &mut App| {
                                 cx.stop_propagation();
+                                if is_editing {
+                                    return;
+                                }
                                 if event.click_count() == 2 {
                                     if let Some(ref dbl) = open {
                                         dbl(&path, window, cx);
