@@ -4,7 +4,7 @@ pub mod services;
 use gpui_kit::component::*;
 use gpui_kit::*;
 use services::schedule::ScheduleService;
-use services::store::AppStores;
+use services::store::{CollectionStore, FileStore, TagStore, ViewStore};
 use std::sync::Arc;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*, registry};
 
@@ -22,7 +22,11 @@ pub struct AppState {
     pub db: Arc<sea_orm::DatabaseConnection>,
     pub rt: Arc<tokio::runtime::Runtime>,
     pub schedule: Arc<ScheduleService>,
-    pub config: Arc<AppConfig>,
+    pub config: AppConfig,
+    pub views: Entity<ViewStore>,
+    pub collections: Entity<CollectionStore>,
+    pub tags: Entity<TagStore>,
+    pub file: Entity<FileStore>,
 }
 
 impl Global for AppState {}
@@ -92,22 +96,34 @@ fn main() {
         );
     }
 
-    let global = AppState {
-        db: db.clone(),
-        rt: Arc::new(rt),
-        schedule,
-        config: Arc::new(config),
-    };
-
     let app = gpui_kit::application().with_assets(gpui_kit::assets::AllAssets);
     app.run(move |cx| {
         gpui_kit::init(cx);
         Theme::global_mut(cx).notification.placement = Anchor::BottomLeft;
 
+        let views = cx.new(|_| ViewStore::new(&db, &rt));
+        let collections = cx.new(|_| CollectionStore::new());
+        let tags = cx.new(|_| TagStore::new());
+        let file = cx.new(|_| FileStore::new());
+
+        let collections_store = collections.clone();
+        let tags_store = tags.clone();
+        let file_store = file.clone();
+
+        let global = AppState {
+            db: db.clone(),
+            rt: Arc::new(rt),
+            schedule,
+            config,
+            views,
+            collections,
+            tags,
+            file,
+        };
         cx.set_global(global);
 
-        let stores = AppStores::new(cx);
-        let file_store = stores.file.clone();
+        collections_store.update(cx, |c, cx| c.reload(cx));
+        tags_store.update(cx, |t, cx| t.reload(cx));
 
         cx.spawn(async move |cx| {
             while let Some(()) = file_change_rx.recv().await {
@@ -124,7 +140,6 @@ fn main() {
         cx.bind_keys([KeyBinding::new("ctrl", Select, None)]);
         cx.bind_keys([KeyBinding::new("shift", BatchSelect, None)]);
 
-        let win_stores = stores.clone();
         cx.spawn(async move |cx| {
             cx.open_window(
                 WindowOptions {
@@ -137,7 +152,7 @@ fn main() {
                     ..Default::default()
                 },
                 |window, cx| {
-                    let view = cx.new(|cx| MyApp::new(win_stores, window, cx));
+                    let view = cx.new(|cx| MyApp::new(window, cx));
                     cx.new(|cx| Root::new(view, window, cx))
                 },
             )

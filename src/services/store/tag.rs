@@ -10,12 +10,10 @@ pub struct TagStore {
 }
 
 impl TagStore {
-    pub fn new(cx: &mut Context<Self>) -> Self {
-        let mut store = Self {
+    pub fn new() -> Self {
+        Self {
             cached_tags: Vec::new(),
-        };
-        store.reload(cx);
-        store
+        }
     }
 
     pub fn reload(&mut self, cx: &mut Context<Self>) {

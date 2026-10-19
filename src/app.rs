@@ -3,8 +3,8 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
+use crate::AppState;
 use crate::components::app_sidebar::{AppSidebar, NavTarget};
-use crate::services::store::AppStores;
 use crate::views::collection_explorer::CollectionExplorerView;
 use crate::views::generic_view::GenericView;
 use crate::views::scanner::ScannerView;
@@ -23,7 +23,6 @@ pub enum NavTab {
 }
 
 pub struct MyApp {
-    stores: AppStores,
     current_nav: CurrentNav,
     sidebar_collapsed: bool,
     current_view: Option<Entity<GenericView>>,
@@ -32,19 +31,19 @@ pub struct MyApp {
 }
 
 impl MyApp {
-    pub fn new(stores: AppStores, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        cx.observe(&stores.views, |_this, _, cx| {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let views_entity = cx.global::<AppState>().views.clone();
+        cx.observe(&views_entity, |_, _, cx| {
             cx.notify();
         })
         .detach();
 
-        let initial_model = stores.views.read(cx).views.first().cloned();
-        let current_view = initial_model.as_ref().map(|model| {
-            cx.new(|cx| GenericView::from_collection(model, window, cx).stores(stores.clone(), cx))
-        });
-        let scanner_view = cx.new(|cx| ScannerView::new(window, cx).stores(stores.clone()));
-        let collection_view =
-            cx.new(|cx| CollectionExplorerView::new(window, cx).stores(stores.clone(), cx));
+        let initial_model = views_entity.read(cx).views.first().cloned();
+        let current_view = initial_model
+            .as_ref()
+            .map(|model| cx.new(|cx| GenericView::from_collection(model, window, cx)));
+        let scanner_view = cx.new(|cx| ScannerView::new(window, cx));
+        let collection_view = cx.new(|cx| CollectionExplorerView::new(window, cx));
 
         let current_nav = match &initial_model {
             Some(model) => CurrentNav::View(model.id),
@@ -52,7 +51,6 @@ impl MyApp {
         };
 
         Self {
-            stores,
             current_nav,
             sidebar_collapsed: false,
             current_view,
@@ -68,13 +66,11 @@ impl MyApp {
                 cx.notify();
             }
             NavTarget::View(id) => {
-                let views = self.stores.views.read(cx).views.clone();
+                let views = cx.global::<AppState>().views.read(cx).views.clone();
                 if let Some(model) = views.iter().find(|v| v.id == id).cloned() {
                     self.current_nav = CurrentNav::View(id);
-                    let stores = self.stores.clone();
-                    self.current_view = Some(cx.new(|cx| {
-                        GenericView::from_collection(&model, window, cx).stores(stores, cx)
-                    }));
+                    self.current_view =
+                        Some(cx.new(|cx| GenericView::from_collection(&model, window, cx)));
                     cx.notify();
                 }
             }
@@ -87,7 +83,7 @@ impl MyApp {
             CurrentNav::View(id) => NavTarget::View(*id),
         };
 
-        let views = self.stores.views.read(cx).views.clone();
+        let views = cx.global::<AppState>().views.read(cx).views.clone();
 
         AppSidebar::new(active)
             .collapsed(self.sidebar_collapsed)

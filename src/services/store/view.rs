@@ -1,4 +1,5 @@
 use gpui_kit::*;
+use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
 use crate::AppState;
@@ -11,12 +12,10 @@ pub struct ViewStore {
 }
 
 impl ViewStore {
-    pub fn new(cx: &mut Context<Self>) -> Self {
-        let db = cx.global::<AppState>().db.clone();
-        let rt = cx.global::<AppState>().rt.clone();
+    pub fn new(db: &DatabaseConnection, rt: &tokio::runtime::Runtime) -> Self {
         let views = rt
             .block_on(collection_store::list_by_type(
-                &db,
+                db,
                 collection::CollectionType::View,
             ))
             .unwrap_or_default();

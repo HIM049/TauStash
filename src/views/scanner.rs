@@ -19,14 +19,12 @@ use crate::database::entities::{FileState, ScanMode, scan_source};
 use crate::database::storage;
 use crate::services::macrotag::MacroTag;
 use crate::services::scanner;
-use crate::services::store::AppStores;
 
 pub struct ScannerView {
     sources: Vec<scan_source::Model>,
     draft: Option<Entity<InputState>>,
     /// Batch scan in progress, all controls are disabled
     is_scanning: bool,
-    stores: Option<AppStores>,
     selected_ids: HashSet<i32>,
     batch_editor: Entity<TagBatchEditor>,
 }
@@ -64,7 +62,6 @@ impl ScannerView {
             sources: Vec::new(),
             draft: None,
             is_scanning: false,
-            stores: None,
             selected_ids: HashSet::new(),
             batch_editor,
         };
@@ -80,11 +77,6 @@ impl ScannerView {
     ) {
         let ipt = cx.new(|cx| InputState::new(window, cx).placeholder("D:\\Pictures"));
         self.draft = Some(ipt);
-    }
-
-    pub fn stores(mut self, stores: AppStores) -> Self {
-        self.stores = Some(stores);
-        self
     }
 
     /// Quickly register the dropped directories as scan sources
@@ -288,9 +280,8 @@ impl ScannerView {
                     this.is_scanning = false;
                     // is_scanning is view-only state, nothing else notifies
                     cx.notify();
-                    if let Some(stores) = &this.stores {
-                        stores.file.update(cx, |_, cx| cx.notify());
-                    }
+                    let file = cx.global::<AppState>().file.clone();
+                    file.update(cx, |_, cx| cx.notify());
                     match res {
                         Ok(report) if report.failed.is_empty() => SharedString::new("扫描完成"),
                         Ok(report) => SharedString::from(format!(
@@ -367,11 +358,12 @@ impl ScannerView {
             MacroTag::State(FileState::Ignored),
         ];
 
-        let candidate_tags = self
-            .stores
-            .as_ref()
-            .map(|s| s.tags.read(cx).cached_tags.clone())
-            .unwrap_or_default();
+        let candidate_tags = cx
+            .global::<AppState>()
+            .tags
+            .read(cx)
+            .cached_tags
+            .clone();
 
         self.batch_editor.update(cx, |editor, cx| {
             editor.set_tags(&tag_slices, &candidate_tags, &pinned_tags, cx);

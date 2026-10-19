@@ -12,9 +12,6 @@ use crate::components::grid_card::GridCard;
 use crate::components::item_grid_view::ItemGridView;
 use crate::components::view_scaffold::ViewScaffold;
 use crate::database::entities::collection;
-use crate::database::storage::collection as collection_store;
-use crate::services::collection::CollectionConfig;
-use crate::services::store::AppStores;
 use crate::views::generic_view::GenericView;
 
 const DEFAULT_FOLDER_NAME: &str = "未命名合集";
@@ -24,13 +21,11 @@ pub struct CollectionExplorerView {
     scroll_handle: UniformListScrollHandle,
     selected: HashSet<Uuid>,
     last_select: Option<Uuid>,
-    loading: bool,
 
     name_input: Entity<InputState>,
     focus_handle: FocusHandle,
     editing_id: Option<Uuid>,
 
-    stores: Option<AppStores>,
     active_folder_view: Option<Entity<GenericView>>,
 }
 
@@ -39,70 +34,35 @@ impl CollectionExplorerView {
         let name_input = cx.new(|cx| InputState::new(window, cx));
         let focus_handle = cx.focus_handle();
 
-        let mut view = Self {
-            folders: Vec::new(),
-            scroll_handle: UniformListScrollHandle::new(),
-            selected: HashSet::new(),
-            last_select: None,
-            loading: false,
-            name_input,
-            focus_handle,
-            editing_id: None,
-            stores: None,
-            active_folder_view: None,
-        };
-        view.reload(cx);
-        view
-    }
-
-    pub fn reload(&mut self, cx: &mut Context<Self>) {
-        if let Some(stores) = &self.stores {
-            self.folders = stores.collections.read(cx).collections.clone();
-            cx.notify();
-            return;
-        }
-
-        if self.loading {
-            return;
-        }
-        self.loading = true;
-        self.editing_id = None;
-
-        let db = cx.global::<AppState>().db.clone();
-        let rt = cx.global::<AppState>().rt.clone();
-
-        cx.spawn(async move |this, cx| {
-            let items = cx
-                .background_spawn(async move {
-                    rt.block_on(collection_store::list_by_type(
-                        &db,
-                        collection::CollectionType::Folder,
-                    ))
-                })
-                .await;
-
-            this.update(cx, |this, cx| {
-                this.loading = false;
-                if let Ok(folders) = items {
-                    this.folders = folders;
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-    }
-
-    pub fn stores(mut self, stores: AppStores, cx: &mut Context<Self>) -> Self {
-        cx.observe(&stores.collections, |this, store, cx| {
+        let collections_entity = cx.global::<AppState>().collections.clone();
+        cx.observe(&collections_entity, |this, store, cx| {
             this.folders = store.read(cx).collections.clone();
             this.editing_id = None;
             cx.notify();
         })
         .detach();
-        self.folders = stores.collections.read(cx).collections.clone();
-        self.stores = Some(stores);
-        self
+
+        Self {
+            folders: collections_entity.read(cx).collections.clone(),
+            scroll_handle: UniformListScrollHandle::new(),
+            selected: HashSet::new(),
+            last_select: None,
+            name_input,
+            focus_handle,
+            editing_id: None,
+            active_folder_view: None,
+        }
+    }
+
+    pub fn reload(&mut self, cx: &mut Context<Self>) {
+        self.folders = cx
+            .global::<AppState>()
+            .collections
+            .read(cx)
+            .collections
+            .clone();
+        self.editing_id = None;
+        cx.notify();
     }
 
     pub fn open_collection(
@@ -112,12 +72,8 @@ impl CollectionExplorerView {
         cx: &mut Context<Self>,
     ) {
         let this_entity = cx.entity().clone();
-        let stores = self.stores.clone();
         let view = cx.new(|cx| {
-            let mut view = GenericView::from_collection(folder, window, cx);
-            if let Some(stores) = stores {
-                view = view.stores(stores, cx);
-            }
+            let view = GenericView::from_collection(folder, window, cx);
             view.on_back(move |_window, cx| {
                 this_entity.update(cx, |this, cx| {
                     this.active_folder_view = None;
@@ -257,98 +213,25 @@ impl CollectionExplorerView {
             return;
         }
 
+        let collections = cx.global::<AppState>().collections.clone();
         if target_id == Uuid::nil() {
             // New collection creation
-            if let Some(stores) = &self.stores {
-                stores.collections.update(cx, |s, cx| {
-                    s.create_collection(&name, cx);
-                });
-                self.name_input.update(cx, |input, cx| {
-                    input.set_value("", window, cx);
-                });
-                self.editing_id = None;
-                return;
-            }
-
-            let config = match serde_json::to_value(CollectionConfig::default()) {
-                Ok(config) => config,
-                Err(err) => {
-                    tracing::error!("序列化合集配置失败: {err:#}");
-                    return;
-                }
-            };
-
-            let db = cx.global::<AppState>().db.clone();
-            let rt = cx.global::<AppState>().rt.clone();
-
-            cx.spawn_in(window, async move |this, cx| {
-                let created = cx
-                    .background_spawn(async move {
-                        rt.block_on(collection_store::create(
-                            &db,
-                            name,
-                            collection::CollectionType::Folder,
-                            None,
-                            None,
-                            Some(config),
-                            None,
-                            None,
-                            None,
-                        ))
-                    })
-                    .await;
-
-                this.update(cx, |this, cx| match created {
-                    Ok(_) => this.reload(cx),
-                    Err(err) => {
-                        tracing::error!("创建合集失败: {err:#}");
-                        this.reload(cx);
-                    }
-                })
-                .ok();
-            })
-            .detach();
+            collections.update(cx, |s, cx| {
+                s.create_collection(&name, cx);
+            });
+            self.name_input.update(cx, |input, cx| {
+                input.set_value("", window, cx);
+            });
+            self.editing_id = None;
         } else {
             // Existing collection rename
-            if let Some(stores) = &self.stores {
-                stores.collections.update(cx, |s, cx| {
-                    s.rename_collection(target_id, &name, cx);
-                });
-                self.name_input.update(cx, |input, cx| {
-                    input.set_value("", window, cx);
-                });
-                self.editing_id = None;
-                return;
-            }
-
-            let db = cx.global::<AppState>().db.clone();
-            let rt = cx.global::<AppState>().rt.clone();
-
-            cx.spawn_in(window, async move |this, cx| {
-                let updated = cx
-                    .background_spawn(async move {
-                        rt.block_on(collection_store::update_metadata(
-                            &db,
-                            target_id,
-                            Some(name),
-                            None,
-                            None,
-                            None,
-                            None,
-                        ))
-                    })
-                    .await;
-
-                this.update(cx, |this, cx| match updated {
-                    Ok(_) => this.reload(cx),
-                    Err(err) => {
-                        tracing::error!("重命名合集失败: {err:#}");
-                        this.reload(cx);
-                    }
-                })
-                .ok();
-            })
-            .detach();
+            collections.update(cx, |s, cx| {
+                s.rename_collection(target_id, &name, cx);
+            });
+            self.name_input.update(cx, |input, cx| {
+                input.set_value("", window, cx);
+            });
+            self.editing_id = None;
         }
     }
 
@@ -361,7 +244,7 @@ impl CollectionExplorerView {
     }
 
     /// Soft delete all currently selected collections and reload.
-    pub fn delete_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn delete_selected(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         if self.selected.is_empty() {
             return;
         }
@@ -370,30 +253,10 @@ impl CollectionExplorerView {
         self.selected.clear();
         self.last_select = None;
 
-        if let Some(stores) = &self.stores {
-            stores.collections.update(cx, |s, cx| {
-                s.delete_collections(&ids, cx);
-            });
-            return;
-        }
-
-        let db = cx.global::<AppState>().db.clone();
-        let rt = cx.global::<AppState>().rt.clone();
-
-        cx.spawn_in(window, async move |this, cx| {
-            let res = cx
-                .background_spawn(async move { rt.block_on(collection_store::delete(&db, &ids)) })
-                .await;
-
-            this.update(cx, |this, cx| match res {
-                Ok(_) => this.reload(cx),
-                Err(err) => {
-                    tracing::error!("删除失败: {err:#}");
-                }
-            })
-            .ok();
-        })
-        .detach();
+        let collections = cx.global::<AppState>().collections.clone();
+        collections.update(cx, |s, cx| {
+            s.delete_collections(&ids, cx);
+        });
     }
 
     fn build_context_menu(
@@ -552,11 +415,7 @@ impl Render for CollectionExplorerView {
                                 }
                             })
                             .scroll_handle(&self.scroll_handle)
-                            .empty_placeholder(if self.loading {
-                                "加载中..."
-                            } else {
-                                "暂无合集"
-                            }),
+                            .empty_placeholder("暂无合集"),
                         ),
                     )
                     .on_click(cx.listener(|this, _, window, cx| {

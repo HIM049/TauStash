@@ -21,7 +21,6 @@ use crate::services::collection::{CollectionConfig, ViewOption};
 use crate::services::file;
 use crate::services::importer;
 use crate::services::macrotag::{FileState, MacroTag};
-use crate::services::store::AppStores;
 use crate::services::tags_queryer::MtagService;
 
 #[derive(Clone, Default)]
@@ -39,7 +38,6 @@ pub struct GenericView {
     icon: Option<SharedString>,
     on_back: Option<Rc<dyn Fn(&mut Window, &mut App) + 'static>>,
 
-    stores: Option<AppStores>,
     content_view: Entity<FilePoolView>,
     filter_bar: TagFilterBar,
     batch_editor: Entity<TagBatchEditor>,
@@ -106,15 +104,25 @@ impl GenericView {
                     this.delete_files(ids, cx);
                 }
                 FileContentEvent::RefreshRequested => {
-                    if let Some(stores) = &this.stores {
-                        stores.file.update(cx, |_, cx| cx.notify());
-                    } else {
-                        this.reload_all(cx);
-                    }
+                    let file = cx.global::<AppState>().file.clone();
+                    file.update(cx, |_, cx| cx.notify());
                 }
             },
         )
         .detach();
+
+        let tags_entity = cx.global::<AppState>().tags.clone();
+        cx.observe(&tags_entity, |this, tag_store, cx| {
+            this.candidate_tags = tag_store.read(cx).cached_tags.clone();
+            cx.notify();
+        })
+        .detach();
+        let file_entity = cx.global::<AppState>().file.clone();
+        cx.observe(&file_entity, |this, _, cx| {
+            this.reload_all(cx);
+        })
+        .detach();
+        let candidate_tags = tags_entity.read(cx).cached_tags.clone();
 
         let mut view = Self {
             collection_id: None,
@@ -122,7 +130,6 @@ impl GenericView {
             title: title.into(),
             icon: None,
             on_back: None,
-            stores: None,
 
             content_view,
             filter_bar,
@@ -130,7 +137,7 @@ impl GenericView {
             bar_mode: BarMode::Normal,
             current_filter_tags: Vec::new(),
             preview_filter_tags: None,
-            candidate_tags: Vec::new(),
+            candidate_tags,
             working: false,
             enable_drag: config.enable_drag,
         };
@@ -162,21 +169,6 @@ impl GenericView {
 
     pub fn on_back(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_back = Some(Rc::new(handler));
-        self
-    }
-
-    pub fn stores(mut self, stores: AppStores, cx: &mut Context<Self>) -> Self {
-        cx.observe(&stores.tags, |this, tag_store, cx| {
-            this.candidate_tags = tag_store.read(cx).cached_tags.clone();
-            cx.notify();
-        })
-        .detach();
-        cx.observe(&stores.file, |this, _, cx| {
-            this.reload_all(cx);
-        })
-        .detach();
-        self.candidate_tags = stores.tags.read(cx).cached_tags.clone();
-        self.stores = Some(stores);
         self
     }
 
@@ -228,11 +220,8 @@ impl GenericView {
                         "导入成功".into()
                     };
 
-                    if let Some(stores) = &this.stores {
-                        stores.file.update(cx, |_, cx| cx.notify());
-                    } else {
-                        this.reload_all(cx);
-                    }
+                    let file = cx.global::<AppState>().file.clone();
+                    file.update(cx, |_, cx| cx.notify());
                     message
                 })
                 .ok();
@@ -335,44 +324,8 @@ impl GenericView {
     }
 
     pub fn reload_candidates(&mut self, cx: &mut Context<Self>) {
-        if let Some(stores) = &self.stores {
-            self.candidate_tags = stores.tags.read(cx).cached_tags.clone();
-            cx.notify();
-            return;
-        }
-
-        if let Some(ref rule) = self.config.candidate_filter {
-            let db = cx.global::<AppState>().db.clone();
-            let rt = cx.global::<AppState>().rt.clone();
-            let namespaces = rule.namespaces.clone();
-            let limit = rule.limit;
-
-            cx.spawn(async move |this, cx| {
-                let tags_res = cx
-                    .background_spawn(async move {
-                        rt.block_on(crate::database::storage::tag::list_candidates(
-                            &db,
-                            &namespaces,
-                            limit,
-                        ))
-                    })
-                    .await;
-
-                this.update(cx, |this, cx| {
-                    if let Ok(tags) = tags_res {
-                        this.candidate_tags = tags
-                            .into_iter()
-                            .map(|t| MacroTag::Standard(t.into()))
-                            .collect();
-                        cx.notify();
-                    }
-                })
-                .ok();
-            })
-            .detach();
-        } else {
-            self.candidate_tags.clear();
-        }
+        self.candidate_tags = cx.global::<AppState>().tags.read(cx).cached_tags.clone();
+        cx.notify();
     }
 
     /// refresh file list and tell filter_bar to reload its facet stats
@@ -425,18 +378,10 @@ impl GenericView {
     pub fn start_configuring(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.clear_selection(cx);
 
-        let tag_store = self.stores.as_ref().map(|s| s.tags.clone());
+        let tag_store = cx.global::<AppState>().tags.clone();
         let editor = cx.new(|cx| {
-            let mut ed = CollectionConfigEditor::new(
-                self.title.to_string(),
-                self.config.clone(),
-                window,
-                cx,
-            );
-            if let Some(tag_store) = tag_store {
-                ed = ed.tag_store(tag_store, cx);
-            }
-            ed
+            CollectionConfigEditor::new(self.title.to_string(), self.config.clone(), window, cx)
+                .tag_store(tag_store, cx)
         });
 
         cx.subscribe(
@@ -482,36 +427,15 @@ impl GenericView {
         });
         self.bar_mode = BarMode::Normal;
         self.preview_filter_tags = None;
-        if let Some(stores) = &self.stores {
-            if let Some(id) = self.collection_id {
-                stores.views.update(cx, |s, cx| {
-                    s.update_view(id, &new_name, &self.config, cx);
-                });
-                stores.collections.update(cx, |s, cx| {
-                    s.update_collection(id, &new_name, &self.config, cx);
-                });
-            }
-        } else if let Some(id) = self.collection_id {
-            let db = cx.global::<AppState>().db.clone();
-            let rt = cx.global::<AppState>().rt.clone();
-            let name_to_save = new_name;
-            let config_val = serde_json::to_value(&self.config).unwrap_or_default();
-
-            cx.spawn(async move |_this, _cx| {
-                let _ = rt.block_on(crate::database::storage::collection::update_metadata(
-                    &db,
-                    id,
-                    Some(name_to_save),
-                    None,
-                    None,
-                    None,
-                    None,
-                ));
-                let _ = rt.block_on(crate::database::storage::collection::update_config(
-                    &db, id, config_val,
-                ));
-            })
-            .detach();
+        if let Some(id) = self.collection_id {
+            let views = cx.global::<AppState>().views.clone();
+            let collections = cx.global::<AppState>().collections.clone();
+            views.update(cx, |s, cx| {
+                s.update_view(id, &new_name, &self.config, cx);
+            });
+            collections.update(cx, |s, cx| {
+                s.update_collection(id, &new_name, &self.config, cx);
+            });
         }
 
         self.reload_all(cx);
@@ -608,16 +532,14 @@ impl GenericView {
                 })
                 .await;
 
-            this.update(cx, |this, cx| {
+            this.update(cx, |_, cx| {
                 if let Err(e) = res {
                     tracing::error!("批量应用标签失败: {:#}", e);
                 }
-                if let Some(stores) = &this.stores {
-                    stores.file.update(cx, |_, cx| cx.notify());
-                    stores.tags.update(cx, |s, cx| s.reload(cx));
-                } else {
-                    this.reload_all(cx);
-                }
+                let file = cx.global::<AppState>().file.clone();
+                let tags = cx.global::<AppState>().tags.clone();
+                file.update(cx, |_, cx| cx.notify());
+                tags.update(cx, |s, cx| s.reload(cx));
             })
             .ok();
         })
