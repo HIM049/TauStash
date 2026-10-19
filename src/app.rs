@@ -40,9 +40,7 @@ impl MyApp {
 
         let initial_model = stores.views.read(cx).views.first().cloned();
         let current_view = initial_model.as_ref().map(|model| {
-            cx.new(|cx| {
-                GenericView::from_collection(model, window, cx).stores(stores.clone(), cx)
-            })
+            cx.new(|cx| GenericView::from_collection(model, window, cx).stores(stores.clone(), cx))
         });
         let scanner_view = cx.new(|cx| ScannerView::new(window, cx).stores(stores.clone()));
         let collection_view =
@@ -117,16 +115,21 @@ impl Render for MyApp {
                 }
             }
         };
-
         div()
-            .h_flex()
+            .v_flex()
             .size_full()
-            .bg(cx.theme().secondary)
-            .text_color(cx.theme().foreground)
-            .relative()
-            .size_full()
-            .child(self.render_sidebar(cx))
-            .child(div().h_full().flex_1().min_w_0().child(main_content))
-            .when(false, |this| this.child(fps_monitor(window, cx)))
+            .child(TitleBar::new().text_xs().font_semibold().child("PiCargo"))
+            .child(
+                div()
+                    .h_flex()
+                    .size_full()
+                    .bg(cx.theme().secondary)
+                    .text_color(cx.theme().foreground)
+                    .relative()
+                    .size_full()
+                    .child(self.render_sidebar(cx))
+                    .child(div().h_full().flex_1().min_w_0().child(main_content))
+                    .when(false, |this| this.child(fps_monitor(window, cx))),
+            )
     }
 }

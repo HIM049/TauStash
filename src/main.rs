@@ -131,7 +131,7 @@ fn main() {
                     window_bounds: Some(window_bounds),
                     titlebar: Some(TitlebarOptions {
                         title: Some("PiCargo".into()),
-                        appears_transparent: false,
+                        appears_transparent: true,
                         traffic_light_position: None,
                     }),
                     ..Default::default()

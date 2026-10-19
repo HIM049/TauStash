@@ -75,16 +75,16 @@ impl RenderOnce for AppSidebar {
             .collapsible(SidebarCollapsible::Icon)
             .collapsed(self.collapsed)
             .w(px(220.0))
-            .header(
-                SidebarHeader::new().child(h_flex().items_center().gap_2().px_1().when(
-                    !self.collapsed,
-                    |this| {
-                        this.font_weight(FontWeight::BOLD)
-                            .text_sm()
-                            .child("PiCargo")
-                    },
-                )),
-            )
+            // .header(
+            //     SidebarHeader::new().child(h_flex().items_center().gap_2().px_1().when(
+            //         !self.collapsed,
+            //         |this| {
+            //             this.font_weight(FontWeight::BOLD)
+            //                 .text_sm()
+            //                 .child("PiCargo")
+            //         },
+            //     )),
+            // )
             .child(SidebarGroup::new("导航").child({
                 let mut menu = SidebarMenu::new();
 
