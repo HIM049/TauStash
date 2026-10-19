@@ -26,6 +26,7 @@ pub struct FilePoolView {
     view_mode: ViewOption,
     selected_files: HashSet<Uuid>,
     last_select: Option<Uuid>,
+    cursor_id: Option<Uuid>,
     name_input: Entity<InputState>,
     focus_handle: FocusHandle,
     editing_id: Option<Uuid>,
@@ -45,6 +46,7 @@ impl FilePoolView {
             view_mode,
             selected_files: HashSet::new(),
             last_select: None,
+            cursor_id: None,
             name_input,
             focus_handle,
             editing_id: None,
@@ -62,6 +64,11 @@ impl FilePoolView {
         if let Some(last) = self.last_select {
             if !valid_ids.contains(&last) {
                 self.last_select = None;
+            }
+        }
+        if let Some(cursor) = self.cursor_id {
+            if !valid_ids.contains(&cursor) {
+                self.cursor_id = None;
             }
         }
         if self.selected_files.len() != prev_count {
@@ -100,9 +107,10 @@ impl FilePoolView {
     }
 
     pub fn clear_selection(&mut self, cx: &mut Context<Self>) {
-        if !self.selected_files.is_empty() || self.last_select.is_some() {
+        if !self.selected_files.is_empty() || self.last_select.is_some() || self.cursor_id.is_some() {
             self.selected_files.clear();
             self.last_select = None;
+            self.cursor_id = None;
             cx.emit(FileContentEvent::SelectionChanged);
             cx.notify();
         }
@@ -111,6 +119,7 @@ impl FilePoolView {
     pub fn select_all(&mut self, cx: &mut Context<Self>) {
         self.selected_files = self.file_list.iter().map(|f| f.file_id).collect();
         self.last_select = self.file_list.last().map(|f| f.file_id);
+        self.cursor_id = self.file_list.last().map(|f| f.file_id);
         cx.emit(FileContentEvent::SelectionChanged);
         cx.notify();
     }
@@ -134,6 +143,7 @@ impl FilePoolView {
         self.selected_files.clear();
         self.selected_files.insert(file_id);
         self.last_select = Some(file_id);
+        self.cursor_id = Some(file_id);
 
         self.name_input.update(cx, |input, cx| {
             input.set_value(initial_name, window, cx);
@@ -215,6 +225,8 @@ impl FilePoolView {
             self.commit_rename(window, cx);
         }
 
+        self.cursor_id = Some(file_id);
+
         if is_ctrl {
             if self.selected_files.contains(&file_id) {
                 self.selected_files.remove(&file_id);
@@ -257,13 +269,15 @@ impl FilePoolView {
             self.commit_rename(window, cx);
         }
 
+        self.cursor_id = Some(file_id);
+
         if !self.selected_files.contains(&file_id) {
             self.selected_files.clear();
             self.selected_files.insert(file_id);
             self.last_select = Some(file_id);
             cx.emit(FileContentEvent::SelectionChanged);
-            cx.notify();
         }
+        cx.notify();
     }
 
     fn build_context_menu(&self, mut menu: PopupMenu, cx: &mut Context<Self>) -> PopupMenu {
@@ -348,6 +362,7 @@ impl Render for FilePoolView {
         let inner_view = match self.view_mode {
             ViewOption::List => ItemListView::new("file-list", self.file_list.clone())
                 .selected_files(self.selected_files.clone())
+                .cursor_id(self.cursor_id)
                 .scroll_handle(&self.scroll_handle)
                 .empty_placeholder(self.empty_placeholder.clone())
                 .on_select(
@@ -364,6 +379,7 @@ impl Render for FilePoolView {
                 .into_any_element(),
             ViewOption::Grid => {
                 let selected_files = self.selected_files.clone();
+                let cursor_id = self.cursor_id;
                 let entity = cx.entity().clone();
 
                 ItemGridView::new(
@@ -372,6 +388,7 @@ impl Render for FilePoolView {
                     move |item, _idx, _, _cx| {
                         let file_id = item.file_id;
                         let is_selected = selected_files.contains(&file_id);
+                        let is_cursor = cursor_id == Some(file_id);
                         let is_editing = editing_id == Some(file_id);
                         let path_open = SharedString::new(item.path.as_str());
 
@@ -380,6 +397,7 @@ impl Render for FilePoolView {
 
                         GridCard::from(item)
                             .selected(is_selected)
+                            .cursor(is_cursor)
                             .editing(is_editing)
                             .input(if is_editing {
                                 Some(name_input.clone())

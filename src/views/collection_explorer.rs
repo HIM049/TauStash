@@ -21,6 +21,7 @@ pub struct CollectionExplorerView {
     scroll_handle: UniformListScrollHandle,
     selected: HashSet<Uuid>,
     last_select: Option<Uuid>,
+    cursor_id: Option<Uuid>,
 
     name_input: Entity<InputState>,
     focus_handle: FocusHandle,
@@ -38,6 +39,11 @@ impl CollectionExplorerView {
         cx.observe(&collections_entity, |this, store, cx| {
             this.folders = store.read(cx).collections.clone();
             this.editing_id = None;
+            if let Some(cursor) = this.cursor_id {
+                if !this.folders.iter().any(|f| f.id == cursor) {
+                    this.cursor_id = None;
+                }
+            }
             cx.notify();
         })
         .detach();
@@ -47,6 +53,7 @@ impl CollectionExplorerView {
             scroll_handle: UniformListScrollHandle::new(),
             selected: HashSet::new(),
             last_select: None,
+            cursor_id: None,
             name_input,
             focus_handle,
             editing_id: None,
@@ -62,6 +69,11 @@ impl CollectionExplorerView {
             .collections
             .clone();
         self.editing_id = None;
+        if let Some(cursor) = self.cursor_id {
+            if !self.folders.iter().any(|f| f.id == cursor) {
+                self.cursor_id = None;
+            }
+        }
         cx.notify();
     }
 
@@ -95,6 +107,8 @@ impl CollectionExplorerView {
     }
 
     fn handle_select(&mut self, id: Uuid, is_ctrl: bool, is_shift: bool, cx: &mut Context<Self>) {
+        self.cursor_id = Some(id);
+
         if is_ctrl {
             if self.selected.contains(&id) {
                 self.selected.remove(&id);
@@ -127,11 +141,12 @@ impl CollectionExplorerView {
     }
 
     fn clear_selection(&mut self, cx: &mut Context<Self>) {
-        if self.selected.is_empty() {
+        if self.selected.is_empty() && self.last_select.is_none() && self.cursor_id.is_none() {
             return;
         }
         self.selected.clear();
         self.last_select = None;
+        self.cursor_id = None;
         cx.notify();
     }
 
@@ -176,6 +191,8 @@ impl CollectionExplorerView {
         self.editing_id = Some(id);
         self.selected.clear();
         self.selected.insert(id);
+        self.last_select = Some(id);
+        self.cursor_id = Some(id);
 
         self.name_input.update(cx, |input, cx| {
             input.set_value(initial_name, window, cx);
@@ -237,6 +254,7 @@ impl CollectionExplorerView {
 
     /// When right-clicking an item, if it is not selected, clear other selections and select it.
     fn handle_secondary_click(&mut self, id: Uuid, cx: &mut Context<Self>) {
+        self.cursor_id = Some(id);
         if !self.selected.contains(&id) {
             self.select_only(id, cx);
             self.last_select = Some(id);
@@ -252,6 +270,7 @@ impl CollectionExplorerView {
         let ids: Vec<Uuid> = self.selected.iter().copied().collect();
         self.selected.clear();
         self.last_select = None;
+        self.cursor_id = None;
 
         let collections = cx.global::<AppState>().collections.clone();
         collections.update(cx, |s, cx| {
@@ -367,6 +386,7 @@ impl Render for CollectionExplorerView {
                         div().size_full().pl_6().child(
                             ItemGridView::new("collection-grid", self.folders.clone(), {
                                 let selected = self.selected.clone();
+                                let cursor_id = self.cursor_id;
                                 let editing_id = self.editing_id;
                                 let name_input = self.name_input.clone();
                                 let entity = cx.entity().clone();
@@ -374,6 +394,7 @@ impl Render for CollectionExplorerView {
                                 move |folder, _idx, _window, _cx| {
                                     let id = folder.id;
                                     let is_selected = selected.contains(&id);
+                                    let is_cursor = cursor_id == Some(id);
                                     let is_editing = editing_id == Some(id);
 
                                     let cell_entity = entity.clone();
@@ -383,6 +404,7 @@ impl Render for CollectionExplorerView {
 
                                     GridCard::from(folder)
                                         .selected(is_selected)
+                                        .cursor(is_cursor)
                                         .editing(is_editing)
                                         .input(if is_editing {
                                             Some(name_input.clone())

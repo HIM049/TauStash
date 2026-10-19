@@ -22,6 +22,7 @@ pub struct ItemListView {
     id: ElementId,
     file_list: Vec<FileInfo>,
     selected_files: HashSet<Uuid>,
+    cursor_id: Option<Uuid>,
     scroll_handle: UniformListScrollHandle,
     empty_placeholder: SharedString,
     on_select: Option<FileListSelectListener>,
@@ -35,6 +36,7 @@ impl ItemListView {
             id: id.into(),
             file_list,
             selected_files: HashSet::new(),
+            cursor_id: None,
             scroll_handle: UniformListScrollHandle::new(),
             empty_placeholder: "当前筛选下暂无匹配文件".into(),
             on_select: None,
@@ -45,6 +47,11 @@ impl ItemListView {
 
     pub fn selected_files(mut self, files: HashSet<Uuid>) -> Self {
         self.selected_files = files;
+        self
+    }
+
+    pub fn cursor_id(mut self, cursor_id: Option<Uuid>) -> Self {
+        self.cursor_id = cursor_id;
         self
     }
 
@@ -82,6 +89,7 @@ impl ItemListView {
 
 impl RenderOnce for ItemListView {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl gpui_kit::prelude::IntoElement {
+        let border_color = cx.theme().border;
         if self.file_list.is_empty() {
             return div()
                 .id(self.id)
@@ -101,25 +109,41 @@ impl RenderOnce for ItemListView {
             .h_flex()
             .items_center()
             .px_3()
-            .gap_3()
+            .gap_2()
             .text_xs()
             .font_weight(FontWeight::MEDIUM)
             .text_color(cx.theme().muted_foreground)
-            .border_b_1()
-            .border_color(cx.theme().border.opacity(0.6))
-            .child(div().flex_1().min_w(px(220.0)).child("名称"))
-            .child(div().w(px(100.0)).flex_shrink_0().child("类型"))
+            // .border_b_1()
+            // .border_color(cx.theme().border.opacity(0.6))
             .child(
                 div()
-                    .w(px(100.0))
+                    .border_r_1()
+                    .border_color(border_color)
+                    .flex_1()
+                    .min_w(px(220.0))
+                    .child("名称"),
+            )
+            .child(
+                div()
+                    .border_r_1()
+                    .border_color(border_color)
+                    .w(px(65.0))
                     .flex_shrink_0()
-                    .text_right()
+                    .child("类型"),
+            )
+            .child(
+                div()
+                    .border_r_1()
+                    .border_color(border_color)
+                    .w(px(65.0))
+                    .flex_shrink_0()
                     .child("大小"),
             );
 
         let total = self.file_list.len();
         let file_list = self.file_list;
         let selected_files = self.selected_files;
+        let cursor_id = self.cursor_id;
         let on_select = self.on_select;
         let on_secondary_select = self.on_secondary_select;
         let on_open = self.on_open;
@@ -133,6 +157,7 @@ impl RenderOnce for ItemListView {
                     let item = &file_list[idx];
                     let file_id = item.file_id;
                     let is_selected = selected_files.contains(&file_id);
+                    let is_cursor = cursor_id == Some(file_id);
                     let path = item.path.clone();
                     let extension = item
                         .ext
@@ -151,11 +176,20 @@ impl RenderOnce for ItemListView {
                         .h_flex()
                         .items_center()
                         .px_3()
-                        .gap_3()
-                        .rounded_sm()
-                        .when(is_selected, |s| s.bg(cx.theme().accent.opacity(0.9)))
-                        .when(!is_selected, |d| {
-                            d.hover(|style| style.bg(cx.theme().accent.opacity(0.4)))
+                        .gap_2()
+                        .border_1()
+                        .when(is_selected, |this| this.bg(cx.theme().accent.opacity(0.9)))
+                        .when(is_cursor, |this| {
+                            this.border_color(cx.theme().border)
+                                .bg(cx.theme().accent.opacity(0.6))
+                        })
+                        .hover(|s| {
+                            if is_selected {
+                                s.border_color(cx.theme().border)
+                                    .bg(cx.theme().accent.opacity(0.6))
+                            } else {
+                                s.bg(cx.theme().accent.opacity(0.9))
+                            }
                         })
                         .child(
                             div()
@@ -180,7 +214,7 @@ impl RenderOnce for ItemListView {
                         )
                         .child(
                             div()
-                                .w(px(100.0))
+                                .w(px(65.0))
                                 .flex_shrink_0()
                                 .text_xs()
                                 .text_color(cx.theme().muted_foreground)
@@ -188,7 +222,7 @@ impl RenderOnce for ItemListView {
                         )
                         .child(
                             div()
-                                .w(px(100.0))
+                                .w(px(65.0))
                                 .flex_shrink_0()
                                 .text_xs()
                                 .text_color(cx.theme().muted_foreground)

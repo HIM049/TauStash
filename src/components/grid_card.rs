@@ -26,8 +26,9 @@ pub struct GridCard {
     id: ElementId,
     title: SharedString,
     image: CardImage,
-    selected: bool,
-    editing: bool,
+    is_selected: bool,
+    is_editing: bool,
+    is_cursor: bool,
     input: Option<Entity<InputState>>,
     on_click: Option<FileCardClickListener>,
     on_double_click: Option<FileCardClickListener>,
@@ -40,8 +41,9 @@ impl GridCard {
             id: id.into(),
             title: title.into(),
             image,
-            selected: false,
-            editing: false,
+            is_selected: false,
+            is_editing: false,
+            is_cursor: false,
             input: None,
             on_click: None,
             on_double_click: None,
@@ -50,12 +52,17 @@ impl GridCard {
     }
 
     pub fn selected(mut self, selected: bool) -> Self {
-        self.selected = selected;
+        self.is_selected = selected;
         self
     }
 
     pub fn editing(mut self, editing: bool) -> Self {
-        self.editing = editing;
+        self.is_editing = editing;
+        self
+    }
+
+    pub fn cursor(mut self, cursor: bool) -> Self {
+        self.is_cursor = cursor;
         self
     }
 
@@ -160,8 +167,8 @@ impl RenderOnce for GridCard {
         _: &mut gpui_kit::Window,
         cx: &mut gpui_kit::App,
     ) -> impl gpui_kit::prelude::IntoElement {
-        let is_selected = self.selected;
-        let is_editing = self.editing;
+        let is_selected = self.is_selected;
+        let is_editing = self.is_editing;
 
         let on_click_handler = self.on_click;
         let on_double_click_handler = self.on_double_click;
@@ -219,45 +226,56 @@ impl RenderOnce for GridCard {
             }
         };
 
-        let label_zone = if is_editing && let Some(ref input) = self.input {
-            div()
-                .id("file-card-input-wrap")
-                .w_full()
-                .on_click(|_, _, cx| cx.stop_propagation())
-                .child(Input::new(input).small().focus_bordered(false))
-                .into_any_element()
-        } else {
-            div()
-                .text_xs()
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(cx.theme().foreground)
-                .line_clamp(2)
-                .w_full()
-                .text_ellipsis()
-                .text_center()
-                .child(self.title)
-                .into_any_element()
-        };
+        let label_zone = div()
+            .w_full()
+            .h(px(34.0))
+            .flex_shrink_0()
+            .v_flex()
+            .justify_start()
+            .items_center()
+            .child(if is_editing && let Some(ref input) = self.input {
+                div()
+                    .id("file-card-input-wrap")
+                    .w_full()
+                    .on_click(|_, _, cx| cx.stop_propagation())
+                    .child(Input::new(input).small().focus_bordered(false))
+                    .into_any_element()
+            } else {
+                div()
+                    .text_xs()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(cx.theme().foreground)
+                    .line_clamp(2)
+                    .w_full()
+                    .text_ellipsis()
+                    .text_center()
+                    .child(self.title)
+                    .into_any_element()
+            });
 
         div()
             .id(self.id)
             .v_flex()
             .items_center()
-            .justify_between()
+            .gap_1p5()
             .w(px(140.0))
             .h(px(150.0))
             .p_2p5()
             .rounded(cx.theme().radius)
-            .when(is_editing, |s| {
-                s.border_1()
-                    .border_color(cx.theme().border)
-                    .bg(cx.theme().accent.opacity(0.9))
+            .border_1()
+            // .border_color(gpui_kit::white().alpha(0.))
+            .when(is_selected, |this| this.bg(cx.theme().accent.opacity(0.9)))
+            .when(self.is_cursor, |this| {
+                this.border_color(cx.theme().border)
+                    .bg(cx.theme().accent.opacity(0.6))
             })
-            .when(!is_editing && is_selected, |s| {
-                s.bg(cx.theme().accent.opacity(0.9))
-            })
-            .when(!is_editing && !is_selected, |d| {
-                d.hover(|style| style.bg(cx.theme().accent.opacity(0.6)))
+            .hover(|s| {
+                if is_selected {
+                    s.border_color(cx.theme().border)
+                        .bg(cx.theme().accent.opacity(0.6))
+                } else {
+                    s.bg(cx.theme().accent.opacity(0.9))
+                }
             })
             .when_some(on_secondary_click.clone(), |this, on_sec| {
                 this.on_mouse_down(MouseButton::Right, move |_, window, cx| {
