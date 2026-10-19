@@ -2,7 +2,6 @@ use std::rc::Rc;
 
 use gpui_kit::component::sidebar::*;
 use gpui_kit::component::*;
-use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use uuid::Uuid;
 

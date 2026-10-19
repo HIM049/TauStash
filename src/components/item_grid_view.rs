@@ -126,13 +126,17 @@ impl<T: 'static + Clone> Element for ItemGridView<T> {
         let total = self.items.len();
         let rows_count = total.div_ceil(cols);
 
+        let visible_rows = (bounds.size.height.as_f32() / row_h.max(1.0)).ceil() as usize;
+        let single_screen_items = cols * (visible_rows + 4);
+        let cache_capacity = (single_screen_items * 3).max(100);
+
         let items = self.items.clone();
         let render_card = self.render_card.clone();
         let scroll_handle = self.scroll_handle.clone();
         let list_id = ElementId::Name(format!("{}-list", self.id).into());
         let cache_id = format!("{}-image-cache", self.id);
 
-        let mut inner = components::lru_image_cache::lru_image_cache_default(cache_id)
+        let mut inner = components::lru_image_cache::lru_image_cache(cache_id, cache_capacity)
             .size_full()
             .child(
                 div()

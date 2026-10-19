@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use gpui_kit::*;
 
-const DEFAULT_CAPACITY: usize = 80;
+pub const DEFAULT_CAPACITY: usize = 100;
 
 pub struct LruImageCache {
     capacity: usize,
@@ -31,6 +31,10 @@ impl LruImageCache {
         .detach();
 
         entity
+    }
+
+    pub fn set_capacity(&mut self, capacity: usize) {
+        self.capacity = capacity.max(1);
     }
 
     fn touch(&mut self, key: u64) {
@@ -84,12 +88,8 @@ impl ImageCache for LruImageCache {
 pub fn lru_image_cache(id: impl Into<ElementId>, capacity: usize) -> ImageCacheElement {
     image_cache(LruImageCacheProvider {
         id: id.into(),
-        capacity,
+        capacity: capacity.max(DEFAULT_CAPACITY),
     })
-}
-
-pub fn lru_image_cache_default(id: impl Into<ElementId>) -> ImageCacheElement {
-    lru_image_cache(id, DEFAULT_CAPACITY)
 }
 
 struct LruImageCacheProvider {
@@ -103,7 +103,17 @@ impl ImageCacheProvider for LruImageCacheProvider {
         window
             .with_global_id(self.id.clone(), |global_id, window| {
                 window.with_element_state::<Entity<LruImageCache>, _>(global_id, |cache, _| {
-                    let cache = cache.unwrap_or_else(|| LruImageCache::new(capacity, cx));
+                    let cache = match cache {
+                        Some(cache) => {
+                            cache.update(cx, |c, _| {
+                                if c.capacity != capacity {
+                                    c.set_capacity(capacity);
+                                }
+                            });
+                            cache
+                        }
+                        None => LruImageCache::new(capacity, cx),
+                    };
                     (cache.clone(), cache)
                 })
             })
