@@ -703,7 +703,12 @@ impl Render for GenericView {
                 });
                 this.clear_selection(cx);
             }))
-            .on_sub_click(cx.listener(|this, _, _window, cx| {
+            .on_sub_click(cx.listener(|this, _, window, cx| {
+                this.content_view.update(cx, |view, cx| {
+                    if view.is_renaming() {
+                        view.commit_rename(window, cx);
+                    }
+                });
                 this.clear_selection(cx);
             }))
             .when(configuring_editor.is_some(), |this| {
