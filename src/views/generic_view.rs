@@ -250,16 +250,16 @@ impl GenericView {
 
     fn persist_config(&self, cx: &mut Context<Self>) {
         if let Some(id) = self.collection_id {
-            let db = cx.global::<AppState>().db.clone();
-            let rt = cx.global::<AppState>().rt.clone();
-            if let Ok(config_val) = serde_json::to_value(&self.config) {
-                cx.spawn(async move |_this, _cx| {
-                    let _ = rt.block_on(crate::database::storage::collection::update_config(
-                        &db, id, config_val,
-                    ));
-                })
-                .detach();
-            }
+            let views = cx.global::<AppState>().views.clone();
+            let collections = cx.global::<AppState>().collections.clone();
+            let config = self.config.clone();
+
+            views.update(cx, |s, cx| {
+                s.update_config(id, &config, cx);
+            });
+            collections.update(cx, |s, cx| {
+                s.update_config(id, &config, cx);
+            });
         }
     }
 

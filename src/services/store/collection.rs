@@ -49,10 +49,11 @@ impl CollectionStore {
         new_config: &CollectionConfig,
         cx: &mut Context<Self>,
     ) {
-        if let Some(col) = self.collections.iter_mut().find(|c| c.id == id) {
-            col.name = new_name.to_string();
-            col.config = serde_json::to_value(new_config).unwrap_or_default();
-        }
+        let Some(col) = self.collections.iter_mut().find(|c| c.id == id) else {
+            return;
+        };
+        col.name = new_name.to_string();
+        col.config = serde_json::to_value(new_config).unwrap_or_default();
         cx.notify();
 
         let db = cx.global::<AppState>().db.clone();
@@ -75,10 +76,34 @@ impl CollectionStore {
         .detach();
     }
 
+    pub fn update_config(
+        &mut self,
+        id: Uuid,
+        new_config: &CollectionConfig,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(col) = self.collections.iter_mut().find(|c| c.id == id) else {
+            return;
+        };
+        col.config = serde_json::to_value(new_config).unwrap_or_default();
+        cx.notify();
+
+        let db = cx.global::<AppState>().db.clone();
+        let rt = cx.global::<AppState>().rt.clone();
+        let config_val = serde_json::to_value(new_config).unwrap_or_default();
+
+        cx.spawn(async move |_, _cx| {
+            rt.block_on(collection_store::update_config(&db, id, config_val))
+                .ok();
+        })
+        .detach();
+    }
+
     pub fn rename_collection(&mut self, id: Uuid, new_name: &str, cx: &mut Context<Self>) {
-        if let Some(col) = self.collections.iter_mut().find(|c| c.id == id) {
-            col.name = new_name.to_string();
-        }
+        let Some(col) = self.collections.iter_mut().find(|c| c.id == id) else {
+            return;
+        };
+        col.name = new_name.to_string();
         cx.notify();
 
         let db = cx.global::<AppState>().db.clone();
@@ -103,6 +128,13 @@ impl CollectionStore {
         let db = cx.global::<AppState>().db.clone();
         let rt = cx.global::<AppState>().rt.clone();
         let name_to_create = name.trim().to_string();
+        let config = match serde_json::to_value(CollectionConfig::default()) {
+            Ok(config) => Some(config),
+            Err(err) => {
+                tracing::error!("序列化合集配置失败: {err:#}");
+                None
+            }
+        };
 
         cx.spawn(async move |this, cx| {
             let res = cx
@@ -113,7 +145,7 @@ impl CollectionStore {
                         collection::CollectionType::Folder,
                         None,
                         None,
-                        None,
+                        config,
                         None,
                         None,
                         None,

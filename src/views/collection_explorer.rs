@@ -390,6 +390,7 @@ impl Render for CollectionExplorerView {
                                             None
                                         })
                                         .on_click(move |_, window, cx| {
+                                            cx.stop_propagation();
                                             if is_editing {
                                                 return;
                                             }
@@ -402,6 +403,7 @@ impl Render for CollectionExplorerView {
                                             });
                                         })
                                         .on_double_click(move |_, window, cx| {
+                                            cx.stop_propagation();
                                             dbl_entity.update(cx, |this, cx| {
                                                 this.open_collection(&dbl_folder, window, cx);
                                             });

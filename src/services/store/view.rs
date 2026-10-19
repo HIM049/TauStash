@@ -55,10 +55,11 @@ impl ViewStore {
         new_config: &CollectionConfig,
         cx: &mut Context<Self>,
     ) {
-        if let Some(view) = self.views.iter_mut().find(|v| v.id == id) {
-            view.name = new_name.to_string();
-            view.config = serde_json::to_value(new_config).unwrap_or_default();
-        }
+        let Some(view) = self.views.iter_mut().find(|v| v.id == id) else {
+            return;
+        };
+        view.name = new_name.to_string();
+        view.config = serde_json::to_value(new_config).unwrap_or_default();
         cx.notify();
 
         let db = cx.global::<AppState>().db.clone();
@@ -76,6 +77,28 @@ impl ViewStore {
                 None,
                 None,
             ));
+            let _ = rt.block_on(collection_store::update_config(&db, id, config_val));
+        })
+        .detach();
+    }
+
+    pub fn update_config(
+        &mut self,
+        id: Uuid,
+        new_config: &CollectionConfig,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(view) = self.views.iter_mut().find(|v| v.id == id) else {
+            return;
+        };
+        view.config = serde_json::to_value(new_config).unwrap_or_default();
+        cx.notify();
+
+        let db = cx.global::<AppState>().db.clone();
+        let rt = cx.global::<AppState>().rt.clone();
+        let config_val = serde_json::to_value(new_config).unwrap_or_default();
+
+        cx.spawn(async move |_this, _cx| {
             let _ = rt.block_on(collection_store::update_config(&db, id, config_val));
         })
         .detach();
