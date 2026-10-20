@@ -10,7 +10,7 @@ pub type RenderCardFn<T> = Rc<dyn Fn(&T, usize, &mut Window, &mut App) -> AnyEle
 
 pub struct ItemGridView<T> {
     id: ElementId,
-    items: Vec<T>,
+    items: Rc<[T]>,
     card_slot_width: f32,
     row_height: f32,
     scroll_handle: UniformListScrollHandle,
@@ -18,15 +18,15 @@ pub struct ItemGridView<T> {
     render_card: RenderCardFn<T>,
 }
 
-impl<T: 'static + Clone> ItemGridView<T> {
+impl<T: 'static> ItemGridView<T> {
     pub fn new(
         id: impl Into<ElementId>,
-        items: Vec<T>,
+        items: impl Into<Rc<[T]>>,
         render_card: impl Fn(&T, usize, &mut Window, &mut App) -> AnyElement + 'static,
     ) -> Self {
         Self {
             id: id.into(),
-            items,
+            items: items.into(),
             card_slot_width: 142.0,
             row_height: 154.0,
             scroll_handle: UniformListScrollHandle::new(),

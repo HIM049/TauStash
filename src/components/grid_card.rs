@@ -100,15 +100,16 @@ impl From<&FileInfo> for GridCard {
     fn from(file: &FileInfo) -> Self {
         let visual = if file.mime.starts_with("image/") {
             let p = crate::services::thumbnail::get_thumbnail_path(&file.hash);
-            if p.is_file() {
-                CardImage::Image(p)
-            } else {
-                let ext = file.ext.as_deref().unwrap_or("IMG").to_uppercase();
-                CardImage::Icon {
-                    name: "file".into(),
-                    label: Some(ext.into()),
-                }
-            }
+            // if p.is_file() {
+            //     CardImage::Image(p)
+            // } else {
+            //     let ext = file.ext.as_deref().unwrap_or("IMG").to_uppercase();
+            //     CardImage::Icon {
+            //         name: "file".into(),
+            //         label: Some(ext.into()),
+            //     }
+            // }
+            CardImage::Image(p)
         } else {
             let ext = file.ext.as_deref().unwrap_or("FILE").to_uppercase();
             CardImage::Icon {
@@ -118,7 +119,7 @@ impl From<&FileInfo> for GridCard {
         };
 
         GridCard::new(
-            ElementId::Name(format!("file-card-{}", file.file_id).into()),
+            file.file_id,
             SharedString::new(file.file_name.as_str()),
             visual,
         )
@@ -148,7 +149,7 @@ impl From<&collection::Model> for GridCard {
         };
 
         GridCard::new(
-            ElementId::Name(format!("collection-card-{}", folder.id).into()),
+            folder.id,
             SharedString::new(folder.name.as_str()),
             visual,
         )
@@ -176,7 +177,9 @@ impl RenderOnce for GridCard {
 
         let image = match &self.image {
             CardImage::Image(path) => div()
-                .size_full()
+                .flex_1()
+                .min_h_0()
+                .w_full()
                 .h_flex()
                 .items_center()
                 .justify_center()
@@ -195,10 +198,12 @@ impl RenderOnce for GridCard {
                 };
 
                 div()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
                     .v_flex()
                     .items_center()
                     .justify_center()
-                    .size_full()
                     .gap_1p5()
                     .child(
                         div()
@@ -226,32 +231,29 @@ impl RenderOnce for GridCard {
             }
         };
 
-        let label_zone = div()
-            .w_full()
-            .h(px(34.0))
-            .flex_shrink_0()
-            .v_flex()
-            .justify_start()
-            .items_center()
-            .child(if is_editing && let Some(ref input) = self.input {
-                div()
-                    .id("file-card-input-wrap")
-                    .w_full()
-                    .on_click(|_, _, cx| cx.stop_propagation())
-                    .child(Input::new(input).small().focus_bordered(false))
-                    .into_any_element()
-            } else {
-                div()
-                    .text_xs()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(cx.theme().foreground)
-                    .line_clamp(2)
-                    .w_full()
-                    .text_ellipsis()
-                    .text_center()
-                    .child(self.title)
-                    .into_any_element()
-            });
+        let label_zone = if is_editing && let Some(ref input) = self.input {
+            div()
+                .id("file-card-input-wrap")
+                .w_full()
+                .h(px(34.0))
+                .flex_shrink_0()
+                .on_click(|_, _, cx| cx.stop_propagation())
+                .child(Input::new(input).small().focus_bordered(false))
+                .into_any_element()
+        } else {
+            div()
+                .w_full()
+                .h(px(34.0))
+                .flex_shrink_0()
+                .text_xs()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(cx.theme().foreground)
+                .line_clamp(2)
+                .text_ellipsis()
+                .text_center()
+                .child(self.title)
+                .into_any_element()
+        };
 
         div()
             .id(self.id)
@@ -299,7 +301,7 @@ impl RenderOnce for GridCard {
                     }
                 },
             )
-            .child(div().flex_1().min_h_0().w_full().child(image))
+            .child(image)
             .child(label_zone)
     }
 }

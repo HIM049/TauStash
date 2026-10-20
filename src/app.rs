@@ -134,7 +134,9 @@ impl Render for MyApp {
                     .size_full()
                     .child(self.render_sidebar(cx))
                     .child(div().h_full().flex_1().min_w_0().child(main_content))
-                    .when(show_fps, |this| this.child(fps_monitor(window, cx))),
+                    .when(show_fps, |this| {
+                        this.child(fps_monitor(window, cx).anchor(Anchor::BottomRight))
+                    }),
             )
     }
 }

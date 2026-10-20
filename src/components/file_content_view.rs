@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::rc::Rc;
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::input::{Enter, Escape, InputState};
@@ -22,7 +23,7 @@ pub enum FileContentEvent {
 }
 
 pub struct FilePoolView {
-    file_list: Vec<FileInfo>,
+    file_list: Rc<[FileInfo]>,
     view_mode: ViewOption,
     selected_files: HashSet<Uuid>,
     last_select: Option<Uuid>,
@@ -42,7 +43,7 @@ impl FilePoolView {
         let focus_handle = cx.focus_handle();
 
         Self {
-            file_list: Vec::new(),
+            file_list: Rc::from([]),
             view_mode,
             selected_files: HashSet::new(),
             last_select: None,
@@ -57,7 +58,7 @@ impl FilePoolView {
 
     pub fn set_files(&mut self, files: Vec<FileInfo>, cx: &mut Context<Self>) {
         self.editing_id = None;
-        self.file_list = files;
+        self.file_list = files.into();
         let valid_ids: HashSet<Uuid> = self.file_list.iter().map(|f| f.file_id).collect();
         let prev_count = self.selected_files.len();
         self.selected_files.retain(|id| valid_ids.contains(id));
@@ -389,7 +390,7 @@ impl Render for FilePoolView {
                         let is_selected = selected_files.contains(&file_id);
                         let is_cursor = cursor_id == Some(file_id);
                         let is_editing = editing_id == Some(file_id);
-                        let path_open = SharedString::new(item.path.as_str());
+                        let path_open: SharedString = item.path.clone().into();
 
                         let select_entity = entity.clone();
                         let sec_entity = entity.clone();

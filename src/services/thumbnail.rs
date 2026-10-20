@@ -1,11 +1,11 @@
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 use tracing::{debug, warn};
 
 /// Target resolution: 360px on the longest edge.
 const MAX_THUMBNAIL_EDGE: u32 = 360;
 
-/// Directory where thumbnail images are stored
-pub fn thumbnails_dir() -> PathBuf {
+static THUMBNAILS_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
     let dir = std::env::current_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
         .join("app_data")
@@ -14,11 +14,16 @@ pub fn thumbnails_dir() -> PathBuf {
         let _ = std::fs::create_dir_all(&dir);
     }
     dir
+});
+
+/// Directory where thumbnail images are stored
+pub fn thumbnails_dir() -> &'static Path {
+    &THUMBNAILS_DIR
 }
 
 /// get thumbnail file path
 pub fn get_thumbnail_path(hash: &str) -> PathBuf {
-    thumbnails_dir().join(format!("{hash}.jpg"))
+    THUMBNAILS_DIR.join(format!("{hash}.jpg"))
 }
 
 /// Check whether thumbnail already exists

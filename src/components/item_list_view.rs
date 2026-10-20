@@ -21,7 +21,7 @@ pub type FileListOpenHandler = Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>
 #[derive(IntoElement)]
 pub struct ItemListView {
     id: ElementId,
-    file_list: Vec<FileInfo>,
+    file_list: Rc<[FileInfo]>,
     selected_files: HashSet<Uuid>,
     cursor_id: Option<Uuid>,
     editing_id: Option<Uuid>,
@@ -34,10 +34,10 @@ pub struct ItemListView {
 }
 
 impl ItemListView {
-    pub fn new(id: impl Into<ElementId>, file_list: Vec<FileInfo>) -> Self {
+    pub fn new(id: impl Into<ElementId>, file_list: impl Into<Rc<[FileInfo]>>) -> Self {
         Self {
             id: id.into(),
-            file_list,
+            file_list: file_list.into(),
             selected_files: HashSet::new(),
             cursor_id: None,
             editing_id: None,
