@@ -1,7 +1,9 @@
 use std::rc::Rc;
 
+use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::sidebar::*;
 use gpui_kit::component::*;
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use uuid::Uuid;
 
@@ -17,6 +19,7 @@ pub enum NavTarget {
 
 pub type NavSelectListener = Rc<dyn Fn(&NavTarget, &mut Window, &mut App) + 'static>;
 pub type ToggleCollapseListener = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+pub type SettingsClickListener = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
 #[derive(IntoElement)]
 pub struct AppSidebar {
@@ -25,6 +28,7 @@ pub struct AppSidebar {
     views: Vec<collection::Model>,
     on_select: Option<NavSelectListener>,
     on_toggle_collapse: Option<ToggleCollapseListener>,
+    on_settings: Option<SettingsClickListener>,
 }
 
 impl AppSidebar {
@@ -35,6 +39,7 @@ impl AppSidebar {
             views: Vec::new(),
             on_select: None,
             on_toggle_collapse: None,
+            on_settings: None,
         }
     }
 
@@ -63,12 +68,21 @@ impl AppSidebar {
         self.on_toggle_collapse = Some(Rc::new(listener));
         self
     }
+
+    pub fn on_settings(
+        mut self,
+        listener: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_settings = Some(Rc::new(listener));
+        self
+    }
 }
 
 impl RenderOnce for AppSidebar {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let on_select = self.on_select.clone();
         let on_toggle = self.on_toggle_collapse.clone();
+        let on_settings = self.on_settings.clone();
 
         Sidebar::new("app-sidebar")
             .collapsible(SidebarCollapsible::Icon)
@@ -137,15 +151,36 @@ impl RenderOnce for AppSidebar {
                 menu
             }))
             .footer(
-                div().child(
-                    SidebarToggleButton::new()
-                        .collapsed(self.collapsed)
-                        .on_click(move |event, window, cx| {
-                            if let Some(cb) = on_toggle.as_ref() {
-                                cb(event, window, cx);
-                            }
-                        }),
-                ),
+                div()
+                    .h_flex()
+                    .w_full()
+                    .gap_1()
+                    .when(self.collapsed, |this| this.v_flex().flex_col_reverse())
+                    .child(
+                        Button::new("sidebar-collapse")
+                            .ghost()
+                            .when_else(
+                                self.collapsed,
+                                |this| this.icon(IconName::PanelLeftOpen),
+                                |this| this.icon(IconName::PanelLeftClose),
+                            )
+                            .on_click(move |event, window, cx| {
+                                if let Some(cb) = on_toggle.as_ref() {
+                                    cb(event, window, cx);
+                                }
+                            }),
+                    )
+                    .child(
+                        Button::new("sidebar-settings")
+                            .ghost()
+                            .icon(IconName::Settings)
+                            // .when(!self.collapsed, |this| this.label("设置"))
+                            .on_click(move |event, window, cx| {
+                                if let Some(cb) = on_settings.as_ref() {
+                                    cb(event, window, cx);
+                                }
+                            }),
+                    ),
             )
     }
 }

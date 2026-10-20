@@ -38,6 +38,11 @@ impl MyApp {
         })
         .detach();
 
+        cx.observe_global::<AppState>(|_, cx| {
+            cx.notify();
+        })
+        .detach();
+
         let initial_model = views_entity.read(cx).views.first().cloned();
         let current_view = initial_model
             .as_ref()
@@ -95,11 +100,15 @@ impl MyApp {
                 this.sidebar_collapsed = !this.sidebar_collapsed;
                 cx.notify();
             }))
+            .on_settings(cx.listener(|_this, _event: &ClickEvent, window, cx| {
+                window.dispatch_action(Box::new(crate::OpenSettings), cx);
+            }))
     }
 }
 
 impl Render for MyApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let show_fps = cx.global::<AppState>().config.fps_monitor;
         let main_content = match &self.current_nav {
             CurrentNav::Tab(NavTab::Scanner) => self.scanner_view.clone().into_any_element(),
             CurrentNav::Tab(NavTab::Collections) => self.collection_view.clone().into_any_element(),
@@ -125,7 +134,7 @@ impl Render for MyApp {
                     .size_full()
                     .child(self.render_sidebar(cx))
                     .child(div().h_full().flex_1().min_w_0().child(main_content))
-                    .when(false, |this| this.child(fps_monitor(window, cx))),
+                    .when(show_fps, |this| this.child(fps_monitor(window, cx))),
             )
     }
 }
