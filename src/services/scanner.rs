@@ -1,7 +1,7 @@
 use anyhow::Result;
 use chrono::DateTime;
 use sea_orm::DatabaseConnection;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 use walkdir::WalkDir;
@@ -16,14 +16,13 @@ pub struct BatchReport {
     pub total_found: usize,
     pub newly_imported: usize,
     pub skipped_unchanged: usize,
-    pub marked_missing: usize,
     pub failed: Vec<String>,
 }
 
 impl BatchReport {
     /// Whether this batch caused any repository changes
     pub fn has_changes(&self) -> bool {
-        self.newly_imported > 0 || self.marked_missing > 0
+        self.newly_imported > 0
     }
 
     /// Merge results from another batch report
@@ -31,7 +30,6 @@ impl BatchReport {
         self.total_found += other.total_found;
         self.newly_imported += other.newly_imported;
         self.skipped_unchanged += other.skipped_unchanged;
-        self.marked_missing += other.marked_missing;
         self.failed.extend(other.failed);
     }
 }
@@ -141,13 +139,12 @@ pub async fn scan_task(
     let existing_replicas =
         storage::file::find_replicas_by_prefix(db, device_id, &root_str).await?;
 
-    let mut replica_map: HashMap<String, file_replica::Model> = existing_replicas
+    let replica_map: HashMap<String, file_replica::Model> = existing_replicas
         .into_iter()
         .map(|r| (r.uri.clone(), r))
         .collect();
 
     let mut report = BatchReport::default();
-    let mut observed_uris = HashSet::new();
 
     // Walk directory and check
     for entry in WalkDir::new(&canonical_root)
@@ -174,7 +171,6 @@ pub async fn scan_task(
         let canonical_file = p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
         let path = canonical_file.to_string_lossy().to_string();
         let uri = utils::standardize_path(path);
-        observed_uris.insert(uri.clone());
 
         // check metadata
         let meta = match std::fs::metadata(p) {
@@ -194,7 +190,7 @@ pub async fn scan_task(
             let utime_unchange = existing.utime == current_utime;
             let size_unchange = existing.file_size == Some(current_size);
 
-            if utime_unchange && size_unchange && existing.state == ReplicaState::Local {
+            if utime_unchange && size_unchange && existing.state == ReplicaState::Available {
                 // skip unchanged
                 report.skipped_unchanged += 1;
                 continue;
@@ -207,18 +203,6 @@ pub async fn scan_task(
             .is_ok()
         {
             report.newly_imported += 1;
-        }
-    }
-
-    // compare missing files
-    for (uri, replica) in replica_map.drain() {
-        if !observed_uris.contains(&uri)
-            && replica.state != ReplicaState::Missing
-            && storage::file::mark_replica_missing(db, replica)
-                .await
-                .is_ok()
-        {
-            report.marked_missing += 1;
         }
     }
 

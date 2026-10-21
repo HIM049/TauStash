@@ -27,7 +27,7 @@ pub struct FileMetadata {
     pub utime: Option<DateTime<Utc>>,
 }
 
-fn to_utc(time: std::time::SystemTime) -> Option<DateTime<Utc>> {
+pub fn to_utc(time: std::time::SystemTime) -> Option<DateTime<Utc>> {
     time.duration_since(UNIX_EPOCH)
         .ok()
         .and_then(|d| DateTime::from_timestamp(d.as_secs() as i64, d.subsec_nanos()))
@@ -122,7 +122,7 @@ pub async fn import_file(
                 file_name: &file_name,
                 device_id,
                 uri: &uri,
-                state: ReplicaState::Local,
+                state: ReplicaState::Available,
                 ctime,
                 utime,
                 file_size: Some(size),
@@ -159,7 +159,7 @@ pub async fn import_file(
                 file_name: &file_name,
                 device_id,
                 uri: &uri,
-                state: ReplicaState::Local,
+                state: ReplicaState::Available,
                 ctime,
                 utime,
                 file_size: Some(size),

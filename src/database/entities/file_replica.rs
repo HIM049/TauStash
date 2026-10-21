@@ -3,10 +3,8 @@ use sea_orm::entity::prelude::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::None)")]
 pub enum ReplicaState {
-    #[sea_orm(string_value = "local")]
-    Local,
-    #[sea_orm(string_value = "remote")]
-    Remote,
+    #[sea_orm(string_value = "available")]
+    Available,
     #[sea_orm(string_value = "missing")]
     Missing,
 }
@@ -28,7 +26,6 @@ pub struct Model {
     pub ctime: Option<DateTimeUtc>,
     pub utime: Option<DateTimeUtc>,
     pub file_size: Option<i64>,
-    pub last_verified_at: Option<DateTimeUtc>,
     pub deleted_at: Option<DateTimeUtc>,
 
     #[sea_orm(belongs_to, from = "file_id", to = "id")]

@@ -38,7 +38,7 @@ impl AppState {
         if let Err(e) = self.config.save(config::DEFAULT_CONFIG_PATH) {
             tracing::error!("Failed to save config: {:#}", e);
         }
-        sync_schedule_with_config(&self.schedule, &self.config, &self.db);
+        run_schedule(&self.schedule, &self.config, &self.db);
     }
 
     pub fn open_settings_window(cx: &mut App) {
@@ -78,7 +78,7 @@ impl AppState {
     }
 }
 
-pub fn sync_schedule_with_config(
+pub fn run_schedule(
     schedule: &ScheduleService,
     config: &AppConfig,
     db: &Arc<sea_orm::DatabaseConnection>,
@@ -104,6 +104,7 @@ pub fn sync_schedule_with_config(
             },
         );
         let dbc = db.clone();
+        let device_id = config.device_id.clone();
         schedule.schedule(
             "verify_replicas",
             std::time::Duration::from_secs(30),
@@ -112,11 +113,12 @@ pub fn sync_schedule_with_config(
             )),
             move || {
                 let db = dbc.clone();
+                let device_id = device_id.clone();
                 async move {
-                    services::schedule::verify_active_replicas(&db)
+                    let report = services::schedule::maintain_storage(&db, &device_id)
                         .await
-                        .unwrap_or(0)
-                        > 0
+                        .unwrap_or_default();
+                    report.has_changes()
                 }
             },
         );
@@ -152,7 +154,7 @@ fn main() {
         let _ = file_change_tx.send(());
     }));
 
-    sync_schedule_with_config(&schedule, &config, &db);
+    run_schedule(&schedule, &config, &db);
 
     let app = gpui_kit::application().with_assets(gpui_kit::assets::AllAssets);
     app.run(move |cx| {

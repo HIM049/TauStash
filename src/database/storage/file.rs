@@ -162,7 +162,6 @@ pub async fn upsert_replica(
     db: &DatabaseConnection,
     params: UpsertReplicaParams<'_>,
 ) -> anyhow::Result<file_replica::Model> {
-    let now = Utc::now();
     let path = params.uri.to_string();
     let uri = utils::standardize_path(path);
     let existing = find_replica(db, params.device_id, &uri).await?;
@@ -175,7 +174,6 @@ pub async fn upsert_replica(
         active.ctime = Set(params.ctime);
         active.utime = Set(params.utime);
         active.file_size = Set(params.file_size);
-        active.last_verified_at = Set(Some(now));
         active.deleted_at = Set(None);
         let updated = active.update(db).await?;
         Ok(updated)
@@ -189,7 +187,6 @@ pub async fn upsert_replica(
             ctime: Set(params.ctime),
             utime: Set(params.utime),
             file_size: Set(params.file_size),
-            last_verified_at: Set(Some(now)),
             deleted_at: Set(None),
             ..Default::default()
         };
@@ -226,10 +223,8 @@ pub async fn mark_replica_missing(
     db: &DatabaseConnection,
     replica: file_replica::Model,
 ) -> anyhow::Result<()> {
-    let now = Utc::now();
     let mut active: file_replica::ActiveModel = replica.into();
     active.state = Set(ReplicaState::Missing);
-    active.last_verified_at = Set(Some(now));
     active.update(db).await?;
     Ok(())
 }
