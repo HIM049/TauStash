@@ -13,6 +13,8 @@ pub struct AppConfig {
     pub schedule_enable: bool,
     pub schedule_scan_min: u32,
     pub schedule_maintain_min: u32,
+    pub schedule_cleanup_hours: u32,
+    pub retention_days: u32,
     pub fps_monitor: bool,
 }
 
@@ -24,6 +26,8 @@ impl Default for AppConfig {
             schedule_enable: true,
             schedule_scan_min: 30,
             schedule_maintain_min: 60,
+            schedule_cleanup_hours: 24,
+            retention_days: 30,
             fps_monitor: false,
         }
     }

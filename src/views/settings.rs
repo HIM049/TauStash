@@ -142,6 +142,49 @@ impl Render for SettingsView {
                                             },
                                         ),
                                     ),
+                                    SettingItem::new(
+                                        "回收站保留时间 (天)",
+                                        SettingField::number_input(
+                                            NumberFieldOptions {
+                                                min: 1.0,
+                                                max: 365.0,
+                                                ..Default::default()
+                                            },
+                                            |cx: &App| {
+                                                cx.global::<AppState>().config.retention_days
+                                                    as f64
+                                            },
+                                            |val: f64, cx: &mut App| {
+                                                cx.update_global::<AppState, _>(|state, _| {
+                                                    state.update_config(|cfg| {
+                                                        cfg.retention_days = val.max(1.0) as u32;
+                                                    });
+                                                });
+                                            },
+                                        ),
+                                    ),
+                                    SettingItem::new(
+                                        "超期清扫频次 (小时)",
+                                        SettingField::number_input(
+                                            NumberFieldOptions {
+                                                min: 1.0,
+                                                max: 168.0,
+                                                ..Default::default()
+                                            },
+                                            |cx: &App| {
+                                                cx.global::<AppState>().config.schedule_cleanup_hours
+                                                    as f64
+                                            },
+                                            |val: f64, cx: &mut App| {
+                                                cx.update_global::<AppState, _>(|state, _| {
+                                                    state.update_config(|cfg| {
+                                                        cfg.schedule_cleanup_hours =
+                                                            val.max(1.0) as u32;
+                                                    });
+                                                });
+                                            },
+                                        ),
+                                    ),
                                 ]),
                                 SettingGroup::new().title("调试与性能").items(vec![
                                     SettingItem::new(
