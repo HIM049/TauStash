@@ -2,6 +2,7 @@ pub mod cleanup;
 pub mod maintain;
 pub mod scanner;
 pub mod schedule;
+pub mod state;
 
 use std::sync::Arc;
 
@@ -9,6 +10,7 @@ pub use cleanup::*;
 pub use maintain::*;
 pub use scanner::*;
 pub use schedule::*;
+pub use state::*;
 
 use crate::config::AppConfig;
 
@@ -18,14 +20,21 @@ pub fn run_schedule(
     db: &Arc<sea_orm::DatabaseConnection>,
 ) {
     if config.schedule_enable {
+        let state = ScheduleState::load_default();
+
         let dbc = db.clone();
         let device_id = config.device_id.clone();
+        let scan_interval =
+            std::time::Duration::from_secs(config.schedule_scan_min as u64 * 60);
+        let scan_delay = state.compute_initial_delay(
+            "scan_all_sources",
+            scan_interval,
+            std::time::Duration::from_secs(15),
+        );
         schedule.schedule(
             "scan_all_sources",
-            std::time::Duration::from_secs(15),
-            Some(std::time::Duration::from_secs(
-                config.schedule_scan_min as u64 * 60,
-            )),
+            scan_delay,
+            Some(scan_interval),
             move || {
                 let db = dbc.clone();
                 let device_id = device_id.clone();
@@ -37,14 +46,20 @@ pub fn run_schedule(
                 }
             },
         );
+
         let dbc = db.clone();
         let device_id = config.device_id.clone();
+        let maintain_interval =
+            std::time::Duration::from_secs(config.schedule_maintain_min as u64 * 60);
+        let maintain_delay = state.compute_initial_delay(
+            "verify_replicas",
+            maintain_interval,
+            std::time::Duration::from_secs(30),
+        );
         schedule.schedule(
             "verify_replicas",
-            std::time::Duration::from_secs(30),
-            Some(std::time::Duration::from_secs(
-                config.schedule_maintain_min as u64 * 60,
-            )),
+            maintain_delay,
+            Some(maintain_interval),
             move || {
                 let db = dbc.clone();
                 let device_id = device_id.clone();
@@ -56,15 +71,21 @@ pub fn run_schedule(
                 }
             },
         );
+
         let dbc = db.clone();
         let device_id = config.device_id.clone();
         let retention_days = config.retention_days;
+        let cleanup_interval =
+            std::time::Duration::from_secs(config.schedule_cleanup_hours as u64 * 3600);
+        let cleanup_delay = state.compute_initial_delay(
+            "cleanup_expired_replicas",
+            cleanup_interval,
+            std::time::Duration::from_secs(60),
+        );
         schedule.schedule(
             "cleanup_expired_replicas",
-            std::time::Duration::from_secs(60),
-            Some(std::time::Duration::from_secs(
-                config.schedule_cleanup_hours as u64 * 3600,
-            )),
+            cleanup_delay,
+            Some(cleanup_interval),
             move || {
                 let db = dbc.clone();
                 let device_id = device_id.clone();

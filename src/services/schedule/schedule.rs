@@ -35,7 +35,7 @@ impl Eq for ScheduledTask {}
 
 impl Ord for ScheduledTask {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other.next_run.cmp(&self.next_run)
+        self.next_run.cmp(&other.next_run)
     }
 }
 
@@ -48,25 +48,35 @@ impl PartialOrd for ScheduledTask {
 pub struct ScheduleService {
     worker_handle: Option<JoinHandle<()>>,
     queue: Arc<std::sync::Mutex<BinaryHeap<Reverse<ScheduledTask>>>>,
+    cancelled_ids: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     notify: Arc<Notify>,
 }
 
 impl ScheduleService {
     pub fn new(on_file_changed: impl Fn() + Send + Sync + 'static) -> Self {
         let queue = Arc::new(std::sync::Mutex::new(BinaryHeap::new()));
+        let cancelled_ids = Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()));
         let notify = Arc::new(Notify::new());
 
         let queue_clone = Arc::clone(&queue);
+        let cancelled_ids_clone = Arc::clone(&cancelled_ids);
         let notify_clone = Arc::clone(&notify);
         let on_file_changed = Arc::new(on_file_changed);
 
         let worker_handle = tokio::spawn(async move {
-            Self::worker_loop(queue_clone, notify_clone, on_file_changed).await;
+            Self::worker_loop(
+                queue_clone,
+                cancelled_ids_clone,
+                notify_clone,
+                on_file_changed,
+            )
+            .await;
         });
 
         Self {
             worker_handle: Some(worker_handle),
             queue,
+            cancelled_ids,
             notify,
         }
     }
@@ -82,6 +92,7 @@ impl ScheduleService {
         Fut: Future<Output = bool> + Send + 'static,
     {
         let id = id.into();
+        self.cancelled_ids.lock().unwrap().remove(&id);
         let action: TaskAction = Arc::new(move || Box::pin(action()));
         let task = ScheduledTask {
             id,
@@ -101,6 +112,7 @@ impl ScheduleService {
     }
 
     pub fn trigger_now(&self, id: &str) {
+        self.cancelled_ids.lock().unwrap().remove(id);
         let mut q = self.queue.lock().unwrap();
         let mut updated = Vec::new();
         for Reverse(mut task) in q.drain() {
@@ -117,6 +129,7 @@ impl ScheduleService {
     }
 
     pub fn cancel(&self, id: &str) {
+        self.cancelled_ids.lock().unwrap().insert(id.to_string());
         let mut q = self.queue.lock().unwrap();
         let remaining: Vec<_> = q.drain().filter(|Reverse(t)| t.id != id).collect();
         for item in remaining {
@@ -145,6 +158,7 @@ impl ScheduleService {
 
     async fn worker_loop(
         queue: Arc<std::sync::Mutex<BinaryHeap<Reverse<ScheduledTask>>>>,
+        cancelled_ids: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
         notify: Arc<Notify>,
         on_file_changed: Arc<dyn Fn() + Send + Sync + 'static>,
     ) {
@@ -189,11 +203,16 @@ impl ScheduleService {
             tracing::debug!("Running scheduled task: {}", task.id);
             let has_changes = (task.action)().await;
 
+            // Record execution timestamp
+            let mut state = super::state::ScheduleState::load_default();
+            state.record_run_default(&task.id);
+
             if has_changes {
                 on_file_changed();
             }
 
-            if let Some(interval) = task.interval {
+            let is_cancelled = cancelled_ids.lock().unwrap().remove(&task.id);
+            if !is_cancelled && let Some(interval) = task.interval {
                 task.next_run = Instant::now() + interval;
                 let mut q = queue.lock().unwrap();
                 q.push(Reverse(task));
