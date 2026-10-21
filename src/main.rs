@@ -3,7 +3,6 @@ pub mod services;
 
 use gpui_kit::component::*;
 use gpui_kit::*;
-use services::schedule::ScheduleService;
 use services::store::{CollectionStore, FileStore, TagStore, ViewStore};
 use std::sync::Arc;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*, registry};
@@ -14,7 +13,7 @@ mod config;
 mod views;
 use app::MyApp;
 
-use crate::config::AppConfig;
+use crate::{config::AppConfig, services::ScheduleService};
 
 actions!([OpenSettings]);
 

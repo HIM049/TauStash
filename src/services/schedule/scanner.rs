@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 use walkdir::WalkDir;
 
-use super::importer;
 use crate::database::entities::{FileState, ReplicaState, file_replica, scan_source};
 use crate::database::{storage, utils};
+use crate::services::importer;
 use crate::services::macrotag::MacroTag;
 
 #[derive(Debug, Clone, Default)]
