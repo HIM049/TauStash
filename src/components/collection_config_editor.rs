@@ -29,6 +29,7 @@ pub enum ConfigEditorEvent {
     DraftChanged,
     CancelRequested,
     SaveRequested,
+    DeleteRequested,
 }
 
 pub struct CollectionConfigEditor {
@@ -38,6 +39,7 @@ pub struct CollectionConfigEditor {
     collection_type: CollectionType,
     tag_search_results: Vec<MacroTag>,
     tag_store: Option<Entity<TagStore>>,
+    confirm_delete: bool,
 }
 
 impl EventEmitter<ConfigEditorEvent> for CollectionConfigEditor {}
@@ -57,8 +59,7 @@ impl CollectionConfigEditor {
             state
         });
 
-        let tag_search_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("搜索全库标签添加至基准规则..."));
+        let tag_search_input = cx.new(|cx| InputState::new(window, cx).placeholder("搜索标签"));
 
         cx.subscribe(
             &tag_search_input,
@@ -78,6 +79,7 @@ impl CollectionConfigEditor {
             collection_type,
             tag_search_results: Vec::new(),
             tag_store: None,
+            confirm_delete: false,
         };
 
         editor.load_search_tags("", cx);
@@ -413,92 +415,201 @@ impl Render for CollectionConfigEditor {
                 div()
                     .px_6()
                     .v_flex()
-                    .gap_2()
+                    .gap_3()
                     .child(
                         div()
-                            .h_flex()
+                            .grid()
+                            .grid_cols(2)
+                            .gap_x_8()
+                            .gap_y_3()
                             .items_center()
-                            .gap_3()
                             .child(
                                 div()
-                                    .text_sm()
-                                    .font_medium()
-                                    .text_color(theme.foreground)
-                                    .child("名称:"),
+                                    .h_flex()
+                                    .items_center()
+                                    .gap_3()
+                                    .child(
+                                        div()
+                                            .w(px(72.0))
+                                            .text_sm()
+                                            .font_medium()
+                                            .text_color(theme.foreground)
+                                            .child("名称:"),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .child(Input::new(&self.name_input).small()),
+                                    ),
                             )
                             .child(
                                 div()
-                                    .w(px(240.0))
-                                    .child(Input::new(&self.name_input).small()),
+                                    .h_flex()
+                                    .items_center()
+                                    .gap_3()
+                                    .child(
+                                        div()
+                                            .w(px(96.0))
+                                            .text_sm()
+                                            .font_medium()
+                                            .text_color(theme.foreground)
+                                            .child("侧边视图:"),
+                                    )
+                                    .child(
+                                        Switch::new("cfg-collection-type-switch")
+                                            .small()
+                                            .checked(self.collection_type == CollectionType::View)
+                                            .on_click(cx.listener(
+                                                |this, checked: &bool, _window, cx| {
+                                                    this.collection_type = if *checked {
+                                                        CollectionType::View
+                                                    } else {
+                                                        CollectionType::Folder
+                                                    };
+                                                    cx.emit(ConfigEditorEvent::DraftChanged);
+                                                    cx.notify();
+                                                },
+                                            )),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .h_flex()
+                                    .items_center()
+                                    .gap_3()
+                                    .child(
+                                        div()
+                                            .w(px(72.0))
+                                            .text_sm()
+                                            .font_medium()
+                                            .text_color(theme.foreground)
+                                            .child("视图:"),
+                                    )
+                                    .child(
+                                        div()
+                                            .h_flex()
+                                            .items_center()
+                                            .gap_1()
+                                            .child(
+                                                Button::new("cfg-view-grid")
+                                                    .icon(IconName::LayoutGrid)
+                                                    .small()
+                                                    .label("网格")
+                                                    .when(
+                                                        self.draft_config.view == ViewOption::Grid,
+                                                        |b| b.secondary(),
+                                                    )
+                                                    .when(
+                                                        self.draft_config.view != ViewOption::Grid,
+                                                        |b| b.ghost(),
+                                                    )
+                                                    .on_click(cx.listener(
+                                                        |this, _, _window, cx| {
+                                                            this.draft_config.view =
+                                                                ViewOption::Grid;
+                                                            cx.emit(
+                                                                ConfigEditorEvent::DraftChanged,
+                                                            );
+                                                            cx.notify();
+                                                        },
+                                                    )),
+                                            )
+                                            .child(
+                                                Button::new("cfg-view-list")
+                                                    .icon(IconName::List)
+                                                    .small()
+                                                    .label("列表")
+                                                    .when(
+                                                        self.draft_config.view == ViewOption::List,
+                                                        |b| b.secondary(),
+                                                    )
+                                                    .when(
+                                                        self.draft_config.view != ViewOption::List,
+                                                        |b| b.ghost(),
+                                                    )
+                                                    .on_click(cx.listener(
+                                                        |this, _, _window, cx| {
+                                                            this.draft_config.view =
+                                                                ViewOption::List;
+                                                            cx.emit(
+                                                                ConfigEditorEvent::DraftChanged,
+                                                            );
+                                                            cx.notify();
+                                                        },
+                                                    )),
+                                            ),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .h_flex()
+                                    .items_center()
+                                    .gap_3()
+                                    .child(
+                                        div()
+                                            .w(px(96.0))
+                                            .text_sm()
+                                            .font_medium()
+                                            .text_color(theme.foreground)
+                                            .when_else(
+                                                self.confirm_delete,
+                                                |this| this.child("确认删除:"),
+                                                |this| this.child("操作:"),
+                                            ), // .child("操作:"),
+                                    )
+                                    .child(if !self.confirm_delete {
+                                        Button::new("btn-delete-collection")
+                                            .small()
+                                            .icon(IconName::Trash)
+                                            .label("删除合集")
+                                            .on_click(cx.listener(|this, _, _window, cx| {
+                                                this.confirm_delete = true;
+                                                cx.notify();
+                                            }))
+                                            .into_any_element()
+                                    } else {
+                                        div()
+                                            .h_flex()
+                                            .items_center()
+                                            .gap_2()
+                                            .child(
+                                                Button::new("btn-confirm-delete")
+                                                    .danger()
+                                                    .small()
+                                                    .icon(IconName::Check)
+                                                    .label("确认")
+                                                    .on_click(cx.listener(
+                                                        |this, _, _window, cx| {
+                                                            this.confirm_delete = false;
+                                                            cx.emit(
+                                                                ConfigEditorEvent::DeleteRequested,
+                                                            );
+                                                        },
+                                                    )),
+                                            )
+                                            .child(
+                                                Button::new("btn-cancel-delete")
+                                                    .ghost()
+                                                    .small()
+                                                    .icon(IconName::Close)
+                                                    .on_click(cx.listener(
+                                                        |this, _, _window, cx| {
+                                                            this.confirm_delete = false;
+                                                            cx.notify();
+                                                        },
+                                                    )),
+                                            )
+                                            .into_any_element()
+                                    }),
                             ),
                     )
                     .child(
                         div()
-                            .h_flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_medium()
-                                    .text_color(theme.foreground)
-                                    .child("默认视图:"),
-                            )
-                            .child(
-                                Button::new("cfg-view-grid")
-                                    .icon(IconName::LayoutGrid)
-                                    .small()
-                                    .when(self.draft_config.view == ViewOption::Grid, |b| {
-                                        b.secondary()
-                                    })
-                                    .when(self.draft_config.view != ViewOption::Grid, |b| b.ghost())
-                                    .on_click(cx.listener(|this, _, _window, cx| {
-                                        this.draft_config.view = ViewOption::Grid;
-                                        cx.emit(ConfigEditorEvent::DraftChanged);
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(
-                                Button::new("cfg-view-list")
-                                    .icon(IconName::List)
-                                    .small()
-                                    .when(self.draft_config.view == ViewOption::List, |b| {
-                                        b.secondary()
-                                    })
-                                    .when(self.draft_config.view != ViewOption::List, |b| b.ghost())
-                                    .on_click(cx.listener(|this, _, _window, cx| {
-                                        this.draft_config.view = ViewOption::List;
-                                        cx.emit(ConfigEditorEvent::DraftChanged);
-                                        cx.notify();
-                                    })),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .h_flex()
-                            .items_center()
-                            .gap_3()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_medium()
-                                    .text_color(theme.foreground)
-                                    .child("显示在侧边栏:"),
-                            )
-                            .child(
-                                Switch::new("cfg-collection-type-switch")
-                                    .small()
-                                    .checked(self.collection_type == CollectionType::View)
-                                    .on_click(cx.listener(|this, checked: &bool, _window, cx| {
-                                        this.collection_type = if *checked {
-                                            CollectionType::View
-                                        } else {
-                                            CollectionType::Folder
-                                        };
-                                        cx.emit(ConfigEditorEvent::DraftChanged);
-                                        cx.notify();
-                                    })),
-                            ),
+                            .w_full()
+                            .h(px(1.))
+                            .my_1()
+                            .bg(theme.border.opacity(0.4)),
                     )
                     .child(
                         div()
@@ -520,7 +631,7 @@ impl Render for CollectionConfigEditor {
                                     )
                                     .child(
                                         div()
-                                            .w(px(280.0))
+                                            .w(px(320.0))
                                             .on_action(cx.listener(Self::on_search_action))
                                             .child(
                                                 Input::new(&self.tag_search_input)
@@ -536,7 +647,7 @@ impl Render for CollectionConfigEditor {
                                         .ghost()
                                         .small()
                                         .icon(IconName::Plus)
-                                        .label(format!("新建并添加 \"{}\"", q))
+                                        .label(&q)
                                         .on_click(cx.listener(move |this, _, window, cx| {
                                             this.create_and_add_tag(&q, window, cx);
                                         })),
@@ -551,13 +662,23 @@ impl Render for CollectionConfigEditor {
                             .items_center()
                             .gap_2()
                             .w_full()
-                            .min_h(px(28.0))
-                            .max_h(px(200.0))
+                            .min_h(px(32.0))
+                            .max_h(px(140.0))
                             .overflow_y_scroll()
+                            .p_2()
+                            .bg(theme.muted.opacity(0.3))
                             .children(selected_chips)
-                            .child(div().w(px(1.)).h_5().mx_0p5().bg(theme.border.darken(0.2)))
+                            .when(has_selected && (has_macro || has_standard), |this| {
+                                this.child(
+                                    div().w(px(1.)).h_5().mx_0p5().bg(theme.border.darken(0.2)),
+                                )
+                            })
                             .children(unselected_macro_chips)
-                            .child(div().w(px(1.)).h_5().mx_0p5().bg(theme.border.darken(0.2)))
+                            .when(has_macro && has_standard, |this| {
+                                this.child(
+                                    div().w(px(1.)).h_5().mx_0p5().bg(theme.border.darken(0.2)),
+                                )
+                            })
                             .children(unselected_standard_chips),
                     ),
             )

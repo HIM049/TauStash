@@ -109,6 +109,21 @@ impl MyApp {
 impl Render for MyApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let show_fps = cx.global::<AppState>().config.fps_monitor;
+
+        if let CurrentNav::View(id) = self.current_nav {
+            let views = cx.global::<AppState>().views.read(cx).views.as_slice();
+            if !views.iter().any(|v| v.id == id) {
+                if let Some(first) = views.first().cloned() {
+                    self.current_nav = CurrentNav::View(first.id);
+                    self.current_view =
+                        Some(cx.new(|cx| GenericView::from_collection(&first, window, cx)));
+                } else {
+                    self.current_nav = CurrentNav::Tab(NavTab::Collections);
+                    self.current_view = None;
+                }
+            }
+        }
+
         let main_content = match &self.current_nav {
             CurrentNav::Tab(NavTab::Scanner) => self.scanner_view.clone().into_any_element(),
             CurrentNav::Tab(NavTab::Collections) => self.collection_view.clone().into_any_element(),

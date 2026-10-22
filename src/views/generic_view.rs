@@ -416,12 +416,54 @@ impl GenericView {
                     let collection_type = editor.read(cx).current_type();
                     this.apply_config(&name, &config, collection_type, None, cx);
                 }
+                ConfigEditorEvent::DeleteRequested => {
+                    this.delete_current_collection(cx);
+                }
             },
         )
         .detach();
 
         self.bar_mode = BarMode::Configuring(editor);
         cx.notify();
+    }
+
+    pub fn delete_current_collection(&mut self, cx: &mut Context<Self>) {
+        let Some(id) = self.collection_id else {
+            self.bar_mode = BarMode::Normal;
+            cx.notify();
+            return;
+        };
+
+        let views = cx.global::<AppState>().views.clone();
+        let collections = cx.global::<AppState>().collections.clone();
+
+        views.update(cx, |v, cx| {
+            v.delete_view(id, cx);
+        });
+        collections.update(cx, |c, cx| {
+            c.delete_collections(&[id], cx);
+        });
+
+        self.bar_mode = BarMode::Normal;
+        self.preview_filter_tags = None;
+        cx.notify();
+
+        let is_view = self.collection_type == CollectionType::View;
+        let msg = if is_view {
+            "已删除视图"
+        } else {
+            "已删除合集"
+        };
+        let on_back = self.on_back.clone();
+        if let Some(handle) = cx.windows().first().copied() {
+            cx.update_window(handle, move |_view, window, cx| {
+                window.push_notification(Notification::new().message(msg), cx);
+                if let Some(on_back) = on_back {
+                    on_back(window, cx);
+                }
+            })
+            .ok();
+        }
     }
 
     pub fn apply_config(

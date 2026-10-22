@@ -103,4 +103,17 @@ impl ViewStore {
         })
         .detach();
     }
+
+    pub fn delete_view(&mut self, id: Uuid, cx: &mut Context<Self>) {
+        self.views.retain(|v| v.id != id);
+        cx.notify();
+
+        let db = cx.global::<AppState>().db.clone();
+        let rt = cx.global::<AppState>().rt.clone();
+
+        cx.spawn(async move |_this, _cx| {
+            let _ = rt.block_on(collection_store::delete(&db, &[id]));
+        })
+        .detach();
+    }
 }
