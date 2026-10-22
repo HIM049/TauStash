@@ -120,13 +120,13 @@ impl RenderOnce for ViewScaffold {
                     .v_flex()
                     .gap_2()
                     .w_full()
-                    .pt_4()
-                    .px_6()
                     .child(
                         div()
                             .id((self.id.clone(), "header"))
                             .h_flex()
                             .w_full()
+                            .pt_6()
+                            .px_6()
                             .justify_between()
                             .items_center()
                             .child(

@@ -7,10 +7,20 @@ use gpui_kit::*;
 
 use crate::AppState;
 use crate::components::tag_chip::{TagChip, TagChipState};
-use crate::database::entities::TagNamespace;
+use crate::database::entities::{FileState, TagNamespace};
 use crate::services::collection::{CollectionConfig, ViewOption};
 use crate::services::macrotag::MacroTag;
 use crate::services::store::TagStore;
+
+fn preset_macro_tags() -> Vec<MacroTag> {
+    vec![
+        MacroTag::State(FileState::Pending),
+        MacroTag::State(FileState::Managed),
+        MacroTag::State(FileState::Ignored),
+        MacroTag::State(FileState::Deleted),
+        MacroTag::Untagged,
+    ]
+}
 
 #[derive(Clone, Debug)]
 pub enum ConfigEditorEvent {
@@ -69,6 +79,51 @@ impl CollectionConfigEditor {
         editor
     }
 
+    pub fn on_search_action(
+        this: &mut CollectionConfigEditor,
+        _: &Enter,
+        window: &mut Window,
+        cx: &mut Context<CollectionConfigEditor>,
+    ) {
+        cx.stop_propagation();
+        let q = this.tag_search_input.read(cx).value().trim().to_string();
+        if q.is_empty() {
+            return;
+        }
+        // match macro tag
+        let matching_macro = preset_macro_tags().into_iter().find(|t| {
+            !this.draft_config.filters.contains(t)
+                && t.display_name().to_lowercase().contains(&q.to_lowercase())
+        });
+        if let Some(macro_tag) = matching_macro {
+            this.add_filter(macro_tag, cx);
+            this.tag_search_input.update(cx, |inp, cx| {
+                inp.set_value("", window, cx);
+            });
+            this.load_search_tags("", cx);
+            return;
+        }
+
+        // match standard tag
+        let matching_standard = this
+            .tag_search_results
+            .iter()
+            .find(|t| {
+                !this.draft_config.filters.contains(t)
+                    && t.display_name().to_lowercase().contains(&q.to_lowercase())
+            })
+            .cloned();
+        if let Some(tag) = matching_standard {
+            this.add_filter(tag, cx);
+            this.tag_search_input.update(cx, |inp, cx| {
+                inp.set_value("", window, cx);
+            });
+            this.load_search_tags("", cx);
+        } else {
+            this.create_and_add_tag(&q, window, cx);
+        }
+    }
+
     pub fn current_name(&self, cx: &App) -> String {
         self.name_input.read(cx).value().trim().to_string()
     }
@@ -124,6 +179,9 @@ impl CollectionConfigEditor {
     }
 
     pub fn add_filter(&mut self, tag: MacroTag, cx: &mut Context<Self>) {
+        if tag.is_exclusive() {
+            self.draft_config.filters.retain(|t| !t.is_exclusive());
+        }
         if !self.draft_config.filters.iter().any(|t| t == &tag) {
             self.draft_config.filters.push(tag);
             cx.emit(ConfigEditorEvent::DraftChanged);
@@ -196,15 +254,24 @@ impl CollectionConfigEditor {
 impl Render for CollectionConfigEditor {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
-        let has_filters = !self.draft_config.filters.is_empty();
         let search_query = self.tag_search_input.read(cx).value().trim().to_string();
 
         let is_query_in_results = self
             .tag_search_results
             .iter()
             .any(|t| t.display_name().eq_ignore_ascii_case(&search_query));
-
-        let can_create_new = !search_query.is_empty() && !is_query_in_results;
+        let is_query_in_macro = preset_macro_tags()
+            .iter()
+            .any(|t| t.display_name().eq_ignore_ascii_case(&search_query));
+        let is_query_in_filters = self
+            .draft_config
+            .filters
+            .iter()
+            .any(|t| t.display_name().eq_ignore_ascii_case(&search_query));
+        let can_create_new = !search_query.is_empty()
+            && !is_query_in_results
+            && !is_query_in_macro
+            && !is_query_in_filters;
 
         let btn_variant = ButtonCustomVariant::new(cx)
             .color(cx.theme().transparent)
@@ -212,11 +279,106 @@ impl Render for CollectionConfigEditor {
             .hover(cx.theme().muted.darken(0.05))
             .active(cx.theme().muted.darken(0.10));
 
+        // SELECTED tags
+        let selected_chips: Vec<_> = self
+            .draft_config
+            .filters
+            .iter()
+            .enumerate()
+            .map(|(idx, tag)| {
+                let tag_clone = tag.clone();
+                TagChip::new(("selected-chip", idx), tag.display_name())
+                    .small()
+                    .state(TagChipState::Active)
+                    .trailing_icon(
+                        Icon::new(IconName::Close)
+                            .size_3()
+                            .text_color(theme.primary_foreground.opacity(0.85)),
+                    )
+                    .on_click(cx.listener(move |this, _, _window, cx| {
+                        this.remove_filter(&tag_clone, cx);
+                    }))
+            })
+            .collect();
+
+        // UNSELECTED tags
+        let unselected_standard_tags: Vec<MacroTag> = self
+            .tag_search_results
+            .iter()
+            .filter(|t| !self.draft_config.filters.contains(t))
+            .filter(|t| {
+                if search_query.is_empty() {
+                    true
+                } else {
+                    t.display_name()
+                        .to_lowercase()
+                        .contains(&search_query.to_lowercase())
+                }
+            })
+            .cloned()
+            .collect();
+
+        // UNSELECTED macro tags
+        let unselected_macro_tags: Vec<MacroTag> = preset_macro_tags()
+            .into_iter()
+            .filter(|t| !self.draft_config.filters.contains(t))
+            .filter(|t| {
+                if search_query.is_empty() {
+                    true
+                } else {
+                    t.display_name()
+                        .to_lowercase()
+                        .contains(&search_query.to_lowercase())
+                }
+            })
+            .collect();
+
+        let unselected_macro_chips: Vec<_> = unselected_macro_tags
+            .iter()
+            .enumerate()
+            .map(|(idx, tag)| {
+                let tag_clone = tag.clone();
+                TagChip::new(("unselected-macro", idx), tag.display_name())
+                    .small()
+                    .state(TagChipState::Default)
+                    .icon(
+                        Icon::new(IconName::Plus)
+                            .size_3()
+                            .text_color(theme.muted_foreground),
+                    )
+                    .on_click(cx.listener(move |this, _, _window, cx| {
+                        this.add_filter(tag_clone.clone(), cx);
+                    }))
+            })
+            .collect();
+
+        let unselected_standard_chips: Vec<_> = unselected_standard_tags
+            .iter()
+            .enumerate()
+            .map(|(idx, tag)| {
+                let tag_clone = tag.clone();
+                TagChip::new(("unselected-standard", idx), tag.display_name())
+                    .small()
+                    .state(TagChipState::Default)
+                    .icon(
+                        Icon::new(IconName::Plus)
+                            .size_3()
+                            .text_color(theme.muted_foreground),
+                    )
+                    .on_click(cx.listener(move |this, _, _window, cx| {
+                        this.add_filter(tag_clone.clone(), cx);
+                    }))
+            })
+            .collect();
+
+        let has_selected = !selected_chips.is_empty();
+        let has_macro = !unselected_macro_chips.is_empty();
+        let has_standard = !unselected_standard_chips.is_empty();
+
         div()
             .id("collection-config-editor")
             .v_flex()
             .gap_2()
-            // .px_6()
             .py_3()
             .on_action(cx.listener(|_this, _: &Escape, _window, cx| {
                 cx.stop_propagation();
@@ -303,50 +465,11 @@ impl Render for CollectionConfigEditor {
                             ),
                     )
                     .child(
-                        div().h_flex().items_center().gap_2().child(
-                            div()
-                                .text_sm()
-                                .font_medium()
-                                .text_color(theme.foreground)
-                                .child("基准过滤规则:"),
-                        ),
-                    )
-                    .child(
                         div()
                             .h_flex()
-                            .flex_wrap()
                             .items_center()
-                            .gap_2()
-                            .min_h(px(28.0))
-                            .when(!has_filters, |this| {
-                                this.child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(theme.muted_foreground)
-                                        .child("暂无规则"),
-                                )
-                            })
-                            .children(self.draft_config.filters.iter().enumerate().map(
-                                |(idx, tag)| {
-                                    let tag_clone = tag.clone();
-                                    TagChip::new(("base-filter", idx), tag.display_name())
-                                        .small()
-                                        .state(TagChipState::Active)
-                                        .trailing_icon(
-                                            Icon::new(IconName::Close)
-                                                .size_3()
-                                                .text_color(theme.primary_foreground.opacity(0.85)),
-                                        )
-                                        .on_click(cx.listener(move |this, _, _window, cx| {
-                                            this.remove_filter(&tag_clone, cx);
-                                        }))
-                                },
-                            )),
-                    )
-                    .child(
-                        div()
-                            .v_flex()
-                            .gap_2p5()
+                            .justify_between()
+                            .gap_3()
                             .child(
                                 div()
                                     .h_flex()
@@ -357,114 +480,49 @@ impl Render for CollectionConfigEditor {
                                             .text_sm()
                                             .font_medium()
                                             .text_color(theme.foreground)
-                                            .child("添加标签至规则:"),
+                                            .child("视图过滤规则:"),
                                     )
                                     .child(
                                         div()
                                             .w(px(280.0))
-                                            .on_action(cx.listener(
-                                                |this, _: &Enter, window, cx| {
-                                                    cx.stop_propagation();
-                                                    let q = this
-                                                        .tag_search_input
-                                                        .read(cx)
-                                                        .value()
-                                                        .trim()
-                                                        .to_string();
-                                                    if !q.is_empty() {
-                                                        if let Some(first_tag) =
-                                                            this.tag_search_results.first().cloned()
-                                                        {
-                                                            this.add_filter(first_tag, cx);
-                                                            this.tag_search_input.update(
-                                                                cx,
-                                                                |inp, cx| {
-                                                                    inp.set_value("", window, cx);
-                                                                },
-                                                            );
-                                                            this.load_search_tags("", cx);
-                                                        } else {
-                                                            this.create_and_add_tag(&q, window, cx);
-                                                        }
-                                                    }
-                                                },
-                                            ))
+                                            .on_action(cx.listener(Self::on_search_action))
                                             .child(
                                                 Input::new(&self.tag_search_input)
                                                     .small()
                                                     .cleanable(true),
                                             ),
-                                    )
-                                    .when(can_create_new, |this| {
-                                        let q = search_query.clone();
-                                        this.child(
-                                            Button::new("create-new-tag")
-                                                .ghost()
-                                                .small()
-                                                .icon(IconName::Plus)
-                                                .label(format!("新建并添加 \"{}\"", q))
-                                                .on_click(cx.listener(
-                                                    move |this, _, window, cx| {
-                                                        this.create_and_add_tag(&q, window, cx);
-                                                    },
-                                                )),
-                                        )
-                                    }),
+                                    ),
                             )
-                            // 下方可选标签使用 TagChip 样式展示
-                            .child(
-                                div()
-                                    .h_flex()
-                                    .flex_wrap()
-                                    .items_center()
-                                    .gap_2()
-                                    .when(self.tag_search_results.is_empty(), |this| {
-                                        this.child(
-                                            div()
-                                                .text_xs()
-                                                .text_color(theme.muted_foreground)
-                                                .child("未找到相关标签"),
-                                        )
-                                    })
-                                    .children(self.tag_search_results.iter().enumerate().map(
-                                        |(idx, tag)| {
-                                            let is_added =
-                                                self.draft_config.filters.iter().any(|t| t == tag);
-                                            let tag_clone = tag.clone();
-
-                                            if is_added {
-                                                TagChip::new(
-                                                    ("candidate-chip", idx),
-                                                    tag.display_name(),
-                                                )
-                                                .small()
-                                                .state(TagChipState::Selected)
-                                                .on_click(cx.listener(
-                                                    move |this, _, _window, cx| {
-                                                        this.remove_filter(&tag_clone, cx);
-                                                    },
-                                                ))
-                                            } else {
-                                                TagChip::new(
-                                                    ("candidate-chip", idx),
-                                                    tag.display_name(),
-                                                )
-                                                .small()
-                                                .state(TagChipState::Default)
-                                                .icon(
-                                                    Icon::new(IconName::Plus)
-                                                        .size_3()
-                                                        .text_color(theme.muted_foreground),
-                                                )
-                                                .on_click(cx.listener(
-                                                    move |this, _, _window, cx| {
-                                                        this.add_filter(tag_clone.clone(), cx);
-                                                    },
-                                                ))
-                                            }
-                                        },
-                                    )),
-                            ),
+                            .when(can_create_new, |this| {
+                                let q = search_query.clone();
+                                this.child(
+                                    Button::new("create-new-tag")
+                                        .ghost()
+                                        .small()
+                                        .icon(IconName::Plus)
+                                        .label(format!("新建并添加 \"{}\"", q))
+                                        .on_click(cx.listener(move |this, _, window, cx| {
+                                            this.create_and_add_tag(&q, window, cx);
+                                        })),
+                                )
+                            }),
+                    )
+                    .child(
+                        div()
+                            .id("tag-cloud-container")
+                            .h_flex()
+                            .flex_wrap()
+                            .items_center()
+                            .gap_2()
+                            .w_full()
+                            .min_h(px(28.0))
+                            .max_h(px(200.0))
+                            .overflow_y_scroll()
+                            .children(selected_chips)
+                            .child(div().w(px(1.)).h_5().mx_0p5().bg(theme.border.darken(0.2)))
+                            .children(unselected_macro_chips)
+                            .child(div().w(px(1.)).h_5().mx_0p5().bg(theme.border.darken(0.2)))
+                            .children(unselected_standard_chips),
                     ),
             )
     }

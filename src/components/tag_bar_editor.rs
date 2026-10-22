@@ -369,6 +369,7 @@ impl Render for TagBatchEditor {
             .items_center()
             .justify_between()
             .w_full()
+            .pl_6()
             .py_1()
             .when(self.padding_x, |this| this.px_6())
             .gap_2()

@@ -217,6 +217,7 @@ impl TagFilterBar {
             .w_full()
             .min_h(px(34.0))
             .overflow_x_scroll()
+            .pl_6()
             .py_1()
             .when(self.padding_x, |this| this.px_6())
             .children(chips)
