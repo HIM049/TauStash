@@ -36,15 +36,8 @@ impl CollectionExplorerView {
         let focus_handle = cx.focus_handle();
 
         let collections_entity = cx.global::<AppState>().collections.clone();
-        cx.observe(&collections_entity, |this, store, cx| {
-            this.folders = store.read(cx).collections.clone();
-            this.editing_id = None;
-            if let Some(cursor) = this.cursor_id {
-                if !this.folders.iter().any(|f| f.id == cursor) {
-                    this.cursor_id = None;
-                }
-            }
-            cx.notify();
+        cx.observe(&collections_entity, |this, _store, cx| {
+            this.reload(cx);
         })
         .detach();
 
@@ -72,6 +65,13 @@ impl CollectionExplorerView {
         if let Some(cursor) = self.cursor_id {
             if !self.folders.iter().any(|f| f.id == cursor) {
                 self.cursor_id = None;
+            }
+        }
+        if let Some(active_view) = &self.active_folder_view {
+            if let Some(open_id) = active_view.read(cx).collection_id() {
+                if !self.folders.iter().any(|f| f.id == open_id) {
+                    self.active_folder_view = None;
+                }
             }
         }
         cx.notify();

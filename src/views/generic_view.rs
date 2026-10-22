@@ -16,7 +16,8 @@ use crate::components::file_content_view::{FileContentEvent, FilePoolView};
 use crate::components::tag_bar_editor::TagBatchEditor;
 use crate::components::tag_bar_filter::{TagFilterBar, TagFilterEvent};
 use crate::components::view_scaffold::ViewScaffold;
-use crate::database::entities::collection;
+use crate::database::entities::collection::{self, CollectionType};
+use crate::database::storage::collection as collection_store;
 use crate::services::collection::{CollectionConfig, ViewOption};
 use crate::services::file;
 use crate::services::importer;
@@ -33,6 +34,7 @@ pub enum BarMode {
 
 pub struct GenericView {
     collection_id: Option<Uuid>,
+    collection_type: CollectionType,
     config: CollectionConfig,
     title: SharedString,
     icon: Option<SharedString>,
@@ -126,6 +128,7 @@ impl GenericView {
 
         let mut view = Self {
             collection_id: None,
+            collection_type: CollectionType::View,
             config: config.clone(),
             title: title.into(),
             icon: None,
@@ -164,7 +167,12 @@ impl GenericView {
         let mut view = Self::new(model.name.clone(), config, window, cx);
         view.icon = icon;
         view.collection_id = Some(model.id);
+        view.collection_type = model.typ;
         view
+    }
+
+    pub fn collection_id(&self) -> Option<Uuid> {
+        self.collection_id
     }
 
     pub fn on_back(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
@@ -318,7 +326,7 @@ impl GenericView {
                 }
                 cx.notify();
             })
-            .unwrap();
+            .ok();
         })
         .detach();
     }
@@ -379,9 +387,16 @@ impl GenericView {
         self.clear_selection(cx);
 
         let tag_store = cx.global::<AppState>().tags.clone();
+        let collection_type = self.collection_type;
         let editor = cx.new(|cx| {
-            CollectionConfigEditor::new(self.title.to_string(), self.config.clone(), window, cx)
-                .tag_store(tag_store, cx)
+            CollectionConfigEditor::new(
+                self.title.to_string(),
+                self.config.clone(),
+                collection_type,
+                window,
+                cx,
+            )
+            .tag_store(tag_store, cx)
         });
 
         cx.subscribe(
@@ -398,7 +413,8 @@ impl GenericView {
                 ConfigEditorEvent::SaveRequested => {
                     let name = editor.read(cx).current_name(cx);
                     let config = editor.read(cx).current_config().clone();
-                    this.apply_saved_configuration(&name, &config, None, cx);
+                    let collection_type = editor.read(cx).current_type();
+                    this.apply_config(&name, &config, collection_type, None, cx);
                 }
             },
         )
@@ -408,10 +424,11 @@ impl GenericView {
         cx.notify();
     }
 
-    pub fn apply_saved_configuration(
+    pub fn apply_config(
         &mut self,
         new_name: &str,
         new_config: &CollectionConfig,
+        new_type: CollectionType,
         window: Option<&mut Window>,
         cx: &mut Context<Self>,
     ) {
@@ -430,15 +447,44 @@ impl GenericView {
         if let Some(id) = self.collection_id {
             let views = cx.global::<AppState>().views.clone();
             let collections = cx.global::<AppState>().collections.clone();
+            let db = cx.global::<AppState>().db.clone();
+            let rt = cx.global::<AppState>().rt.clone();
+            let type_changed = self.collection_type != new_type;
+            self.collection_type = new_type;
+
             views.update(cx, |s, cx| {
                 s.update_view(id, &new_name, &self.config, cx);
             });
             collections.update(cx, |s, cx| {
                 s.update_collection(id, &new_name, &self.config, cx);
             });
+
+            if type_changed {
+                if new_type == CollectionType::Folder {
+                    views.update(cx, |v, cx| {
+                        v.views.retain(|item| item.id != id);
+                        cx.notify();
+                    });
+                } else {
+                    collections.update(cx, |c, cx| {
+                        c.collections.retain(|item| item.id != id);
+                        cx.notify();
+                    });
+                }
+
+                cx.spawn(async move |_this, cx| {
+                    let _ = rt.block_on(collection_store::update_type(&db, id, new_type));
+                    cx.update(|cx| {
+                        views.update(cx, |v, cx| v.reload(cx));
+                        collections.update(cx, |c, cx| c.reload(cx));
+                    });
+                })
+                .detach();
+            } else {
+                self.reload_all(cx);
+            }
         }
 
-        self.reload_all(cx);
         if let Some(window) = window {
             window.push_notification(Notification::new().message("合集配置已保存"), cx);
         }
@@ -588,7 +634,8 @@ impl Render for GenericView {
                         cx.stop_propagation();
                         let name = editor.read(cx).current_name(cx);
                         let config = editor.read(cx).current_config().clone();
-                        this.apply_saved_configuration(&name, &config, Some(window), cx);
+                        let collection_type = editor.read(cx).current_type();
+                        this.apply_config(&name, &config, collection_type, Some(window), cx);
                     }
                 }))
         } else {

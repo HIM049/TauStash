@@ -129,6 +129,23 @@ pub async fn update_metadata(
     Ok(active.update(db).await?)
 }
 
+/// Update the collection type (Folder or View).
+pub async fn update_type(
+    db: &DatabaseConnection,
+    id: Uuid,
+    typ: CollectionType,
+) -> anyhow::Result<collection::Model> {
+    let model = find_by_id(db, id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Collection with id '{id}' not found"))?;
+
+    let mut active: collection::ActiveModel = model.into();
+    active.typ = Set(typ);
+    active.updated_at = Set(Utc::now());
+
+    Ok(active.update(db).await?)
+}
+
 /// Update the display/sorting order of a collection.
 pub async fn update_order(
     db: &DatabaseConnection,

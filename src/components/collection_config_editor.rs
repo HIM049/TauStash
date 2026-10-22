@@ -1,12 +1,14 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants};
 use gpui_kit::component::input::{Enter, Escape, Input, InputEvent, InputState};
+use gpui_kit::component::switch::Switch;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
 use crate::AppState;
 use crate::components::tag_chip::{TagChip, TagChipState};
+use crate::database::entities::collection::CollectionType;
 use crate::database::entities::{FileState, TagNamespace};
 use crate::services::collection::{CollectionConfig, ViewOption};
 use crate::services::macrotag::MacroTag;
@@ -33,6 +35,7 @@ pub struct CollectionConfigEditor {
     name_input: Entity<InputState>,
     tag_search_input: Entity<InputState>,
     draft_config: CollectionConfig,
+    collection_type: CollectionType,
     tag_search_results: Vec<MacroTag>,
     tag_store: Option<Entity<TagStore>>,
 }
@@ -41,12 +44,13 @@ impl EventEmitter<ConfigEditorEvent> for CollectionConfigEditor {}
 
 impl CollectionConfigEditor {
     pub fn new(
-        initial_name: impl Into<String>,
-        initial_config: CollectionConfig,
+        name: impl Into<String>,
+        config: CollectionConfig,
+        collection_type: CollectionType,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let initial_name = initial_name.into();
+        let initial_name = name.into();
         let name_input = cx.new(|cx| {
             let mut state = InputState::new(window, cx);
             state.set_value(initial_name, window, cx);
@@ -70,7 +74,8 @@ impl CollectionConfigEditor {
         let mut editor = Self {
             name_input,
             tag_search_input,
-            draft_config: initial_config,
+            draft_config: config,
+            collection_type,
             tag_search_results: Vec::new(),
             tag_store: None,
         };
@@ -130,6 +135,10 @@ impl CollectionConfigEditor {
 
     pub fn current_config(&self) -> &CollectionConfig {
         &self.draft_config
+    }
+
+    pub fn current_type(&self) -> CollectionType {
+        self.collection_type
     }
 
     pub fn tag_store(mut self, tag_store: Entity<TagStore>, cx: &mut Context<Self>) -> Self {
@@ -459,6 +468,33 @@ impl Render for CollectionConfigEditor {
                                     .when(self.draft_config.view != ViewOption::List, |b| b.ghost())
                                     .on_click(cx.listener(|this, _, _window, cx| {
                                         this.draft_config.view = ViewOption::List;
+                                        cx.emit(ConfigEditorEvent::DraftChanged);
+                                        cx.notify();
+                                    })),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .h_flex()
+                            .items_center()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_medium()
+                                    .text_color(theme.foreground)
+                                    .child("显示在侧边栏:"),
+                            )
+                            .child(
+                                Switch::new("cfg-collection-type-switch")
+                                    .small()
+                                    .checked(self.collection_type == CollectionType::View)
+                                    .on_click(cx.listener(|this, checked: &bool, _window, cx| {
+                                        this.collection_type = if *checked {
+                                            CollectionType::View
+                                        } else {
+                                            CollectionType::Folder
+                                        };
                                         cx.emit(ConfigEditorEvent::DraftChanged);
                                         cx.notify();
                                     })),
