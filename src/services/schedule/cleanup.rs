@@ -67,7 +67,7 @@ pub async fn cleanup_expired_replicas(
         }
     }
 
-    tracing::info!(
+    tracing::debug!(
         "Cleanup pass completed: scanned {}, deleted {} replicas & {} files",
         report.total_scanned,
         report.replicas_removed,

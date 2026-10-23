@@ -52,6 +52,7 @@ impl ViewStore {
         &mut self,
         id: Uuid,
         new_name: &str,
+        new_icon: &str,
         new_config: &CollectionConfig,
         cx: &mut Context<Self>,
     ) {
@@ -59,12 +60,14 @@ impl ViewStore {
             return;
         };
         view.name = new_name.to_string();
+        view.icon = new_icon.to_string();
         view.config = serde_json::to_value(new_config).unwrap_or_default();
         cx.notify();
 
         let db = cx.global::<AppState>().db.clone();
         let rt = cx.global::<AppState>().rt.clone();
         let name_to_save = new_name.to_string();
+        let icon_to_save = new_icon.to_string();
         let config_val = serde_json::to_value(new_config).unwrap_or_default();
 
         cx.spawn(async move |_this, _cx| {
@@ -72,7 +75,7 @@ impl ViewStore {
                 &db,
                 id,
                 Some(name_to_save),
-                None,
+                Some(icon_to_save),
                 None,
                 None,
                 None,

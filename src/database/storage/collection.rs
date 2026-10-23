@@ -1,5 +1,6 @@
 use crate::database::entities::collection::{self, CollectionType};
 use chrono::Utc;
+use gpui_kit::{assets::IconNamed, component::IconName};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
 };
@@ -21,7 +22,7 @@ pub async fn create(
     let new_collection = collection::ActiveModel {
         id: Set(Uuid::now_v7()),
         name: Set(name.into()),
-        icon: Set(icon.unwrap_or_default()),
+        icon: Set(icon.unwrap_or(IconName::Folder.path().into())),
         cover: Set(cover.unwrap_or_default()),
         color: Set(color.unwrap_or_default()),
         order: Set(order.unwrap_or(0)),

@@ -100,20 +100,11 @@ impl From<&FileInfo> for GridCard {
     fn from(file: &FileInfo) -> Self {
         let visual = if file.mime.starts_with("image/") {
             let p = crate::services::thumbnail::get_thumbnail_path(&file.hash);
-            // if p.is_file() {
-            //     CardImage::Image(p)
-            // } else {
-            //     let ext = file.ext.as_deref().unwrap_or("IMG").to_uppercase();
-            //     CardImage::Icon {
-            //         name: "file".into(),
-            //         label: Some(ext.into()),
-            //     }
-            // }
             CardImage::Image(p)
         } else {
-            let ext = file.ext.as_deref().unwrap_or("FILE").to_uppercase();
+            let ext = file.ext.as_deref().unwrap_or("FILE");
             CardImage::Icon {
-                name: "file".into(),
+                name: IconName::File.path(),
                 label: Some(ext.into()),
             }
         };
@@ -134,25 +125,16 @@ impl From<FileInfo> for GridCard {
 
 impl From<&collection::Model> for GridCard {
     fn from(folder: &collection::Model) -> Self {
-        let visual = if !folder.cover.is_empty() && std::path::Path::new(&folder.cover).is_file() {
+        let visual = if !folder.cover.is_empty() {
             CardImage::Image(PathBuf::from(&folder.cover))
         } else {
-            let icon = if folder.icon.is_empty() {
-                "folder"
-            } else {
-                folder.icon.as_str()
-            };
             CardImage::Icon {
-                name: icon.into(),
+                name: folder.icon.clone().into(),
                 label: None,
             }
         };
 
-        GridCard::new(
-            folder.id,
-            SharedString::new(folder.name.as_str()),
-            visual,
-        )
+        GridCard::new(folder.id, SharedString::new(folder.name.as_str()), visual)
     }
 }
 
@@ -190,45 +172,37 @@ impl RenderOnce for GridCard {
                         .size_full()
                         .object_fit(ObjectFit::Contain),
                 ),
-            CardImage::Icon { name, label } => {
-                let icon_path = if name.is_empty() {
-                    "icons/folder.svg".to_string()
-                } else {
-                    format!("icons/{name}.svg")
-                };
-
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .w_full()
-                    .v_flex()
-                    .items_center()
-                    .justify_center()
-                    .gap_1p5()
-                    .child(
+            CardImage::Icon { name: icon, label } => div()
+                .flex_1()
+                .min_h_0()
+                .w_full()
+                .v_flex()
+                .items_center()
+                .justify_center()
+                .gap_1p5()
+                .child(
+                    div()
+                        .w_10()
+                        .h_10()
+                        .rounded_md()
+                        .h_flex()
+                        .items_center()
+                        .justify_center()
+                        .child(
+                            Icon::default()
+                                .path(icon)
+                                .size_5()
+                                .text_color(cx.theme().primary),
+                        ),
+                )
+                .when_some(label.clone(), |this, label| {
+                    this.child(
                         div()
-                            .w_10()
-                            .h_10()
-                            .rounded_md()
-                            .h_flex()
-                            .items_center()
-                            .justify_center()
-                            .child(
-                                Icon::default()
-                                    .path(icon_path)
-                                    .size_5()
-                                    .text_color(cx.theme().primary),
-                            ),
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(label.clone()),
                     )
-                    .when_some(label.clone(), |this, label| {
-                        this.child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(label.clone()),
-                        )
-                    })
-            }
+                }),
         };
 
         let label_zone = if is_editing && let Some(ref input) = self.input {

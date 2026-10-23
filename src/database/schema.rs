@@ -1,3 +1,5 @@
+use gpui_kit::assets::IconNamed;
+use gpui_kit::component::IconName;
 use sea_orm::{
     ActiveModelTrait, ConnectionTrait, DatabaseConnection, DbErr, EntityTrait, Schema, Set,
 };
@@ -34,7 +36,7 @@ pub async fn seed_default_views(db: &DatabaseConnection) -> anyhow::Result<()> {
     collection::ActiveModel {
         id: Set(Uuid::now_v7()),
         name: Set("文件总览".to_string()),
-        icon: Set("file".to_string()),
+        icon: Set(IconName::File.path().to_string()),
         cover: Set(String::new()),
         color: Set(String::new()),
         order: Set(0),
@@ -67,7 +69,7 @@ pub async fn seed_default_views(db: &DatabaseConnection) -> anyhow::Result<()> {
     collection::ActiveModel {
         id: Set(Uuid::now_v7()),
         name: Set("审核队列".to_string()),
-        icon: Set("check".to_string()),
+        icon: Set(IconName::Check.path().to_string()),
         cover: Set(String::new()),
         color: Set(String::new()),
         order: Set(1),

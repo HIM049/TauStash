@@ -1,6 +1,7 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants};
 use gpui_kit::component::input::{Enter, Escape, Input, InputEvent, InputState};
+use gpui_kit::component::popover::Popover;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder;
@@ -13,6 +14,25 @@ use crate::database::entities::{FileState, TagNamespace};
 use crate::services::collection::{CollectionConfig, ViewOption};
 use crate::services::macrotag::MacroTag;
 use crate::services::store::TagStore;
+
+pub const PRESET_ICONS: &[IconName] = &[
+    IconName::File,
+    IconName::Folder,
+    IconName::Trash,
+    IconName::Archive,
+    IconName::Inbox,
+    IconName::Star,
+    IconName::Heart,
+    IconName::Bookmark,
+    IconName::Tag,
+    IconName::Sparkles,
+    IconName::Clock,
+    IconName::Image,
+    IconName::Camera,
+    IconName::Film,
+    IconName::Check,
+    IconName::Palette,
+];
 
 fn preset_macro_tags() -> Vec<MacroTag> {
     vec![
@@ -35,6 +55,7 @@ pub enum ConfigEditorEvent {
 pub struct CollectionConfigEditor {
     name_input: Entity<InputState>,
     tag_search_input: Entity<InputState>,
+    current_icon: String,
     draft_config: CollectionConfig,
     collection_type: CollectionType,
     tag_search_results: Vec<MacroTag>,
@@ -47,12 +68,14 @@ impl EventEmitter<ConfigEditorEvent> for CollectionConfigEditor {}
 impl CollectionConfigEditor {
     pub fn new(
         name: impl Into<String>,
+        icon: impl Into<String>,
         config: CollectionConfig,
         collection_type: CollectionType,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let initial_name = name.into();
+
         let name_input = cx.new(|cx| {
             let mut state = InputState::new(window, cx);
             state.set_value(initial_name, window, cx);
@@ -75,6 +98,7 @@ impl CollectionConfigEditor {
         let mut editor = Self {
             name_input,
             tag_search_input,
+            current_icon: icon.into(),
             draft_config: config,
             collection_type,
             tag_search_results: Vec::new(),
@@ -133,6 +157,16 @@ impl CollectionConfigEditor {
 
     pub fn current_name(&self, cx: &App) -> String {
         self.name_input.read(cx).value().trim().to_string()
+    }
+
+    pub fn current_icon(&self) -> &str {
+        &self.current_icon
+    }
+
+    pub fn set_icon(&mut self, icon: impl Into<String>, cx: &mut Context<Self>) {
+        self.current_icon = icon.into();
+        cx.emit(ConfigEditorEvent::DraftChanged);
+        cx.notify();
     }
 
     pub fn current_config(&self) -> &CollectionConfig {
@@ -440,7 +474,61 @@ impl Render for CollectionConfigEditor {
                                         div()
                                             .flex_1()
                                             .min_w_0()
-                                            .child(Input::new(&self.name_input).small()),
+                                            .h_flex()
+                                            .items_center()
+                                            .gap_2()
+                                            .child(
+                                                Popover::new("icon-picker-popover")
+                                                    .trigger(
+                                                        Button::new("btn-icon-trigger")
+                                                            .small()
+                                                            .icon(Icon::default().path(self.current_icon.clone()))
+                                                    )
+                                                    .content({
+                                                        let editor = cx.entity().clone();
+                                                        let current = self.current_icon.clone();
+                                                        move |_state, _window, cx| {
+                                                            div()
+                                                                .p_2()
+                                                                .v_flex()
+                                                                .gap_1p5()
+                                                                .child(
+                                                                    div()
+                                                                        .grid()
+                                                                        .grid_cols(4)
+                                                                        .gap_1()
+                                                                        .children(PRESET_ICONS.iter().enumerate().map(
+                                                                            |(idx, &icon)| {
+                                                                                let path = icon.path();
+                                                                                let is_selected = current == path.as_ref();
+                                                                                let path_str = path.to_string();
+                                                                                let editor = editor.clone();
+                                                                                Button::new(("preset-icon", idx))
+                                                                                    .icon(icon)
+                                                                                    .small()
+                                                                                    .when(is_selected, |b| b.secondary())
+                                                                                    .when(!is_selected, |b| b.ghost())
+                                                                                    .on_click(cx.listener({
+                                                                                        let editor = editor.clone();
+                                                                                        move |state, _, window, cx| {
+                                                                                            editor.update(cx, |this, cx| {
+                                                                                                this.set_icon(&path_str, cx);
+                                                                                            });
+                                                                                            state.dismiss(window, cx);
+                                                                                        }
+                                                                                    }))
+                                                                            },
+                                                                        )),
+                                                                )
+                                                        }
+                                                    }),
+                                            )
+                                            .child(
+                                                div()
+                                                    .flex_1()
+                                                    .min_w_0()
+                                                    .child(Input::new(&self.name_input).small()),
+                                            ),
                                     ),
                             )
                             .child(

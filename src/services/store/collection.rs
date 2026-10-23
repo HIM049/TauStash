@@ -46,6 +46,7 @@ impl CollectionStore {
         &mut self,
         id: Uuid,
         new_name: &str,
+        new_icon: &str,
         new_config: &CollectionConfig,
         cx: &mut Context<Self>,
     ) {
@@ -53,20 +54,22 @@ impl CollectionStore {
             return;
         };
         col.name = new_name.to_string();
+        col.icon = new_icon.to_string();
         col.config = serde_json::to_value(new_config).unwrap_or_default();
         cx.notify();
 
         let db = cx.global::<AppState>().db.clone();
         let rt = cx.global::<AppState>().rt.clone();
         let name_to_save = new_name.to_string();
+        let icon_to_save = new_icon.to_string();
         let config_val = serde_json::to_value(new_config).unwrap_or_default();
 
-        cx.spawn(async move |_this, _cx| {
+        cx.spawn(async move |_, _| {
             let _ = rt.block_on(collection_store::update_metadata(
                 &db,
                 id,
                 Some(name_to_save),
-                None,
+                Some(icon_to_save),
                 None,
                 None,
                 None,

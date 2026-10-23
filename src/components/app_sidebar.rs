@@ -88,16 +88,6 @@ impl RenderOnce for AppSidebar {
             .collapsible(SidebarCollapsible::Icon)
             .collapsed(self.collapsed)
             .w(px(220.0))
-            // .header(
-            //     SidebarHeader::new().child(h_flex().items_center().gap_2().px_1().when(
-            //         !self.collapsed,
-            //         |this| {
-            //             this.font_weight(FontWeight::BOLD)
-            //                 .text_sm()
-            //                 .child("PiCargo")
-            //         },
-            //     )),
-            // )
             .child(SidebarGroup::new("导航").child({
                 let mut menu = SidebarMenu::new();
 
@@ -106,11 +96,8 @@ impl RenderOnce for AppSidebar {
                     let view_name = v.name.clone();
                     let is_active = self.active == NavTarget::View(view_id);
                     let sel = on_select.clone();
-                    let icon = match v.icon.as_str() {
-                        "file" => IconName::File,
-                        "check" => IconName::Check,
-                        _ => IconName::Folder,
-                    };
+                    let icon_path: SharedString = v.icon.clone().into();
+                    let icon = Icon::default().path(icon_path);
 
                     menu = menu.child(
                         SidebarMenuItem::new(SharedString::from(view_name))
@@ -174,7 +161,6 @@ impl RenderOnce for AppSidebar {
                         Button::new("sidebar-settings")
                             .ghost()
                             .icon(IconName::Settings)
-                            // .when(!self.collapsed, |this| this.label("设置"))
                             .on_click(move |event, window, cx| {
                                 if let Some(cb) = on_settings.as_ref() {
                                     cb(event, window, cx);

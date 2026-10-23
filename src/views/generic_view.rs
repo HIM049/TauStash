@@ -158,14 +158,9 @@ impl GenericView {
     ) -> Self {
         let config: CollectionConfig =
             serde_json::from_value(model.config.clone()).unwrap_or_default();
-        let icon = if model.icon.is_empty() {
-            Some("folder".into())
-        } else {
-            Some(model.icon.clone().into())
-        };
 
         let mut view = Self::new(model.name.clone(), config, window, cx);
-        view.icon = icon;
+        view.icon = Some(model.icon.clone().into());
         view.collection_id = Some(model.id);
         view.collection_type = model.typ;
         view
@@ -388,9 +383,11 @@ impl GenericView {
 
         let tag_store = cx.global::<AppState>().tags.clone();
         let collection_type = self.collection_type;
+        let icon_str = self.icon.clone().unwrap_or_else(|| IconName::Folder.path());
         let editor = cx.new(|cx| {
             CollectionConfigEditor::new(
                 self.title.to_string(),
+                icon_str,
                 self.config.clone(),
                 collection_type,
                 window,
@@ -412,9 +409,10 @@ impl GenericView {
                 }
                 ConfigEditorEvent::SaveRequested => {
                     let name = editor.read(cx).current_name(cx);
+                    let icon = editor.read(cx).current_icon().to_string();
                     let config = editor.read(cx).current_config().clone();
                     let collection_type = editor.read(cx).current_type();
-                    this.apply_config(&name, &config, collection_type, None, cx);
+                    this.apply_config(&name, &icon, &config, collection_type, None, cx);
                 }
                 ConfigEditorEvent::DeleteRequested => {
                     this.delete_current_collection(cx);
@@ -469,6 +467,7 @@ impl GenericView {
     pub fn apply_config(
         &mut self,
         new_name: &str,
+        new_icon: &str,
         new_config: &CollectionConfig,
         new_type: CollectionType,
         window: Option<&mut Window>,
@@ -480,6 +479,7 @@ impl GenericView {
             new_name.trim().to_string()
         };
         self.title = new_name.clone().into();
+        self.icon = Some(new_icon.to_string().into());
         self.config = new_config.clone();
         self.content_view.update(cx, |view, cx| {
             view.set_view_mode(self.config.view, cx);
@@ -495,10 +495,10 @@ impl GenericView {
             self.collection_type = new_type;
 
             views.update(cx, |s, cx| {
-                s.update_view(id, &new_name, &self.config, cx);
+                s.update_view(id, &new_name, new_icon, &self.config, cx);
             });
             collections.update(cx, |s, cx| {
-                s.update_collection(id, &new_name, &self.config, cx);
+                s.update_collection(id, &new_name, new_icon, &self.config, cx);
             });
 
             if type_changed {
@@ -675,9 +675,10 @@ impl Render for GenericView {
                     move |this, _, window, cx| {
                         cx.stop_propagation();
                         let name = editor.read(cx).current_name(cx);
+                        let icon = editor.read(cx).current_icon().to_string();
                         let config = editor.read(cx).current_config().clone();
                         let collection_type = editor.read(cx).current_type();
-                        this.apply_config(&name, &config, collection_type, Some(window), cx);
+                        this.apply_config(&name, &icon, &config, collection_type, Some(window), cx);
                     }
                 }))
         } else {
