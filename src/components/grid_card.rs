@@ -6,9 +6,6 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
-use crate::database::entities::collection;
-use crate::services::file::FileInfo;
-
 pub type FileCardClickListener = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 pub type FileCardActionHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 
@@ -93,54 +90,6 @@ impl GridCard {
     ) -> Self {
         self.on_secondary_click = Some(Rc::new(listener));
         self
-    }
-}
-
-impl From<&FileInfo> for GridCard {
-    fn from(file: &FileInfo) -> Self {
-        let visual = if file.mime.starts_with("image/") {
-            let p = crate::services::thumbnail::get_thumbnail_path(&file.hash);
-            CardImage::Image(p)
-        } else {
-            let ext = file.ext.as_deref().unwrap_or("FILE");
-            CardImage::Icon {
-                name: IconName::File.path(),
-                label: Some(ext.into()),
-            }
-        };
-
-        GridCard::new(
-            file.file_id,
-            SharedString::new(file.file_name.as_str()),
-            visual,
-        )
-    }
-}
-
-impl From<FileInfo> for GridCard {
-    fn from(file: FileInfo) -> Self {
-        GridCard::from(&file)
-    }
-}
-
-impl From<&collection::Model> for GridCard {
-    fn from(folder: &collection::Model) -> Self {
-        let visual = if !folder.cover.is_empty() {
-            CardImage::Image(PathBuf::from(&folder.cover))
-        } else {
-            CardImage::Icon {
-                name: folder.icon.clone().into(),
-                label: None,
-            }
-        };
-
-        GridCard::new(folder.id, SharedString::new(folder.name.as_str()), visual)
-    }
-}
-
-impl From<collection::Model> for GridCard {
-    fn from(folder: collection::Model) -> Self {
-        GridCard::from(&folder)
     }
 }
 

@@ -23,6 +23,7 @@ pub struct DbFileRecord {
     pub mime: String,
     pub ext: Option<String>,
     pub state: FileState,
+    pub content_created_at: Option<DateTimeUtc>,
 }
 
 /// Parameters for creating or updating a physical replica
@@ -362,6 +363,7 @@ pub async fn get_file_by_id(
             .unwrap_or_else(|| "application/octet-stream".to_string()),
         ext: f.ext,
         state: f.state,
+        content_created_at: f.content_created_at,
     }))
 }
 

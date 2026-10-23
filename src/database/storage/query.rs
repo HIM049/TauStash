@@ -35,8 +35,8 @@ pub enum TagCriterion {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum FileSortField {
     #[default]
-    CreatedAt,
     ContentCreatedAt,
+    CreatedAt,
     Size,
 }
 
@@ -353,6 +353,7 @@ impl FileQueryer {
                         .unwrap_or_else(|| "application/octet-stream".to_string()),
                     ext: f.ext,
                     state: f.state,
+                    content_created_at: f.content_created_at,
                 })
             })
             .collect();

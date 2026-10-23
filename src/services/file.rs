@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
@@ -18,6 +19,7 @@ pub struct FileInfo {
     pub is_duplicate: bool,
     pub tags: Vec<MacroTag>,
     pub state: FileState,
+    pub content_created_at: Option<DateTime<Utc>>,
 }
 
 impl FileInfo {
@@ -62,6 +64,7 @@ pub async fn get_file_detail(db: &DatabaseConnection, file_id: Uuid) -> Result<O
         is_duplicate: false,
         tags,
         state: record.state,
+        content_created_at: record.content_created_at,
     }))
 }
 
@@ -91,6 +94,7 @@ pub async fn list_files(db: &DatabaseConnection, query: &FileQueryer) -> Result<
                 is_duplicate: false,
                 tags,
                 state: r.state,
+                content_created_at: r.content_created_at,
             }
         })
         .collect();

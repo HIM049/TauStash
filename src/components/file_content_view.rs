@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::rc::Rc;
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::input::{Enter, Escape, InputState};
@@ -8,12 +7,47 @@ use gpui_kit::*;
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::components::grid_card::GridCard;
-use crate::components::item_grid_view::ItemGridView;
+use crate::components::grid_card::CardImage;
+use crate::components::item_grid_view::{CardItem, ItemGridView};
 use crate::components::item_list_view::ItemListView;
 use crate::components::utils;
 use crate::services::collection::ViewOption;
 use crate::services::file::FileInfo;
+
+impl CardItem for FileInfo {
+    fn card_id(&self) -> Uuid {
+        self.file_id
+    }
+
+    fn card_title(&self) -> SharedString {
+        SharedString::new(self.file_name.as_str())
+    }
+
+    fn card_image(&self) -> CardImage {
+        if self.mime.starts_with("image/") {
+            let p = crate::services::thumbnail::get_thumbnail_path(&self.hash);
+            CardImage::Image(p)
+        } else {
+            let ext = self.ext.as_deref().unwrap_or("FILE");
+            CardImage::Icon {
+                name: IconName::File.path(),
+                label: Some(ext.into()),
+            }
+        }
+    }
+}
+
+fn format_file_group_date(item: &FileInfo) -> (String, String) {
+    if let Some(dt) = item.content_created_at {
+        let date_str = dt
+            .with_timezone(&chrono::Local)
+            .format("%Y年%m月%d日")
+            .to_string();
+        (date_str.clone(), date_str)
+    } else {
+        ("other".to_string(), "其他分组".to_string())
+    }
+}
 
 #[derive(Clone, Debug)]
 pub enum FileContentEvent {
@@ -23,7 +57,7 @@ pub enum FileContentEvent {
 }
 
 pub struct FilePoolView {
-    file_list: Rc<[FileInfo]>,
+    file_list: Vec<FileInfo>,
     view_mode: ViewOption,
     selected_files: HashSet<Uuid>,
     last_select: Option<Uuid>,
@@ -43,7 +77,7 @@ impl FilePoolView {
         let focus_handle = cx.focus_handle();
 
         Self {
-            file_list: Rc::from([]),
+            file_list: vec![],
             view_mode,
             selected_files: HashSet::new(),
             last_select: None,
@@ -355,6 +389,7 @@ impl Render for FilePoolView {
 
         let inner_view = match self.view_mode {
             ViewOption::List => ItemListView::new("file-list", self.file_list.clone())
+                .group_by(format_file_group_date)
                 .selected_files(self.selected_files.clone())
                 .cursor_id(self.cursor_id)
                 .editing_id(editing_id)
@@ -377,58 +412,30 @@ impl Render for FilePoolView {
                     utils::open_path(path);
                 })
                 .into_any_element(),
-            ViewOption::Grid => {
-                let selected_files = self.selected_files.clone();
-                let cursor_id = self.cursor_id;
-                let entity = cx.entity().clone();
-
-                ItemGridView::new(
-                    "file-grid",
-                    self.file_list.clone(),
-                    move |item, _idx, _, _cx| {
-                        let file_id = item.file_id;
-                        let is_selected = selected_files.contains(&file_id);
-                        let is_cursor = cursor_id == Some(file_id);
-                        let is_editing = editing_id == Some(file_id);
-                        let path_open: SharedString = item.path.clone().into();
-
-                        let select_entity = entity.clone();
-                        let sec_entity = entity.clone();
-
-                        GridCard::from(item)
-                            .selected(is_selected)
-                            .cursor(is_cursor)
-                            .editing(is_editing)
-                            .input(if is_editing {
-                                Some(name_input.clone())
-                            } else {
-                                None
-                            })
-                            .on_click(move |_, window, cx| {
-                                cx.stop_propagation();
-                                let modifiers = window.modifiers();
-                                let is_ctrl = modifiers.control || modifiers.platform;
-                                let is_shift = modifiers.shift;
-
-                                select_entity.update(cx, |this, cx| {
-                                    this.handle_file_select(file_id, is_ctrl, is_shift, window, cx);
-                                });
-                            })
-                            .on_secondary_click(move |window, cx| {
-                                sec_entity.update(cx, |this, cx| {
-                                    this.handle_secondary_select(file_id, window, cx);
-                                });
-                            })
-                            .on_double_click(move |_, _, _| {
-                                utils::open_path(&path_open);
-                            })
-                            .into_any_element()
-                    },
-                )
+            ViewOption::Grid => ItemGridView::new("file-grid", self.file_list.clone())
+                .selected_ids(self.selected_files.clone())
+                .cursor_id(self.cursor_id)
+                .editing_id(editing_id)
+                .name_input(if editing_id.is_some() {
+                    Some(name_input.clone())
+                } else {
+                    None
+                })
+                .group_by(format_file_group_date)
                 .scroll_handle(&self.scroll_handle)
                 .empty_placeholder(self.empty_placeholder.clone())
-                .into_any_element()
-            }
+                .on_select(
+                    cx.processor(|this, (file_id, is_ctrl, is_shift), window, cx| {
+                        this.handle_file_select(file_id, is_ctrl, is_shift, window, cx);
+                    }),
+                )
+                .on_secondary_select(cx.processor(|this, file_id, window, cx| {
+                    this.handle_secondary_select(file_id, window, cx);
+                }))
+                .on_open(|file, _, _| {
+                    utils::open_path(&file.path);
+                })
+                .into_any_element(),
         };
 
         div()
