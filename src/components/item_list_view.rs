@@ -37,7 +37,7 @@ pub struct ItemListView {
     on_select: Option<FileListSelectListener>,
     on_secondary_select: Option<FileListActionHandler>,
     on_open: Option<FileListOpenHandler>,
-    group_by: Option<fn(&FileInfo) -> (String, String)>,
+    group_by: Option<Box<dyn Fn(&FileInfo) -> (String, String)>>,
 }
 
 impl ItemListView {
@@ -58,7 +58,7 @@ impl ItemListView {
         }
     }
 
-    pub fn group_by(mut self, group_by: fn(&FileInfo) -> (String, String)) -> Self {
+    pub fn group_by(mut self, group_by: Box<dyn Fn(&FileInfo) -> (String, String)>) -> Self {
         self.group_by = Some(group_by);
         self
     }

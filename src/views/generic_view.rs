@@ -18,8 +18,8 @@ use crate::components::tag_bar_filter::{TagFilterBar, TagFilterEvent};
 use crate::components::view_scaffold::ViewScaffold;
 use crate::database::entities::collection::{self, CollectionType};
 use crate::database::storage::collection as collection_store;
-use crate::database::storage::query::{FileSortField, SortDirection};
-use crate::services::collection::{CollectionConfig, GroupRule, ViewOption};
+use crate::database::storage::query::SortDirection;
+use crate::services::collection::{CollectionConfig, ViewOption};
 use crate::services::file;
 use crate::services::importer;
 use crate::services::macrotag::{FileState, MacroTag};
@@ -96,7 +96,15 @@ impl GenericView {
                 })
         });
 
-        let content_view = cx.new(|cx| FilePoolView::new(config.view, config.group_by, window, cx));
+        let content_view = cx.new(|cx| {
+            FilePoolView::new(
+                config.view,
+                config.sort_field,
+                config.group_mode,
+                window,
+                cx,
+            )
+        });
         cx.subscribe(
             &content_view,
             |this, _, event: &FileContentEvent, cx| match event {
@@ -304,10 +312,17 @@ impl GenericView {
             return;
         }
 
-        let group_by = if let BarMode::Configuring(ref editor) = self.bar_mode {
-            editor.read(cx).current_config().group_by
+        let (sort_field, is_desc) = if let BarMode::Configuring(ref editor) = self.bar_mode {
+            let cfg = editor.read(cx).current_config();
+            (cfg.sort_field, cfg.is_desc)
         } else {
-            self.config.group_by
+            (self.config.sort_field, self.config.is_desc)
+        };
+
+        let sort_direction = if is_desc {
+            SortDirection::Desc
+        } else {
+            SortDirection::Asc
         };
 
         let mts = MtagService::new().tags(&config_filters).tags(&filter_tags);
@@ -315,21 +330,7 @@ impl GenericView {
             let files_res = cx
                 .background_spawn(async move {
                     let mut query = mts.build()?;
-                    match group_by {
-                        GroupRule::ContentCreatedAt => {
-                            query = query.sort(FileSortField::ContentCreatedAt, SortDirection::Desc);
-                        }
-                        GroupRule::ContentModifiedAt => {
-                            query = query.sort(FileSortField::ContentModifiedAt, SortDirection::Desc);
-                        }
-                        GroupRule::CreatedAt => {
-                            query = query.sort(FileSortField::CreatedAt, SortDirection::Desc);
-                        }
-                        GroupRule::UpdatedAt => {
-                            query = query.sort(FileSortField::UpdatedAt, SortDirection::Desc);
-                        }
-                        GroupRule::None => {}
-                    }
+                    query = query.sort(sort_field, sort_direction);
 
                     rt.block_on(file::list_files(&db, &query))
                 })
@@ -426,7 +427,11 @@ impl GenericView {
                     this.preview_filter_tags = Some(draft_config.filters.clone());
                     this.content_view.update(cx, |view, cx| {
                         view.set_view_mode(draft_config.view, cx);
-                        view.set_group_rule(draft_config.group_by, cx);
+                        view.set_grouping(
+                            draft_config.sort_field,
+                            draft_config.group_mode,
+                            cx,
+                        );
                     });
                     this.reload_files(cx);
                 }
@@ -509,7 +514,7 @@ impl GenericView {
         self.config = new_config.clone();
         self.content_view.update(cx, |view, cx| {
             view.set_view_mode(self.config.view, cx);
-            view.set_group_rule(self.config.group_by, cx);
+            view.set_grouping(self.config.sort_field, self.config.group_mode, cx);
         });
         self.bar_mode = BarMode::Normal;
         self.preview_filter_tags = None;
@@ -565,7 +570,7 @@ impl GenericView {
         self.preview_filter_tags = None;
         self.content_view.update(cx, |view, cx| {
             view.set_view_mode(self.config.view, cx);
-            view.set_group_rule(self.config.group_by, cx);
+            view.set_grouping(self.config.sort_field, self.config.group_mode, cx);
         });
         self.reload_all(cx);
         cx.notify();

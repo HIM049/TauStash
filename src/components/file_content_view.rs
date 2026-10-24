@@ -11,7 +11,8 @@ use crate::components::grid_card::CardImage;
 use crate::components::item_grid_view::{CardItem, ItemGridView};
 use crate::components::item_list_view::ItemListView;
 use crate::components::utils;
-use crate::services::collection::{GroupRule, ViewOption};
+use crate::database::storage::query::FileSortField;
+use crate::services::collection::{GroupMode, TimeGroup, ViewOption};
 use crate::services::file::FileInfo;
 
 impl CardItem for FileInfo {
@@ -37,32 +38,84 @@ impl CardItem for FileInfo {
     }
 }
 
-fn format_date(dt: Option<chrono::DateTime<chrono::Utc>>) -> (String, String) {
+fn format_date(dt: Option<chrono::DateTime<chrono::Utc>>, group: TimeGroup) -> (String, String) {
     match dt {
         Some(dt) => {
             let local = dt.with_timezone(&chrono::Local);
-            let key = local.format("%Y-%m-%d").to_string();
-            let title = local.format("%Y年%m月%d日").to_string();
-            (key, title)
+            match group {
+                TimeGroup::Day => {
+                    let key = local.format("%Y-%m-%d").to_string();
+                    let title = local.format("%Y年%m月%d日").to_string();
+                    (key, title)
+                }
+                TimeGroup::Month => {
+                    let key = local.format("%Y-%m").to_string();
+                    let title = local.format("%Y年%m月").to_string();
+                    (key, title)
+                }
+                TimeGroup::Year => {
+                    let key = local.format("%Y").to_string();
+                    let title = local.format("%Y年").to_string();
+                    (key, title)
+                }
+            }
         }
         None => ("other".to_string(), "其他分组".to_string()),
     }
 }
 
-fn format_file_group_content_created(item: &FileInfo) -> (String, String) {
-    format_date(item.content_created_at)
+fn format_size_group(size: i64) -> (String, String) {
+    if size >= 1024 * 1024 * 1024 {
+        (
+            "bigger_than_1gb".to_string(),
+            "超大文件 (> 1GB)".to_string(),
+        )
+    } else if size >= 100 * 1024 * 1024 {
+        (
+            "bigger_than_100mb".to_string(),
+            "大文件 (100MB - 1GB)".to_string(),
+        )
+    } else if size >= 10 * 1024 * 1024 {
+        (
+            "bigger_than_10mb".to_string(),
+            "中等文件 (10MB - 100MB)".to_string(),
+        )
+    } else if size >= 1024 * 1024 {
+        (
+            "bigger_than_1mb".to_string(),
+            "小文件 (1MB - 10MB)".to_string(),
+        )
+    } else {
+        (
+            "smaller_than_10mb".to_string(),
+            "微型文件 (< 1MB)".to_string(),
+        )
+    }
 }
 
-fn format_file_group_content_modified(item: &FileInfo) -> (String, String) {
-    format_date(item.content_modified_at)
-}
-
-fn format_file_group_created(item: &FileInfo) -> (String, String) {
-    format_date(Some(item.created_at))
-}
-
-fn format_file_group_updated(item: &FileInfo) -> (String, String) {
-    format_date(Some(item.updated_at))
+fn get_group_by_fn(
+    sort_field: FileSortField,
+    group_mode: GroupMode,
+) -> Option<Box<dyn Fn(&FileInfo) -> (String, String)>> {
+    match group_mode {
+        GroupMode::None => None,
+        GroupMode::Size => Some(Box::new(|f| format_size_group(f.size))),
+        GroupMode::Time(group) => match sort_field {
+            FileSortField::ContentCreatedAt => {
+                Some(Box::new(move |f| format_date(f.content_created_at, group)))
+            }
+            FileSortField::ContentModifiedAt => {
+                Some(Box::new(move |f| format_date(f.content_modified_at, group)))
+            }
+            FileSortField::CreatedAt => {
+                Some(Box::new(move |f| format_date(Some(f.created_at), group)))
+            }
+            FileSortField::UpdatedAt => {
+                Some(Box::new(move |f| format_date(Some(f.updated_at), group)))
+            }
+            FileSortField::Size => Some(Box::new(|f| format_size_group(f.size))),
+        },
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -75,7 +128,8 @@ pub enum FileContentEvent {
 pub struct FilePoolView {
     file_list: Vec<FileInfo>,
     view_mode: ViewOption,
-    group_rule: GroupRule,
+    sort_field: FileSortField,
+    group_mode: GroupMode,
     selected_files: HashSet<Uuid>,
     last_select: Option<Uuid>,
     cursor_id: Option<Uuid>,
@@ -91,7 +145,8 @@ impl EventEmitter<FileContentEvent> for FilePoolView {}
 impl FilePoolView {
     pub fn new(
         view_mode: ViewOption,
-        group_rule: GroupRule,
+        sort_field: FileSortField,
+        group_mode: GroupMode,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -101,7 +156,8 @@ impl FilePoolView {
         Self {
             file_list: vec![],
             view_mode,
-            group_rule,
+            sort_field,
+            group_mode,
             selected_files: HashSet::new(),
             last_select: None,
             cursor_id: None,
@@ -140,8 +196,14 @@ impl FilePoolView {
         cx.notify();
     }
 
-    pub fn set_group_rule(&mut self, rule: GroupRule, cx: &mut Context<Self>) {
-        self.group_rule = rule;
+    pub fn set_grouping(
+        &mut self,
+        sort_field: FileSortField,
+        group_mode: GroupMode,
+        cx: &mut Context<Self>,
+    ) {
+        self.sort_field = sort_field;
+        self.group_mode = group_mode;
         cx.notify();
     }
 
@@ -415,13 +477,7 @@ impl Render for FilePoolView {
         let editing_id = self.editing_id;
         let name_input = self.name_input.clone();
 
-        let group_by_fn: Option<fn(&FileInfo) -> (String, String)> = match self.group_rule {
-            GroupRule::ContentCreatedAt => Some(format_file_group_content_created),
-            GroupRule::ContentModifiedAt => Some(format_file_group_content_modified),
-            GroupRule::CreatedAt => Some(format_file_group_created),
-            GroupRule::UpdatedAt => Some(format_file_group_updated),
-            GroupRule::None => None,
-        };
+        let group_by_fn = get_group_by_fn(self.sort_field, self.group_mode);
 
         let inner_view = match self.view_mode {
             ViewOption::List => {

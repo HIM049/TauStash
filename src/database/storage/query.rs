@@ -6,6 +6,7 @@ use sea_orm::{
     prelude::DateTimeUtc,
     sea_query::{Alias, Expr, ExprTrait, Func, Query, SqliteQueryBuilder},
 };
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::file::DbFileRecord;
@@ -32,7 +33,8 @@ pub enum TagCriterion {
     ExcludeTags(HashSet<Uuid>),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum FileSortField {
     #[default]
     ContentCreatedAt,

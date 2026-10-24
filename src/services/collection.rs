@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::database::entities::TagNamespace;
+use crate::database::storage::query::FileSortField;
 use crate::services::macrotag::MacroTag;
 
 fn default_true() -> bool {
@@ -30,33 +31,20 @@ impl Default for CandidateTagRule {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum GroupRule {
+pub enum TimeGroup {
     #[default]
-    None,
-    ContentCreatedAt,
-    ContentModifiedAt,
-    CreatedAt,
-    UpdatedAt,
-}
-
-impl GroupRule {
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::None => "无",
-            Self::ContentCreatedAt => "文件创建时间",
-            Self::ContentModifiedAt => "文件修改时间",
-            Self::CreatedAt => "入库时间",
-            Self::UpdatedAt => "更新时间",
-        }
-    }
+    Day,
+    Month,
+    Year,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum OrderRule {
+pub enum GroupMode {
     #[default]
-    CreateTime,
-    FileName,
+    None,
+    Time(TimeGroup),
+    Size,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -72,10 +60,12 @@ pub enum ViewOption {
 pub struct CollectionConfig {
     pub filters: Vec<MacroTag>,
     pub view: ViewOption,
-    pub group_by: GroupRule,
-    pub order_by: OrderRule,
-    /// Default should be DESC
-    pub is_order_revert: bool,
+    #[serde(default)]
+    pub sort_field: FileSortField,
+    #[serde(default = "default_true")]
+    pub is_desc: bool,
+    #[serde(default, alias = "group_granularity")]
+    pub group_mode: GroupMode,
     pub is_hide_tagbar: bool,
     #[serde(default)]
     pub pinned_tags: Vec<MacroTag>,
@@ -92,9 +82,9 @@ impl Default for CollectionConfig {
         Self {
             filters: Vec::new(),
             view: ViewOption::default(),
-            group_by: GroupRule::default(),
-            order_by: OrderRule::default(),
-            is_order_revert: false,
+            sort_field: FileSortField::default(),
+            is_desc: true,
+            group_mode: GroupMode::default(),
             is_hide_tagbar: false,
             pinned_tags: Vec::new(),
             include_view_tags: true,

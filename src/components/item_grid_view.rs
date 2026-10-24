@@ -43,7 +43,7 @@ pub struct ItemGridView<T: CardItem> {
     row_height: f32,
     scroll_handle: UniformListScrollHandle,
     empty_placeholder: SharedString,
-    group_by: Option<fn(&T) -> (String, String)>,
+    group_by: Option<Box<dyn Fn(&T) -> (String, String)>>,
     on_select: Option<GridSelectListener>,
     on_secondary_select: Option<GridActionHandler>,
     on_open: Option<GridOpenHandler<T>>,
@@ -89,7 +89,7 @@ impl<T: CardItem> ItemGridView<T> {
         self
     }
 
-    pub fn group_by(mut self, group_by: fn(&T) -> (String, String)) -> Self {
+    pub fn group_by(mut self, group_by: Box<dyn Fn(&T) -> (String, String)>) -> Self {
         self.group_by = Some(group_by);
         self
     }
@@ -210,7 +210,7 @@ impl<T: CardItem> Element for ItemGridView<T> {
         let single_screen_items = cols * (visible_rows + 4);
         let cache_capacity = (single_screen_items * 3).max(100);
 
-        let virtual_rows: Vec<GridVirtualRow> = if let Some(key_fn) = self.group_by {
+        let virtual_rows: Vec<GridVirtualRow> = if let Some(key_fn) = self.group_by.as_ref() {
             let mut rows = Vec::new();
 
             let mut gid: Option<String> = None;
@@ -334,39 +334,39 @@ impl<T: CardItem> Element for ItemGridView<T> {
                                         let open = on_open.clone();
                                         let item_clone = item.clone();
 
-                                        let card = GridCard::new(item.card_id(), item.card_title(), item.card_image())
-                                            .selected(is_selected)
-                                            .cursor(is_cursor)
-                                            .editing(is_editing)
-                                            .input(if is_editing {
-                                                name_input.clone()
-                                            } else {
-                                                None
-                                            })
-                                            .on_click(move |_, window, cx| {
-                                                cx.stop_propagation();
-                                                if is_editing {
-                                                    return;
-                                                }
-                                                if let Some(ref select) = select {
-                                                    let modifiers = window.modifiers();
-                                                    let is_ctrl =
-                                                        modifiers.control || modifiers.platform;
-                                                    let is_shift = modifiers.shift;
-                                                    select((id, is_ctrl, is_shift), window, cx);
-                                                }
-                                            })
-                                            .on_double_click(move |_, window, cx| {
-                                                cx.stop_propagation();
-                                                if let Some(ref dbl) = open {
-                                                    dbl(item_clone.clone(), window, cx);
-                                                }
-                                            })
-                                            .on_secondary_click(move |window, cx| {
-                                                if let Some(ref sec) = sec_select {
-                                                    sec(id, window, cx);
-                                                }
-                                            });
+                                        let card = GridCard::new(
+                                            item.card_id(),
+                                            item.card_title(),
+                                            item.card_image(),
+                                        )
+                                        .selected(is_selected)
+                                        .cursor(is_cursor)
+                                        .editing(is_editing)
+                                        .input(if is_editing { name_input.clone() } else { None })
+                                        .on_click(move |_, window, cx| {
+                                            cx.stop_propagation();
+                                            if is_editing {
+                                                return;
+                                            }
+                                            if let Some(ref select) = select {
+                                                let modifiers = window.modifiers();
+                                                let is_ctrl =
+                                                    modifiers.control || modifiers.platform;
+                                                let is_shift = modifiers.shift;
+                                                select((id, is_ctrl, is_shift), window, cx);
+                                            }
+                                        })
+                                        .on_double_click(move |_, window, cx| {
+                                            cx.stop_propagation();
+                                            if let Some(ref dbl) = open {
+                                                dbl(item_clone.clone(), window, cx);
+                                            }
+                                        })
+                                        .on_secondary_click(move |window, cx| {
+                                            if let Some(ref sec) = sec_select {
+                                                sec(id, window, cx);
+                                            }
+                                        });
 
                                         cells.push(card.into_any_element());
                                     }

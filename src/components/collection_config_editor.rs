@@ -12,17 +12,27 @@ use crate::AppState;
 use crate::components::tag_chip::{TagChip, TagChipState};
 use crate::database::entities::collection::CollectionType;
 use crate::database::entities::{FileState, TagNamespace};
-use crate::services::collection::{CollectionConfig, GroupRule, ViewOption};
+use crate::database::storage::query::FileSortField;
+use crate::services::collection::{CollectionConfig, GroupMode, TimeGroup, ViewOption};
 use crate::services::macrotag::MacroTag;
 use crate::services::store::TagStore;
 
-pub const ALL_GROUP_RULES: &[GroupRule] = &[
-    GroupRule::None,
-    GroupRule::ContentCreatedAt,
-    GroupRule::ContentModifiedAt,
-    GroupRule::CreatedAt,
-    GroupRule::UpdatedAt,
+pub const ALL_SORT_FIELDS: &[FileSortField] = &[
+    FileSortField::ContentCreatedAt,
+    FileSortField::ContentModifiedAt,
+    FileSortField::CreatedAt,
+    FileSortField::UpdatedAt,
+    FileSortField::Size,
 ];
+
+pub const TIME_GROUP_MODES: &[GroupMode] = &[
+    GroupMode::None,
+    GroupMode::Time(TimeGroup::Day),
+    GroupMode::Time(TimeGroup::Month),
+    GroupMode::Time(TimeGroup::Year),
+];
+
+pub const SIZE_GROUP_MODES: &[GroupMode] = &[GroupMode::None, GroupMode::Size];
 
 pub const PRESET_ICONS: &[IconName] = &[
     IconName::File,
@@ -42,6 +52,26 @@ pub const PRESET_ICONS: &[IconName] = &[
     IconName::Check,
     IconName::Palette,
 ];
+
+pub fn sort_field_label(sort: FileSortField) -> &'static str {
+    match sort {
+        FileSortField::ContentCreatedAt => "文件创建时间",
+        FileSortField::ContentModifiedAt => "文件修改时间",
+        FileSortField::CreatedAt => "入库时间",
+        FileSortField::UpdatedAt => "更新时间",
+        FileSortField::Size => "文件大小",
+    }
+}
+
+pub fn group_mode_label(mode: GroupMode) -> &'static str {
+    match mode {
+        GroupMode::None => "无分组",
+        GroupMode::Time(TimeGroup::Day) => "每日",
+        GroupMode::Time(TimeGroup::Month) => "每月",
+        GroupMode::Time(TimeGroup::Year) => "每年",
+        GroupMode::Size => "按大小区间",
+    }
+}
 
 fn preset_macro_tags() -> Vec<MacroTag> {
     vec![
@@ -649,31 +679,106 @@ impl Render for CollectionConfigEditor {
                                             .text_sm()
                                             .font_medium()
                                             .text_color(theme.foreground)
+                                            .child("排序:"),
+                                    )
+                                    .child(
+                                        div()
+                                            .h_flex()
+                                            .items_center()
+                                            .gap_2()
+                                            .child(
+                                                Button::new("cfg-sort-dropdown")
+                                                    .small()
+                                                    .w(px(130.0))
+                                                    .label(sort_field_label(self.draft_config.sort_field))
+                                                    .dropdown_caret(true)
+                                                    .dropdown_menu({
+                                                        let editor = cx.entity().clone();
+                                                        let current_sort = self.draft_config.sort_field;
+                                                        move |menu, _window, _cx| {
+                                                            let mut m = menu;
+                                                            for &field in ALL_SORT_FIELDS {
+                                                                let editor = editor.clone();
+                                                                m = m.item(
+                                                                    PopupMenuItem::new(sort_field_label(field))
+                                                                        .checked(current_sort == field)
+                                                                        .on_click(move |_, _, cx| {
+                                                                            editor.update(cx, |this, cx| {
+                                                                                this.draft_config.sort_field = field;
+                                                                                if field == FileSortField::Size {
+                                                                                    if matches!(this.draft_config.group_mode, GroupMode::Time(_)) {
+                                                                                        this.draft_config.group_mode = GroupMode::Size;
+                                                                                    }
+                                                                                } else if this.draft_config.group_mode == GroupMode::Size {
+                                                                                    this.draft_config.group_mode = GroupMode::Time(TimeGroup::Day);
+                                                                                }
+                                                                                cx.emit(ConfigEditorEvent::DraftChanged);
+                                                                                cx.notify();
+                                                                            });
+                                                                        }),
+                                                                );
+                                                            }
+                                                            m
+                                                        }
+                                                    }),
+                                            )
+                                            .child(
+                                                Button::new("cfg-sort-direction")
+                                                    .small()
+                                                    .label(if self.draft_config.is_desc {
+                                                        "降序 ↓"
+                                                    } else {
+                                                        "升序 ↑"
+                                                    })
+                                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                                        this.draft_config.is_desc = !this.draft_config.is_desc;
+                                                        cx.emit(ConfigEditorEvent::DraftChanged);
+                                                        cx.notify();
+                                                    })),
+                                            ),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .h_flex()
+                                    .items_center()
+                                    .gap_3()
+                                    .child(
+                                        div()
+                                            .w(px(72.0))
+                                            .text_sm()
+                                            .font_medium()
+                                            .text_color(theme.foreground)
                                             .child("分组:"),
                                     )
                                     .child(
                                         Button::new("cfg-group-dropdown")
                                             .small()
-                                            .w(px(140.0))
-                                            .label(self.draft_config.group_by.label())
+                                            .w(px(130.0))
+                                            .label(group_mode_label(self.draft_config.group_mode))
                                             .dropdown_caret(true)
                                             .dropdown_menu({
                                                 let editor = cx.entity().clone();
-                                                let current_group = self.draft_config.group_by;
+                                                let current_mode = self.draft_config.group_mode;
+                                                let is_size = self.draft_config.sort_field == FileSortField::Size;
+                                                let options = if is_size {
+                                                    SIZE_GROUP_MODES
+                                                } else {
+                                                    TIME_GROUP_MODES
+                                                };
                                                 move |menu, _window, _cx| {
                                                     let mut m = menu;
-                                                    for &rule in ALL_GROUP_RULES {
-                                                        if rule == GroupRule::ContentCreatedAt {
+                                                    for &mode in options {
+                                                        if mode == GroupMode::Time(TimeGroup::Day) || mode == GroupMode::Size {
                                                             m = m.separator();
                                                         }
                                                         let editor = editor.clone();
                                                         m = m.item(
-                                                            PopupMenuItem::new(rule.label())
-                                                                .checked(current_group == rule)
+                                                            PopupMenuItem::new(group_mode_label(mode))
+                                                                .checked(current_mode == mode)
                                                                 .on_click(move |_, _, cx| {
                                                                     editor.update(cx, |this, cx| {
-                                                                        this.draft_config.group_by =
-                                                                            rule;
+                                                                        this.draft_config.group_mode = mode;
                                                                         cx.emit(
                                                                             ConfigEditorEvent::DraftChanged,
                                                                         );
