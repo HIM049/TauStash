@@ -1,6 +1,7 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants};
 use gpui_kit::component::input::{Enter, Escape, Input, InputEvent, InputState};
+use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::popover::Popover;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::*;
@@ -11,9 +12,17 @@ use crate::AppState;
 use crate::components::tag_chip::{TagChip, TagChipState};
 use crate::database::entities::collection::CollectionType;
 use crate::database::entities::{FileState, TagNamespace};
-use crate::services::collection::{CollectionConfig, ViewOption};
+use crate::services::collection::{CollectionConfig, GroupRule, ViewOption};
 use crate::services::macrotag::MacroTag;
 use crate::services::store::TagStore;
+
+pub const ALL_GROUP_RULES: &[GroupRule] = &[
+    GroupRule::None,
+    GroupRule::ContentCreatedAt,
+    GroupRule::ContentModifiedAt,
+    GroupRule::CreatedAt,
+    GroupRule::UpdatedAt,
+];
 
 pub const PRESET_ICONS: &[IconName] = &[
     IconName::File,
@@ -538,7 +547,7 @@ impl Render for CollectionConfigEditor {
                                     .gap_3()
                                     .child(
                                         div()
-                                            .w(px(96.0))
+                                            .w(px(72.0))
                                             .text_sm()
                                             .font_medium()
                                             .text_color(theme.foreground)
@@ -636,7 +645,56 @@ impl Render for CollectionConfigEditor {
                                     .gap_3()
                                     .child(
                                         div()
-                                            .w(px(96.0))
+                                            .w(px(72.0))
+                                            .text_sm()
+                                            .font_medium()
+                                            .text_color(theme.foreground)
+                                            .child("分组:"),
+                                    )
+                                    .child(
+                                        Button::new("cfg-group-dropdown")
+                                            .small()
+                                            .w(px(140.0))
+                                            .label(self.draft_config.group_by.label())
+                                            .dropdown_caret(true)
+                                            .dropdown_menu({
+                                                let editor = cx.entity().clone();
+                                                let current_group = self.draft_config.group_by;
+                                                move |menu, _window, _cx| {
+                                                    let mut m = menu;
+                                                    for &rule in ALL_GROUP_RULES {
+                                                        if rule == GroupRule::ContentCreatedAt {
+                                                            m = m.separator();
+                                                        }
+                                                        let editor = editor.clone();
+                                                        m = m.item(
+                                                            PopupMenuItem::new(rule.label())
+                                                                .checked(current_group == rule)
+                                                                .on_click(move |_, _, cx| {
+                                                                    editor.update(cx, |this, cx| {
+                                                                        this.draft_config.group_by =
+                                                                            rule;
+                                                                        cx.emit(
+                                                                            ConfigEditorEvent::DraftChanged,
+                                                                        );
+                                                                        cx.notify();
+                                                                    });
+                                                                }),
+                                                        );
+                                                    }
+                                                    m
+                                                }
+                                            }),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .h_flex()
+                                    .items_center()
+                                    .gap_3()
+                                    .child(
+                                        div()
+                                            .w(px(72.0))
                                             .text_sm()
                                             .font_medium()
                                             .text_color(theme.foreground)
@@ -644,7 +702,7 @@ impl Render for CollectionConfigEditor {
                                                 self.confirm_delete,
                                                 |this| this.child("确认删除:"),
                                                 |this| this.child("操作:"),
-                                            ), // .child("操作:"),
+                                            ),
                                     )
                                     .child(if !self.confirm_delete {
                                         Button::new("btn-delete-collection")
@@ -692,6 +750,7 @@ impl Render for CollectionConfigEditor {
                                     }),
                             ),
                     )
+
                     .child(
                         div()
                             .w_full()

@@ -18,7 +18,8 @@ use crate::components::tag_bar_filter::{TagFilterBar, TagFilterEvent};
 use crate::components::view_scaffold::ViewScaffold;
 use crate::database::entities::collection::{self, CollectionType};
 use crate::database::storage::collection as collection_store;
-use crate::services::collection::{CollectionConfig, ViewOption};
+use crate::database::storage::query::{FileSortField, SortDirection};
+use crate::services::collection::{CollectionConfig, GroupRule, ViewOption};
 use crate::services::file;
 use crate::services::importer;
 use crate::services::macrotag::{FileState, MacroTag};
@@ -95,7 +96,7 @@ impl GenericView {
                 })
         });
 
-        let content_view = cx.new(|cx| FilePoolView::new(config.view, window, cx));
+        let content_view = cx.new(|cx| FilePoolView::new(config.view, config.group_by, window, cx));
         cx.subscribe(
             &content_view,
             |this, _, event: &FileContentEvent, cx| match event {
@@ -303,11 +304,32 @@ impl GenericView {
             return;
         }
 
+        let group_by = if let BarMode::Configuring(ref editor) = self.bar_mode {
+            editor.read(cx).current_config().group_by
+        } else {
+            self.config.group_by
+        };
+
         let mts = MtagService::new().tags(&config_filters).tags(&filter_tags);
         cx.spawn(async move |this, cx| {
             let files_res = cx
                 .background_spawn(async move {
-                    let query = mts.build()?;
+                    let mut query = mts.build()?;
+                    match group_by {
+                        GroupRule::ContentCreatedAt => {
+                            query = query.sort(FileSortField::ContentCreatedAt, SortDirection::Desc);
+                        }
+                        GroupRule::ContentModifiedAt => {
+                            query = query.sort(FileSortField::ContentModifiedAt, SortDirection::Desc);
+                        }
+                        GroupRule::CreatedAt => {
+                            query = query.sort(FileSortField::CreatedAt, SortDirection::Desc);
+                        }
+                        GroupRule::UpdatedAt => {
+                            query = query.sort(FileSortField::UpdatedAt, SortDirection::Desc);
+                        }
+                        GroupRule::None => {}
+                    }
 
                     rt.block_on(file::list_files(&db, &query))
                 })
@@ -400,8 +422,12 @@ impl GenericView {
             &editor,
             |this, editor, event: &ConfigEditorEvent, cx| match event {
                 ConfigEditorEvent::DraftChanged => {
-                    let config = editor.read(cx).current_config().filters.clone();
-                    this.preview_filter_tags = Some(config);
+                    let draft_config = editor.read(cx).current_config().clone();
+                    this.preview_filter_tags = Some(draft_config.filters.clone());
+                    this.content_view.update(cx, |view, cx| {
+                        view.set_view_mode(draft_config.view, cx);
+                        view.set_group_rule(draft_config.group_by, cx);
+                    });
                     this.reload_files(cx);
                 }
                 ConfigEditorEvent::CancelRequested => {
@@ -483,6 +509,7 @@ impl GenericView {
         self.config = new_config.clone();
         self.content_view.update(cx, |view, cx| {
             view.set_view_mode(self.config.view, cx);
+            view.set_group_rule(self.config.group_by, cx);
         });
         self.bar_mode = BarMode::Normal;
         self.preview_filter_tags = None;
@@ -536,6 +563,10 @@ impl GenericView {
     pub fn cancel_configuration(&mut self, cx: &mut Context<Self>) {
         self.bar_mode = BarMode::Normal;
         self.preview_filter_tags = None;
+        self.content_view.update(cx, |view, cx| {
+            view.set_view_mode(self.config.view, cx);
+            view.set_group_rule(self.config.group_by, cx);
+        });
         self.reload_all(cx);
         cx.notify();
     }
@@ -761,6 +792,7 @@ impl Render for GenericView {
                 this.child(
                     div()
                         .w_full()
+                        .max_h(relative(0.5))
                         .flex_shrink_0()
                         .overflow_hidden()
                         .with_animation(

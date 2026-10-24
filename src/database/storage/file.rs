@@ -24,6 +24,9 @@ pub struct DbFileRecord {
     pub ext: Option<String>,
     pub state: FileState,
     pub content_created_at: Option<DateTimeUtc>,
+    pub content_modified_at: Option<DateTimeUtc>,
+    pub created_at: DateTimeUtc,
+    pub updated_at: DateTimeUtc,
 }
 
 /// Parameters for creating or updating a physical replica
@@ -364,6 +367,9 @@ pub async fn get_file_by_id(
         ext: f.ext,
         state: f.state,
         content_created_at: f.content_created_at,
+        content_modified_at: f.content_modified_at,
+        created_at: f.created_at,
+        updated_at: f.updated_at,
     }))
 }
 

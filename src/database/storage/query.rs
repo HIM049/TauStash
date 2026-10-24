@@ -36,7 +36,9 @@ pub enum TagCriterion {
 pub enum FileSortField {
     #[default]
     ContentCreatedAt,
+    ContentModifiedAt,
     CreatedAt,
+    UpdatedAt,
     Size,
 }
 
@@ -354,6 +356,9 @@ impl FileQueryer {
                     ext: f.ext,
                     state: f.state,
                     content_created_at: f.content_created_at,
+                    content_modified_at: f.content_modified_at,
+                    created_at: f.created_at,
+                    updated_at: f.updated_at,
                 })
             })
             .collect();
@@ -514,8 +519,10 @@ fn build_file_select(spec: &FileQueryer) -> sea_orm::Select<file::Entity> {
 
     // SORT
     let sort_col = match spec.sort_field {
-        FileSortField::CreatedAt => file::Column::CreatedAt,
         FileSortField::ContentCreatedAt => file::Column::ContentCreatedAt,
+        FileSortField::ContentModifiedAt => file::Column::ContentModifiedAt,
+        FileSortField::CreatedAt => file::Column::CreatedAt,
+        FileSortField::UpdatedAt => file::Column::UpdatedAt,
         FileSortField::Size => file::Column::Size,
     };
     query = match spec.sort_direction {

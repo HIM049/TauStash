@@ -11,7 +11,7 @@ use crate::components::grid_card::CardImage;
 use crate::components::item_grid_view::{CardItem, ItemGridView};
 use crate::components::item_list_view::ItemListView;
 use crate::components::utils;
-use crate::services::collection::ViewOption;
+use crate::services::collection::{GroupRule, ViewOption};
 use crate::services::file::FileInfo;
 
 impl CardItem for FileInfo {
@@ -37,16 +37,32 @@ impl CardItem for FileInfo {
     }
 }
 
-fn format_file_group_date(item: &FileInfo) -> (String, String) {
-    if let Some(dt) = item.content_created_at {
-        let date_str = dt
-            .with_timezone(&chrono::Local)
-            .format("%Y年%m月%d日")
-            .to_string();
-        (date_str.clone(), date_str)
-    } else {
-        ("other".to_string(), "其他分组".to_string())
+fn format_date(dt: Option<chrono::DateTime<chrono::Utc>>) -> (String, String) {
+    match dt {
+        Some(dt) => {
+            let local = dt.with_timezone(&chrono::Local);
+            let key = local.format("%Y-%m-%d").to_string();
+            let title = local.format("%Y年%m月%d日").to_string();
+            (key, title)
+        }
+        None => ("other".to_string(), "其他分组".to_string()),
     }
+}
+
+fn format_file_group_content_created(item: &FileInfo) -> (String, String) {
+    format_date(item.content_created_at)
+}
+
+fn format_file_group_content_modified(item: &FileInfo) -> (String, String) {
+    format_date(item.content_modified_at)
+}
+
+fn format_file_group_created(item: &FileInfo) -> (String, String) {
+    format_date(Some(item.created_at))
+}
+
+fn format_file_group_updated(item: &FileInfo) -> (String, String) {
+    format_date(Some(item.updated_at))
 }
 
 #[derive(Clone, Debug)]
@@ -59,6 +75,7 @@ pub enum FileContentEvent {
 pub struct FilePoolView {
     file_list: Vec<FileInfo>,
     view_mode: ViewOption,
+    group_rule: GroupRule,
     selected_files: HashSet<Uuid>,
     last_select: Option<Uuid>,
     cursor_id: Option<Uuid>,
@@ -72,13 +89,19 @@ pub struct FilePoolView {
 impl EventEmitter<FileContentEvent> for FilePoolView {}
 
 impl FilePoolView {
-    pub fn new(view_mode: ViewOption, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        view_mode: ViewOption,
+        group_rule: GroupRule,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let name_input = cx.new(|cx| InputState::new(window, cx));
         let focus_handle = cx.focus_handle();
 
         Self {
             file_list: vec![],
             view_mode,
+            group_rule,
             selected_files: HashSet::new(),
             last_select: None,
             cursor_id: None,
@@ -92,7 +115,7 @@ impl FilePoolView {
 
     pub fn set_files(&mut self, files: Vec<FileInfo>, cx: &mut Context<Self>) {
         self.editing_id = None;
-        self.file_list = files.into();
+        self.file_list = files;
         let valid_ids: HashSet<Uuid> = self.file_list.iter().map(|f| f.file_id).collect();
         let prev_count = self.selected_files.len();
         self.selected_files.retain(|id| valid_ids.contains(id));
@@ -114,6 +137,11 @@ impl FilePoolView {
 
     pub fn set_view_mode(&mut self, mode: ViewOption, cx: &mut Context<Self>) {
         self.view_mode = mode;
+        cx.notify();
+    }
+
+    pub fn set_group_rule(&mut self, rule: GroupRule, cx: &mut Context<Self>) {
+        self.group_rule = rule;
         cx.notify();
     }
 
@@ -387,55 +415,75 @@ impl Render for FilePoolView {
         let editing_id = self.editing_id;
         let name_input = self.name_input.clone();
 
+        let group_by_fn: Option<fn(&FileInfo) -> (String, String)> = match self.group_rule {
+            GroupRule::ContentCreatedAt => Some(format_file_group_content_created),
+            GroupRule::ContentModifiedAt => Some(format_file_group_content_modified),
+            GroupRule::CreatedAt => Some(format_file_group_created),
+            GroupRule::UpdatedAt => Some(format_file_group_updated),
+            GroupRule::None => None,
+        };
+
         let inner_view = match self.view_mode {
-            ViewOption::List => ItemListView::new("file-list", self.file_list.clone())
-                .group_by(format_file_group_date)
-                .selected_files(self.selected_files.clone())
-                .cursor_id(self.cursor_id)
-                .editing_id(editing_id)
-                .name_input(if editing_id.is_some() {
-                    Some(name_input.clone())
-                } else {
-                    None
-                })
-                .scroll_handle(&self.scroll_handle)
-                .empty_placeholder(self.empty_placeholder.clone())
-                .on_select(
-                    cx.processor(|this, (file_id, is_ctrl, is_shift), window, cx| {
-                        this.handle_file_select(file_id, is_ctrl, is_shift, window, cx);
-                    }),
-                )
-                .on_secondary_select(cx.processor(|this, file_id, window, cx| {
-                    this.handle_secondary_select(file_id, window, cx);
-                }))
-                .on_open(|path, _, _| {
-                    utils::open_path(path);
-                })
-                .into_any_element(),
-            ViewOption::Grid => ItemGridView::new("file-grid", self.file_list.clone())
-                .selected_ids(self.selected_files.clone())
-                .cursor_id(self.cursor_id)
-                .editing_id(editing_id)
-                .name_input(if editing_id.is_some() {
-                    Some(name_input.clone())
-                } else {
-                    None
-                })
-                .group_by(format_file_group_date)
-                .scroll_handle(&self.scroll_handle)
-                .empty_placeholder(self.empty_placeholder.clone())
-                .on_select(
-                    cx.processor(|this, (file_id, is_ctrl, is_shift), window, cx| {
-                        this.handle_file_select(file_id, is_ctrl, is_shift, window, cx);
-                    }),
-                )
-                .on_secondary_select(cx.processor(|this, file_id, window, cx| {
-                    this.handle_secondary_select(file_id, window, cx);
-                }))
-                .on_open(|file, _, _| {
-                    utils::open_path(&file.path);
-                })
-                .into_any_element(),
+            ViewOption::List => {
+                let mut list = ItemListView::new("file-list", self.file_list.clone())
+                    .selected_files(self.selected_files.clone())
+                    .cursor_id(self.cursor_id)
+                    .editing_id(editing_id)
+                    .name_input(if editing_id.is_some() {
+                        Some(name_input.clone())
+                    } else {
+                        None
+                    })
+                    .scroll_handle(&self.scroll_handle)
+                    .empty_placeholder(self.empty_placeholder.clone())
+                    .on_select(
+                        cx.processor(|this, (file_id, is_ctrl, is_shift), window, cx| {
+                            this.handle_file_select(file_id, is_ctrl, is_shift, window, cx);
+                        }),
+                    )
+                    .on_secondary_select(cx.processor(|this, file_id, window, cx| {
+                        this.handle_secondary_select(file_id, window, cx);
+                    }))
+                    .on_open(|path, _, _| {
+                        utils::open_path(path);
+                    });
+
+                if let Some(key_fn) = group_by_fn {
+                    list = list.group_by(key_fn);
+                }
+
+                list.into_any_element()
+            }
+            ViewOption::Grid => {
+                let mut grid = ItemGridView::new("file-grid", self.file_list.clone())
+                    .selected_ids(self.selected_files.clone())
+                    .cursor_id(self.cursor_id)
+                    .editing_id(editing_id)
+                    .name_input(if editing_id.is_some() {
+                        Some(name_input.clone())
+                    } else {
+                        None
+                    })
+                    .scroll_handle(&self.scroll_handle)
+                    .empty_placeholder(self.empty_placeholder.clone())
+                    .on_select(
+                        cx.processor(|this, (file_id, is_ctrl, is_shift), window, cx| {
+                            this.handle_file_select(file_id, is_ctrl, is_shift, window, cx);
+                        }),
+                    )
+                    .on_secondary_select(cx.processor(|this, file_id, window, cx| {
+                        this.handle_secondary_select(file_id, window, cx);
+                    }))
+                    .on_open(|file, _, _| {
+                        utils::open_path(&file.path);
+                    });
+
+                if let Some(key_fn) = group_by_fn {
+                    grid = grid.group_by(key_fn);
+                }
+
+                grid.into_any_element()
+            }
         };
 
         div()

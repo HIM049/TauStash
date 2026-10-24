@@ -20,6 +20,9 @@ pub struct FileInfo {
     pub tags: Vec<MacroTag>,
     pub state: FileState,
     pub content_created_at: Option<DateTime<Utc>>,
+    pub content_modified_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 impl FileInfo {
@@ -65,6 +68,9 @@ pub async fn get_file_detail(db: &DatabaseConnection, file_id: Uuid) -> Result<O
         tags,
         state: record.state,
         content_created_at: record.content_created_at,
+        content_modified_at: record.content_modified_at,
+        created_at: record.created_at,
+        updated_at: record.updated_at,
     }))
 }
 
@@ -95,6 +101,9 @@ pub async fn list_files(db: &DatabaseConnection, query: &FileQueryer) -> Result<
                 tags,
                 state: r.state,
                 content_created_at: r.content_created_at,
+                content_modified_at: r.content_modified_at,
+                created_at: r.created_at,
+                updated_at: r.updated_at,
             }
         })
         .collect();

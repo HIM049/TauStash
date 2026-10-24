@@ -33,9 +33,22 @@ impl Default for CandidateTagRule {
 pub enum GroupRule {
     #[default]
     None,
-    CreateTime,
-    UpdateTime,
-    Size,
+    ContentCreatedAt,
+    ContentModifiedAt,
+    CreatedAt,
+    UpdatedAt,
+}
+
+impl GroupRule {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::None => "无",
+            Self::ContentCreatedAt => "文件创建时间",
+            Self::ContentModifiedAt => "文件修改时间",
+            Self::CreatedAt => "入库时间",
+            Self::UpdatedAt => "更新时间",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]

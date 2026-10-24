@@ -422,6 +422,7 @@ impl Render for TagBatchEditor {
                     .h_flex()
                     .items_center()
                     .gap_1()
+                    .pr_6()
                     .flex_shrink_0()
                     // .child(
                     //     Button::new("cancel-batch-btn")
