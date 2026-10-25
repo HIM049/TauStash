@@ -665,6 +665,30 @@ impl Render for CollectionConfigEditor {
                                                             cx.notify();
                                                         },
                                                     )),
+                                            )
+                                            .child(
+                                                Button::new("cfg-view-gallery")
+                                                    .icon(IconName::Image)
+                                                    .small()
+                                                    .label("画廊")
+                                                    .when(
+                                                        self.draft_config.view == ViewOption::Gallery,
+                                                        |b| b.secondary(),
+                                                    )
+                                                    .when(
+                                                        self.draft_config.view != ViewOption::Gallery,
+                                                        |b| b.ghost(),
+                                                    )
+                                                    .on_click(cx.listener(
+                                                        |this, _, _window, cx| {
+                                                            this.draft_config.view =
+                                                                ViewOption::Gallery;
+                                                            cx.emit(
+                                                                ConfigEditorEvent::DraftChanged,
+                                                            );
+                                                            cx.notify();
+                                                        },
+                                                    )),
                                             ),
                                     ),
                             )

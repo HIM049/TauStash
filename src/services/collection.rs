@@ -53,6 +53,7 @@ pub enum ViewOption {
     #[default]
     Grid,
     List,
+    Gallery,
 }
 
 /// for the paramters only need when open
@@ -64,7 +65,7 @@ pub struct CollectionConfig {
     pub sort_field: FileSortField,
     #[serde(default = "default_true")]
     pub is_desc: bool,
-    #[serde(default, alias = "group_granularity")]
+    #[serde(default)]
     pub group_mode: GroupMode,
     pub is_hide_tagbar: bool,
     #[serde(default)]

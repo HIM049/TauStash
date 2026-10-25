@@ -58,8 +58,8 @@ impl ItemListView {
         }
     }
 
-    pub fn group_by(mut self, group_by: Box<dyn Fn(&FileInfo) -> (String, String)>) -> Self {
-        self.group_by = Some(group_by);
+    pub fn group_by(mut self, group_by: impl Fn(&FileInfo) -> (String, String) + 'static) -> Self {
+        self.group_by = Some(Box::new(group_by));
         self
     }
 
@@ -332,7 +332,7 @@ impl RenderOnce for ItemListView {
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
                                     .text_right()
-                                    .child(format_file_size(item.size)),
+                                    .child(format_file_size(item.meta.size)),
                             )
                             .when_some(sec_select, |this, on_sec| {
                                 this.on_mouse_down(MouseButton::Right, move |_, window, cx| {

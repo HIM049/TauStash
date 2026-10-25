@@ -250,8 +250,8 @@ impl GenericView {
 
     pub fn toggle_view(&mut self, cx: &mut Context<Self>) {
         self.config.view = match self.config.view {
-            ViewOption::Grid => ViewOption::List,
             ViewOption::List => ViewOption::Grid,
+            _ => ViewOption::List,
         };
         self.content_view.update(cx, |view, cx| {
             view.set_view_mode(self.config.view, cx);
@@ -427,11 +427,7 @@ impl GenericView {
                     this.preview_filter_tags = Some(draft_config.filters.clone());
                     this.content_view.update(cx, |view, cx| {
                         view.set_view_mode(draft_config.view, cx);
-                        view.set_grouping(
-                            draft_config.sort_field,
-                            draft_config.group_mode,
-                            cx,
-                        );
+                        view.set_grouping(draft_config.sort_field, draft_config.group_mode, cx);
                     });
                     this.reload_files(cx);
                 }

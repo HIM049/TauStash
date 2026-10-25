@@ -6,6 +6,12 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
+use crate::components::item_grid_view::GroupCalc;
+use crate::database::entities::collection;
+use crate::database::storage::query::FileSortField;
+use crate::services::collection::GroupMode;
+use crate::services::{FileInfo, OrderMeta};
+
 pub type FileCardClickListener = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 pub type FileCardActionHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 
@@ -18,7 +24,7 @@ pub enum CardImage {
     },
 }
 
-#[derive(IntoElement)]
+#[derive(Clone, IntoElement)]
 pub struct GridCard {
     id: ElementId,
     title: SharedString,
@@ -30,10 +36,16 @@ pub struct GridCard {
     on_click: Option<FileCardClickListener>,
     on_double_click: Option<FileCardClickListener>,
     on_secondary_click: Option<FileCardActionHandler>,
+    meta: Option<OrderMeta>,
 }
 
 impl GridCard {
-    pub fn new(id: impl Into<ElementId>, title: impl Into<SharedString>, image: CardImage) -> Self {
+    pub fn new(
+        id: impl Into<ElementId>,
+        title: impl Into<SharedString>,
+        image: CardImage,
+        meta: Option<OrderMeta>,
+    ) -> Self {
         Self {
             id: id.into(),
             title: title.into(),
@@ -45,6 +57,7 @@ impl GridCard {
             on_click: None,
             on_double_click: None,
             on_secondary_click: None,
+            meta,
         }
     }
 
@@ -90,6 +103,56 @@ impl GridCard {
     ) -> Self {
         self.on_secondary_click = Some(Rc::new(listener));
         self
+    }
+}
+
+impl From<&FileInfo> for GridCard {
+    fn from(file: &FileInfo) -> Self {
+        let image = if file.mime.starts_with("image/") {
+            let p = crate::services::thumbnail::get_thumbnail_path(&file.hash);
+            CardImage::Image(p)
+        } else {
+            let ext = file.ext.as_deref().unwrap_or("FILE");
+            CardImage::Icon {
+                name: IconName::File.path(),
+                label: Some(ext.into()),
+            }
+        };
+
+        Self::new(
+            file.file_id,
+            file.file_name.clone(),
+            image,
+            Some(file.meta.clone()),
+        )
+    }
+}
+
+impl From<&collection::Model> for GridCard {
+    fn from(folder: &collection::Model) -> Self {
+        let image = if !folder.cover.is_empty() {
+            CardImage::Image(PathBuf::from(&folder.cover))
+        } else {
+            CardImage::Icon {
+                name: folder.icon.clone().into(),
+                label: None,
+            }
+        };
+
+        Self::new(folder.id, folder.name.clone(), image, None)
+    }
+}
+
+impl GroupCalc for GridCard {
+    fn group_calc(
+        &self,
+        sort_field: FileSortField,
+        group_mode: GroupMode,
+    ) -> Option<(String, String)> {
+        self.meta
+            .as_ref()
+            .map(|m| m.calc_group(sort_field, group_mode))
+            .flatten()
     }
 }
 

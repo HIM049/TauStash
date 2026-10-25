@@ -4,8 +4,102 @@ use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
 use crate::database::entities::FileState;
+use crate::database::storage::file::DbFileRecord;
+use crate::database::storage::query::FileSortField;
 use crate::database::storage::{self, query::FileQueryer};
+use crate::services::collection::{GroupMode, TimeGroup};
 use crate::services::macrotag::MacroTag;
+
+#[derive(Clone, Debug, Default)]
+pub struct OrderMeta {
+    pub content_created_at: Option<DateTime<Utc>>,
+    pub content_modified_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub size: i64,
+}
+
+impl OrderMeta {
+    pub fn calc_group(
+        &self,
+        sort_field: FileSortField,
+        group_mode: GroupMode,
+    ) -> Option<(String, String)> {
+        match group_mode {
+            GroupMode::None => None,
+            GroupMode::Size => Some(format_size_group(self.size)),
+            GroupMode::Time(group) => match sort_field {
+                FileSortField::ContentCreatedAt => {
+                    Some(format_date_group(self.content_created_at, group))
+                }
+                FileSortField::ContentModifiedAt => {
+                    Some(format_date_group(self.content_modified_at, group))
+                }
+                FileSortField::CreatedAt => Some(format_date_group(Some(self.created_at), group)),
+                FileSortField::UpdatedAt => Some(format_date_group(Some(self.updated_at), group)),
+                FileSortField::Size => Some(format_size_group(self.size)),
+            },
+        }
+    }
+}
+
+impl From<&DbFileRecord> for OrderMeta {
+    fn from(r: &DbFileRecord) -> Self {
+        Self {
+            content_created_at: r.content_created_at,
+            content_modified_at: r.content_modified_at,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+            size: r.size,
+        }
+    }
+}
+
+fn format_date_group(dt: Option<DateTime<Utc>>, group: TimeGroup) -> (String, String) {
+    match dt {
+        Some(dt) => {
+            let local = dt.with_timezone(&chrono::Local);
+            match group {
+                TimeGroup::Day => {
+                    let key = local.format("%Y-%m-%d").to_string();
+                    let title = local.format("%Y年%m月%d日").to_string();
+                    (key, title)
+                }
+                TimeGroup::Month => {
+                    let key = local.format("%Y-%m").to_string();
+                    let title = local.format("%Y年%m月").to_string();
+                    (key, title)
+                }
+                TimeGroup::Year => {
+                    let key = local.format("%Y").to_string();
+                    let title = local.format("%Y年").to_string();
+                    (key, title)
+                }
+            }
+        }
+        None => ("other".to_string(), "其他分组".to_string()),
+    }
+}
+
+fn format_size_group(size: i64) -> (String, String) {
+    if size >= 1024 * 1024 * 1024 {
+        ("0_gt_1gb".to_string(), "超大文件 (> 1GB)".to_string())
+    } else if size >= 100 * 1024 * 1024 {
+        (
+            "1_100mb_1gb".to_string(),
+            "大文件 (100MB - 1GB)".to_string(),
+        )
+    } else if size >= 10 * 1024 * 1024 {
+        (
+            "2_10mb_100mb".to_string(),
+            "中等文件 (10MB - 100MB)".to_string(),
+        )
+    } else if size >= 1024 * 1024 {
+        ("3_1mb_10mb".to_string(), "小文件 (1MB - 10MB)".to_string())
+    } else {
+        ("4_lt_1mb".to_string(), "微型文件 (< 1MB)".to_string())
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct FileInfo {
@@ -13,19 +107,31 @@ pub struct FileInfo {
     pub path: String,
     pub file_name: String,
     pub hash: String,
-    pub size: i64,
     pub mime: String,
     pub ext: Option<String>,
     pub is_duplicate: bool,
     pub tags: Vec<MacroTag>,
     pub state: FileState,
-    pub content_created_at: Option<DateTime<Utc>>,
-    pub content_modified_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub meta: OrderMeta,
 }
 
 impl FileInfo {
+    pub fn from_query(record: DbFileRecord, tags: Vec<MacroTag>) -> Self {
+        let meta = OrderMeta::from(&record);
+        Self {
+            file_id: record.file_id,
+            path: record.path,
+            file_name: record.file_name,
+            hash: record.hash,
+            mime: record.mime,
+            ext: record.ext,
+            is_duplicate: false,
+            tags,
+            state: record.state,
+            meta,
+        }
+    }
+
     pub fn has_tag(&self, tag: &MacroTag) -> bool {
         match tag {
             MacroTag::State(s) => self.state == *s,
@@ -56,22 +162,7 @@ pub async fn get_file_detail(db: &DatabaseConnection, file_id: Uuid) -> Result<O
         .map(|t| MacroTag::Standard(t.into()))
         .collect();
 
-    Ok(Some(FileInfo {
-        file_id: record.file_id,
-        path: record.path,
-        file_name: record.file_name,
-        hash: record.hash,
-        size: record.size,
-        mime: record.mime,
-        ext: record.ext,
-        is_duplicate: false,
-        tags,
-        state: record.state,
-        content_created_at: record.content_created_at,
-        content_modified_at: record.content_modified_at,
-        created_at: record.created_at,
-        updated_at: record.updated_at,
-    }))
+    Ok(Some(FileInfo::from_query(record, tags)))
 }
 
 /// List files filtered by query from database
@@ -82,29 +173,15 @@ pub async fn list_files(db: &DatabaseConnection, query: &FileQueryer) -> Result<
 
     let result = records
         .into_iter()
-        .map(|r| {
+        .map(|r: DbFileRecord| {
             let tags: Vec<MacroTag> = tags_by_file
                 .remove(&r.file_id)
                 .unwrap_or_default()
                 .into_iter()
                 .map(|t| MacroTag::Standard(t.into()))
                 .collect();
-            FileInfo {
-                file_id: r.file_id,
-                path: r.path,
-                file_name: r.file_name,
-                hash: r.hash,
-                size: r.size,
-                mime: r.mime,
-                ext: r.ext,
-                is_duplicate: false,
-                tags,
-                state: r.state,
-                content_created_at: r.content_created_at,
-                content_modified_at: r.content_modified_at,
-                created_at: r.created_at,
-                updated_at: r.updated_at,
-            }
+
+            FileInfo::from_query(r, tags)
         })
         .collect();
 

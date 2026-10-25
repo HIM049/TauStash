@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::path::PathBuf;
 
 use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Enter, Escape, InputState};
@@ -9,32 +8,11 @@ use gpui_kit::*;
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::components::grid_card::CardImage;
-use crate::components::item_grid_view::{CardItem, ItemGridView};
+use crate::components::grid_card::GridCard;
+use crate::components::item_grid_view::ItemGridView;
 use crate::components::view_scaffold::ViewScaffold;
 use crate::database::entities::collection;
 use crate::views::generic_view::GenericView;
-
-impl CardItem for collection::Model {
-    fn card_id(&self) -> Uuid {
-        self.id
-    }
-
-    fn card_title(&self) -> SharedString {
-        SharedString::new(self.name.as_str())
-    }
-
-    fn card_image(&self) -> CardImage {
-        if !self.cover.is_empty() {
-            CardImage::Image(PathBuf::from(&self.cover))
-        } else {
-            CardImage::Icon {
-                name: self.icon.clone().into(),
-                label: None,
-            }
-        }
-    }
-}
 
 const DEFAULT_FOLDER_NAME: &str = "未命名合集";
 
@@ -404,32 +382,69 @@ impl Render for CollectionExplorerView {
                                 this.start_create(window, cx);
                             })),
                     ])
-                    .child(
+                    .child({
+                        let selected = self.selected.clone();
+                        let cursor_id = self.cursor_id;
+                        let editing_id = self.editing_id;
+                        let name_input = self.name_input.clone();
+                        let entity = cx.entity().clone();
+
+                        let cards: Vec<GridCard> = self
+                            .folders
+                            .iter()
+                            .map(|folder| {
+                                let id = folder.id;
+                                let is_selected = selected.contains(&id);
+                                let is_cursor = cursor_id == Some(id);
+                                let is_editing = editing_id == Some(id);
+
+                                let cell_entity = entity.clone();
+                                let sec_entity = entity.clone();
+                                let dbl_entity = entity.clone();
+                                let dbl_folder = folder.clone();
+
+                                GridCard::from(folder)
+                                    .selected(is_selected)
+                                    .cursor(is_cursor)
+                                    .editing(is_editing)
+                                    .input(if is_editing {
+                                        Some(name_input.clone())
+                                    } else {
+                                        None
+                                    })
+                                    .on_click(move |_, window, cx| {
+                                        cx.stop_propagation();
+                                        if is_editing {
+                                            return;
+                                        }
+                                        let modifiers = window.modifiers();
+                                        let is_ctrl = modifiers.control || modifiers.platform;
+                                        let is_shift = modifiers.shift;
+
+                                        cell_entity.update(cx, |this, cx| {
+                                            this.handle_select(id, is_ctrl, is_shift, cx);
+                                        });
+                                    })
+                                    .on_double_click(move |_, window, cx| {
+                                        cx.stop_propagation();
+                                        dbl_entity.update(cx, |this, cx| {
+                                            this.open_collection(&dbl_folder, window, cx);
+                                        });
+                                    })
+                                    .on_secondary_click(move |_window, cx| {
+                                        sec_entity.update(cx, |this, cx| {
+                                            this.handle_secondary_click(id, cx);
+                                        });
+                                    })
+                            })
+                            .collect();
+
                         div().size_full().pl_6().child(
-                            ItemGridView::new("collection-grid", self.folders.clone())
-                                .selected_ids(self.selected.clone())
-                                .cursor_id(self.cursor_id)
-                                .editing_id(self.editing_id)
-                                .name_input(if self.editing_id.is_some() {
-                                    Some(self.name_input.clone())
-                                } else {
-                                    None
-                                })
+                            ItemGridView::new("collection-grid", cards)
                                 .scroll_handle(&self.scroll_handle)
-                                .empty_placeholder("暂无合集")
-                                .on_select(cx.processor(
-                                    |this, (id, is_ctrl, is_shift), _window, cx| {
-                                        this.handle_select(id, is_ctrl, is_shift, cx);
-                                    },
-                                ))
-                                .on_open(cx.processor(|this, folder, window, cx| {
-                                    this.open_collection(&folder, window, cx);
-                                }))
-                                .on_secondary_select(cx.processor(|this, id, _window, cx| {
-                                    this.handle_secondary_click(id, cx);
-                                })),
-                        ),
-                    )
+                                .empty_placeholder("暂无合集"),
+                        )
+                    })
                     .on_click(cx.listener(|this, _, window, cx| {
                         if this.editing_id.is_some() {
                             this.commit_edit(window, cx);

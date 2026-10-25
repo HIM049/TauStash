@@ -1,25 +1,21 @@
-use std::collections::HashSet;
 use std::rc::Rc;
 
 use gpui::list;
-use gpui_kit::component::input::InputState;
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::*;
 use gpui_kit::*;
-use uuid::Uuid;
 
 use crate::components;
-use crate::components::grid_card::{CardImage, GridCard};
+use crate::database::storage::query::FileSortField;
+use crate::services::collection::GroupMode;
 
-pub trait CardItem: 'static + Clone {
-    fn card_id(&self) -> Uuid;
-    fn card_title(&self) -> SharedString;
-    fn card_image(&self) -> CardImage;
+pub trait GroupCalc {
+    fn group_calc(
+        &self,
+        sort_field: FileSortField,
+        group_mode: GroupMode,
+    ) -> Option<(String, String)>;
 }
-
-pub type GridSelectListener = Rc<dyn Fn((Uuid, bool, bool), &mut Window, &mut App) + 'static>;
-pub type GridActionHandler = Rc<dyn Fn(Uuid, &mut Window, &mut App) + 'static>;
-pub type GridOpenHandler<T> = Rc<dyn Fn(T, &mut Window, &mut App) + 'static>;
 
 #[derive(Clone)]
 enum GridVirtualRow {
@@ -32,86 +28,36 @@ struct GridListState {
     count: usize,
 }
 
-pub struct ItemGridView<T: CardItem> {
+pub struct ItemGridView<T: GroupCalc + IntoElement + Clone + 'static> {
     id: ElementId,
     items: Vec<T>,
-    selected_ids: HashSet<Uuid>,
-    cursor_id: Option<Uuid>,
-    editing_id: Option<Uuid>,
-    name_input: Option<Entity<InputState>>,
     card_slot_width: f32,
     row_height: f32,
+    gap: Pixels,
     scroll_handle: UniformListScrollHandle,
     empty_placeholder: SharedString,
-    group_by: Option<Box<dyn Fn(&T) -> (String, String)>>,
-    on_select: Option<GridSelectListener>,
-    on_secondary_select: Option<GridActionHandler>,
-    on_open: Option<GridOpenHandler<T>>,
+    sort_field: FileSortField,
+    group_mode: GroupMode,
 }
 
-impl<T: CardItem> ItemGridView<T> {
+impl<T: GroupCalc + IntoElement + Clone + 'static> ItemGridView<T> {
     pub fn new(id: impl Into<ElementId>, items: Vec<T>) -> Self {
         Self {
             id: id.into(),
             items,
-            selected_ids: HashSet::new(),
-            cursor_id: None,
-            editing_id: None,
-            name_input: None,
             card_slot_width: 142.0,
             row_height: 154.0,
+            gap: px(2.0),
             scroll_handle: UniformListScrollHandle::new(),
             empty_placeholder: "暂无内容".into(),
-            group_by: None,
-            on_select: None,
-            on_secondary_select: None,
-            on_open: None,
+            sort_field: FileSortField::default(),
+            group_mode: GroupMode::default(),
         }
     }
 
-    pub fn selected_ids(mut self, selected_ids: HashSet<Uuid>) -> Self {
-        self.selected_ids = selected_ids;
-        self
-    }
-
-    pub fn cursor_id(mut self, cursor_id: Option<Uuid>) -> Self {
-        self.cursor_id = cursor_id;
-        self
-    }
-
-    pub fn editing_id(mut self, editing_id: Option<Uuid>) -> Self {
-        self.editing_id = editing_id;
-        self
-    }
-
-    pub fn name_input(mut self, name_input: Option<Entity<InputState>>) -> Self {
-        self.name_input = name_input;
-        self
-    }
-
-    pub fn group_by(mut self, group_by: Box<dyn Fn(&T) -> (String, String)>) -> Self {
-        self.group_by = Some(group_by);
-        self
-    }
-
-    pub fn on_select(
-        mut self,
-        listener: impl Fn((Uuid, bool, bool), &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.on_select = Some(Rc::new(listener));
-        self
-    }
-
-    pub fn on_secondary_select(
-        mut self,
-        listener: impl Fn(Uuid, &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.on_secondary_select = Some(Rc::new(listener));
-        self
-    }
-
-    pub fn on_open(mut self, listener: impl Fn(T, &mut Window, &mut App) + 'static) -> Self {
-        self.on_open = Some(Rc::new(listener));
+    pub fn slot_size(mut self, width: f32, height: f32) -> Self {
+        self.card_slot_width = width;
+        self.row_height = height;
         self
     }
 
@@ -122,6 +68,21 @@ impl<T: CardItem> ItemGridView<T> {
 
     pub fn row_height(mut self, height: f32) -> Self {
         self.row_height = height;
+        self
+    }
+
+    pub fn gap(mut self, gap: Pixels) -> Self {
+        self.gap = gap;
+        self
+    }
+
+    pub fn sort_field(mut self, sort_field: FileSortField) -> Self {
+        self.sort_field = sort_field;
+        self
+    }
+
+    pub fn group_mode(mut self, group_mode: GroupMode) -> Self {
+        self.group_mode = group_mode;
         self
     }
 
@@ -136,7 +97,7 @@ impl<T: CardItem> ItemGridView<T> {
     }
 }
 
-impl<T: CardItem> IntoElement for ItemGridView<T> {
+impl<T: GroupCalc + IntoElement + Clone + 'static> IntoElement for ItemGridView<T> {
     type Element = Self;
 
     fn into_element(self) -> Self::Element {
@@ -144,7 +105,7 @@ impl<T: CardItem> IntoElement for ItemGridView<T> {
     }
 }
 
-impl<T: CardItem> Element for ItemGridView<T> {
+impl<T: GroupCalc + IntoElement + Clone + 'static> Element for ItemGridView<T> {
     type RequestLayoutState = ();
     type PrepaintState = Option<AnyElement>;
 
@@ -201,6 +162,7 @@ impl<T: CardItem> Element for ItemGridView<T> {
 
         let slot = self.card_slot_width;
         let row_h = self.row_height;
+        let gap = self.gap;
         let available = (bounds.size.width.as_f32() - 16.0).max(slot);
         let cols = ((available / slot) as usize).max(1);
         let total = self.items.len();
@@ -210,9 +172,11 @@ impl<T: CardItem> Element for ItemGridView<T> {
         let single_screen_items = cols * (visible_rows + 4);
         let cache_capacity = (single_screen_items * 3).max(100);
 
-        let virtual_rows: Vec<GridVirtualRow> = if let Some(key_fn) = self.group_by.as_ref() {
-            let mut rows = Vec::new();
+        let sort_field = self.sort_field;
+        let group_mode = self.group_mode;
 
+        let virtual_rows: Vec<GridVirtualRow> = if group_mode != GroupMode::None {
+            let mut rows = Vec::new();
             let mut gid: Option<String> = None;
             let mut gtitle = String::new();
             let mut start = 0;
@@ -230,30 +194,39 @@ impl<T: CardItem> Element for ItemGridView<T> {
                 }
             };
 
+            let mut has_grouped = false;
             for (i, item) in self.items.iter().enumerate() {
-                let (id, title) = key_fn(item);
+                if let Some((id, title)) = item.group_calc(sort_field, group_mode) {
+                    has_grouped = true;
+                    if gid.is_none() {
+                        gid = Some(id.clone());
+                        gtitle = title.clone();
+                        start = i;
+                    }
 
-                if gid.is_none() {
-                    gid = Some(id.clone());
-                    gtitle = title.clone();
+                    if id == *gid.as_ref().unwrap() {
+                        continue;
+                    }
+
+                    push_group(&gtitle, start, i);
+                    gid = Some(id);
+                    gtitle = title;
                     start = i;
                 }
-
-                if id == *gid.as_ref().unwrap() {
-                    continue;
-                }
-
-                push_group(&gtitle, start, i);
-
-                gid = Some(id);
-                gtitle = title;
-                start = i;
             }
 
-            if gid.is_some() {
-                push_group(&gtitle, start, self.items.len());
+            if has_grouped && gid.is_some() {
+                push_group(&gtitle, start, total);
+                rows
+            } else {
+                (0..rows_count)
+                    .map(|row| {
+                        let start = row * cols;
+                        let end = (start + cols).min(total);
+                        GridVirtualRow::CardRow { start, end }
+                    })
+                    .collect()
             }
-            rows
         } else {
             (0..rows_count)
                 .map(|row| {
@@ -280,14 +253,6 @@ impl<T: CardItem> Element for ItemGridView<T> {
                 s.count = rows_total;
             });
         }
-
-        let selected_ids = self.selected_ids.clone();
-        let cursor_id = self.cursor_id;
-        let editing_id = self.editing_id;
-        let name_input = self.name_input.clone();
-        let on_select = self.on_select.clone();
-        let on_secondary_select = self.on_secondary_select.clone();
-        let on_open = self.on_open.clone();
 
         let items = std::mem::take(&mut self.items);
         let cache_id = format!("{}-image-cache", self.id);
@@ -323,58 +288,13 @@ impl<T: CardItem> Element for ItemGridView<T> {
                                     let mut cells: Vec<AnyElement> =
                                         Vec::with_capacity(end - start);
                                     for idx in *start..*end {
-                                        let item = &items[idx];
-                                        let id = item.card_id();
-                                        let is_selected = selected_ids.contains(&id);
-                                        let is_cursor = cursor_id == Some(id);
-                                        let is_editing = editing_id == Some(id);
-
-                                        let select = on_select.clone();
-                                        let sec_select = on_secondary_select.clone();
-                                        let open = on_open.clone();
-                                        let item_clone = item.clone();
-
-                                        let card = GridCard::new(
-                                            item.card_id(),
-                                            item.card_title(),
-                                            item.card_image(),
-                                        )
-                                        .selected(is_selected)
-                                        .cursor(is_cursor)
-                                        .editing(is_editing)
-                                        .input(if is_editing { name_input.clone() } else { None })
-                                        .on_click(move |_, window, cx| {
-                                            cx.stop_propagation();
-                                            if is_editing {
-                                                return;
-                                            }
-                                            if let Some(ref select) = select {
-                                                let modifiers = window.modifiers();
-                                                let is_ctrl =
-                                                    modifiers.control || modifiers.platform;
-                                                let is_shift = modifiers.shift;
-                                                select((id, is_ctrl, is_shift), window, cx);
-                                            }
-                                        })
-                                        .on_double_click(move |_, window, cx| {
-                                            cx.stop_propagation();
-                                            if let Some(ref dbl) = open {
-                                                dbl(item_clone.clone(), window, cx);
-                                            }
-                                        })
-                                        .on_secondary_click(move |window, cx| {
-                                            if let Some(ref sec) = sec_select {
-                                                sec(id, window, cx);
-                                            }
-                                        });
-
-                                        cells.push(card.into_any_element());
+                                        cells.push(items[idx].clone().into_any_element());
                                     }
 
                                     div()
-                                        .h(px(row_h))
+                                        .pb(gap)
                                         .h_flex()
-                                        .gap_1()
+                                        .gap(gap)
                                         .children(cells)
                                         .into_any_element()
                                 }

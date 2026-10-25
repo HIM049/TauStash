@@ -1,122 +1,20 @@
 use std::collections::HashSet;
 
 use gpui_kit::assets::IconName;
-use gpui_kit::component::input::{Enter, Escape, InputState};
+use gpui_kit::component::input::InputState;
 use gpui_kit::component::menu::{ContextMenuExt, PopupMenu, PopupMenuItem};
 use gpui_kit::*;
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::components::grid_card::CardImage;
-use crate::components::item_grid_view::{CardItem, ItemGridView};
+use crate::components::gallery_card::GalleryCard;
+use crate::components::grid_card::GridCard;
+use crate::components::item_grid_view::ItemGridView;
 use crate::components::item_list_view::ItemListView;
 use crate::components::utils;
 use crate::database::storage::query::FileSortField;
-use crate::services::collection::{GroupMode, TimeGroup, ViewOption};
+use crate::services::collection::{GroupMode, ViewOption};
 use crate::services::file::FileInfo;
-
-impl CardItem for FileInfo {
-    fn card_id(&self) -> Uuid {
-        self.file_id
-    }
-
-    fn card_title(&self) -> SharedString {
-        SharedString::new(self.file_name.as_str())
-    }
-
-    fn card_image(&self) -> CardImage {
-        if self.mime.starts_with("image/") {
-            let p = crate::services::thumbnail::get_thumbnail_path(&self.hash);
-            CardImage::Image(p)
-        } else {
-            let ext = self.ext.as_deref().unwrap_or("FILE");
-            CardImage::Icon {
-                name: IconName::File.path(),
-                label: Some(ext.into()),
-            }
-        }
-    }
-}
-
-fn format_date(dt: Option<chrono::DateTime<chrono::Utc>>, group: TimeGroup) -> (String, String) {
-    match dt {
-        Some(dt) => {
-            let local = dt.with_timezone(&chrono::Local);
-            match group {
-                TimeGroup::Day => {
-                    let key = local.format("%Y-%m-%d").to_string();
-                    let title = local.format("%Y年%m月%d日").to_string();
-                    (key, title)
-                }
-                TimeGroup::Month => {
-                    let key = local.format("%Y-%m").to_string();
-                    let title = local.format("%Y年%m月").to_string();
-                    (key, title)
-                }
-                TimeGroup::Year => {
-                    let key = local.format("%Y").to_string();
-                    let title = local.format("%Y年").to_string();
-                    (key, title)
-                }
-            }
-        }
-        None => ("other".to_string(), "其他分组".to_string()),
-    }
-}
-
-fn format_size_group(size: i64) -> (String, String) {
-    if size >= 1024 * 1024 * 1024 {
-        (
-            "bigger_than_1gb".to_string(),
-            "超大文件 (> 1GB)".to_string(),
-        )
-    } else if size >= 100 * 1024 * 1024 {
-        (
-            "bigger_than_100mb".to_string(),
-            "大文件 (100MB - 1GB)".to_string(),
-        )
-    } else if size >= 10 * 1024 * 1024 {
-        (
-            "bigger_than_10mb".to_string(),
-            "中等文件 (10MB - 100MB)".to_string(),
-        )
-    } else if size >= 1024 * 1024 {
-        (
-            "bigger_than_1mb".to_string(),
-            "小文件 (1MB - 10MB)".to_string(),
-        )
-    } else {
-        (
-            "smaller_than_10mb".to_string(),
-            "微型文件 (< 1MB)".to_string(),
-        )
-    }
-}
-
-fn get_group_by_fn(
-    sort_field: FileSortField,
-    group_mode: GroupMode,
-) -> Option<Box<dyn Fn(&FileInfo) -> (String, String)>> {
-    match group_mode {
-        GroupMode::None => None,
-        GroupMode::Size => Some(Box::new(|f| format_size_group(f.size))),
-        GroupMode::Time(group) => match sort_field {
-            FileSortField::ContentCreatedAt => {
-                Some(Box::new(move |f| format_date(f.content_created_at, group)))
-            }
-            FileSortField::ContentModifiedAt => {
-                Some(Box::new(move |f| format_date(f.content_modified_at, group)))
-            }
-            FileSortField::CreatedAt => {
-                Some(Box::new(move |f| format_date(Some(f.created_at), group)))
-            }
-            FileSortField::UpdatedAt => {
-                Some(Box::new(move |f| format_date(Some(f.updated_at), group)))
-            }
-            FileSortField::Size => Some(Box::new(|f| format_size_group(f.size))),
-        },
-    }
-}
 
 #[derive(Clone, Debug)]
 pub enum FileContentEvent {
@@ -477,10 +375,11 @@ impl Render for FilePoolView {
         let editing_id = self.editing_id;
         let name_input = self.name_input.clone();
 
-        let group_by_fn = get_group_by_fn(self.sort_field, self.group_mode);
-
         let inner_view = match self.view_mode {
             ViewOption::List => {
+                let group_mode = self.group_mode;
+                let sort_field = self.sort_field;
+
                 let mut list = ItemListView::new("file-list", self.file_list.clone())
                     .selected_files(self.selected_files.clone())
                     .cursor_id(self.cursor_id)
@@ -504,41 +403,121 @@ impl Render for FilePoolView {
                         utils::open_path(path);
                     });
 
-                if let Some(key_fn) = group_by_fn {
-                    list = list.group_by(key_fn);
+                if group_mode != GroupMode::None {
+                    list = list.group_by(Box::new(move |f: &FileInfo| {
+                        f.meta
+                            .calc_group(sort_field, group_mode)
+                            .unwrap_or_default()
+                    }));
                 }
 
                 list.into_any_element()
             }
             ViewOption::Grid => {
-                let mut grid = ItemGridView::new("file-grid", self.file_list.clone())
-                    .selected_ids(self.selected_files.clone())
-                    .cursor_id(self.cursor_id)
-                    .editing_id(editing_id)
-                    .name_input(if editing_id.is_some() {
-                        Some(name_input.clone())
-                    } else {
-                        None
+                let selected_files = self.selected_files.clone();
+                let cursor_id = self.cursor_id;
+                let entity = cx.entity().clone();
+
+                let cards: Vec<GridCard> = self
+                    .file_list
+                    .iter()
+                    .map(|item| {
+                        let file_id = item.file_id;
+                        let is_editing = editing_id == Some(file_id);
+                        let path_open = item.path.clone();
+
+                        let select_entity = entity.clone();
+                        let sec_entity = entity.clone();
+
+                        GridCard::from(item)
+                            .selected(selected_files.contains(&file_id))
+                            .cursor(cursor_id == Some(file_id))
+                            .editing(is_editing)
+                            .input(if is_editing {
+                                Some(name_input.clone())
+                            } else {
+                                None
+                            })
+                            .on_click(move |_, window, cx| {
+                                cx.stop_propagation();
+                                if is_editing {
+                                    return;
+                                }
+                                let modifiers = window.modifiers();
+                                let is_ctrl = modifiers.control || modifiers.platform;
+                                let is_shift = modifiers.shift;
+
+                                select_entity.update(cx, |this, cx| {
+                                    this.handle_file_select(file_id, is_ctrl, is_shift, window, cx);
+                                });
+                            })
+                            .on_double_click(move |_, _, _| {
+                                utils::open_path(&path_open);
+                            })
+                            .on_secondary_click(move |window, cx| {
+                                sec_entity.update(cx, |this, cx| {
+                                    this.handle_secondary_select(file_id, window, cx);
+                                });
+                            })
                     })
+                    .collect();
+
+                ItemGridView::new("file-grid", cards)
+                    .sort_field(self.sort_field)
+                    .group_mode(self.group_mode)
                     .scroll_handle(&self.scroll_handle)
                     .empty_placeholder(self.empty_placeholder.clone())
-                    .on_select(
-                        cx.processor(|this, (file_id, is_ctrl, is_shift), window, cx| {
-                            this.handle_file_select(file_id, is_ctrl, is_shift, window, cx);
-                        }),
-                    )
-                    .on_secondary_select(cx.processor(|this, file_id, window, cx| {
-                        this.handle_secondary_select(file_id, window, cx);
-                    }))
-                    .on_open(|file, _, _| {
-                        utils::open_path(&file.path);
-                    });
+                    .into_any_element()
+            }
+            ViewOption::Gallery => {
+                let selected_files = self.selected_files.clone();
+                let cursor_id = self.cursor_id;
+                let entity = cx.entity().clone();
 
-                if let Some(key_fn) = group_by_fn {
-                    grid = grid.group_by(key_fn);
-                }
+                let cards: Vec<GalleryCard> = self
+                    .file_list
+                    .iter()
+                    .map(|item| {
+                        let file_id = item.file_id;
+                        let is_selected = selected_files.contains(&file_id);
+                        let is_cursor = cursor_id == Some(file_id);
+                        let path_open: SharedString = item.path.clone().into();
 
-                grid.into_any_element()
+                        let select_entity = entity.clone();
+                        let sec_entity = entity.clone();
+
+                        GalleryCard::from(item)
+                            .selected(is_selected)
+                            .cursor(is_cursor)
+                            .on_click(move |_, window, cx| {
+                                cx.stop_propagation();
+                                let modifiers = window.modifiers();
+                                let is_ctrl = modifiers.control || modifiers.platform;
+                                let is_shift = modifiers.shift;
+
+                                select_entity.update(cx, |this, cx| {
+                                    this.handle_file_select(file_id, is_ctrl, is_shift, window, cx);
+                                });
+                            })
+                            .on_double_click(move |_, _, _| {
+                                utils::open_path(&path_open);
+                            })
+                            .on_secondary_click(move |window, cx| {
+                                sec_entity.update(cx, |this, cx| {
+                                    this.handle_secondary_select(file_id, window, cx);
+                                });
+                            })
+                    })
+                    .collect();
+
+                ItemGridView::new("file-gallery", cards)
+                    .slot_size(142.0, 142.0)
+                    .gap(px(2.0))
+                    .sort_field(self.sort_field)
+                    .group_mode(self.group_mode)
+                    .scroll_handle(&self.scroll_handle)
+                    .empty_placeholder(self.empty_placeholder.clone())
+                    .into_any_element()
             }
         };
 
@@ -563,12 +542,6 @@ impl Render for FilePoolView {
                     }
                 }),
             )
-            .on_action(cx.listener(|this, _: &Enter, window, cx| {
-                this.commit_rename(window, cx);
-            }))
-            .on_action(cx.listener(|this, _: &Escape, window, cx| {
-                this.cancel_rename(window, cx);
-            }))
             .context_menu({
                 let menu_entity = menu_entity.clone();
                 move |menu, _window, cx| {
