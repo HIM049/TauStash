@@ -1,9 +1,10 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
+use uuid::Uuid;
 
 use crate::components::tag_chip::{TagChip, TagChipState};
 use crate::database::storage::query::{FileQueryer, TagFacetItem};
@@ -19,7 +20,7 @@ pub enum TagFilterEvent {
 pub struct TagFilterBar {
     base_query: FileQueryer,
     excluded_tags: HashSet<MacroTag>,
-    is_empty_filter: bool,
+    base_summary: Vec<TagFacetItem>,
     tags_summary: Vec<TagFacetItem>,
     total_files_count: usize,
     untagged_files_count: usize,
@@ -31,7 +32,7 @@ pub struct TagFilterBar {
 
 impl TagFilterBar {
     pub fn new(base_query: FileQueryer) -> Self {
-        Self::with_excluded_tags(base_query, Vec::new(), false)
+        Self::with_excluded_tags(base_query, Vec::new())
     }
 
     pub fn padding_x(mut self) -> Self {
@@ -42,12 +43,11 @@ impl TagFilterBar {
     pub fn with_excluded_tags(
         base_query: FileQueryer,
         excluded_tags: impl IntoIterator<Item = MacroTag>,
-        is_empty_filter: bool,
     ) -> Self {
         Self {
             base_query,
             excluded_tags: excluded_tags.into_iter().collect(),
-            is_empty_filter,
+            base_summary: Vec::new(),
             tags_summary: Vec::new(),
             total_files_count: 0,
             untagged_files_count: 0,
@@ -59,10 +59,6 @@ impl TagFilterBar {
 
     pub fn base_query(&self) -> &FileQueryer {
         &self.base_query
-    }
-
-    pub fn is_empty_filter(&self) -> bool {
-        self.is_empty_filter
     }
 
     pub fn loading(&self) -> bool {
@@ -79,12 +75,33 @@ impl TagFilterBar {
         untagged_files_count: usize,
         total_files_count: usize,
     ) {
+        self.base_summary = tags_summary.clone();
         self.tags_summary = tags_summary;
         self.untagged_files_count = untagged_files_count;
         self.total_files_count = total_files_count;
     }
 
+    pub fn update_intersect_stats(&mut self, intersect_summary: Vec<TagFacetItem>) {
+        let counts: HashMap<Uuid, usize> = intersect_summary
+            .into_iter()
+            .map(|item| (item.tag_id, item.count))
+            .collect();
+
+        let mut merged = self.base_summary.clone();
+        for item in &mut merged {
+            item.count = counts.get(&item.tag_id).copied().unwrap_or(0);
+        }
+
+        merged.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.name.cmp(&b.name)));
+        self.tags_summary = merged;
+    }
+
+    pub fn reset_to_base(&mut self) {
+        self.tags_summary = self.base_summary.clone();
+    }
+
     pub fn clear_stats(&mut self) {
+        self.base_summary.clear();
         self.tags_summary.clear();
         self.untagged_files_count = 0;
         self.total_files_count = 0;
@@ -99,13 +116,8 @@ impl TagFilterBar {
         self.base_query = base_query;
     }
 
-    pub fn set_excluded_tags(
-        &mut self,
-        tags: impl IntoIterator<Item = MacroTag>,
-        is_empty_filter: bool,
-    ) {
+    pub fn set_excluded_tags(&mut self, tags: impl IntoIterator<Item = MacroTag>) {
         self.excluded_tags = tags.into_iter().collect();
-        self.is_empty_filter = is_empty_filter;
     }
 
     pub fn tags_summary(&self) -> &[TagFacetItem] {

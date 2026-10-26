@@ -65,9 +65,7 @@ impl GenericView {
             .build()
             .unwrap_or_default();
 
-        let is_empty_filter = config.filters.is_empty();
-        let filter_bar =
-            TagFilterBar::with_excluded_tags(base_query, config.filters.clone(), is_empty_filter);
+        let filter_bar = TagFilterBar::with_excluded_tags(base_query, config.filters.clone());
 
         let overall_entity = cx.entity().downgrade();
         let batch_editor = cx.new(|cx| {
@@ -286,7 +284,65 @@ impl GenericView {
         });
 
         self.reload_files(cx);
+        self.filter_stats(cx);
         cx.notify();
+    }
+
+    pub fn filter_stats(&mut self, cx: &mut Context<Self>) {
+        let config_filters = self
+            .preview_filter_tags
+            .as_ref()
+            .unwrap_or(&self.config.filters);
+
+        if config_filters.is_empty() {
+            return;
+        }
+
+        if self.preview_filter_tags.is_some() {
+            self.filter_bar.reset_to_base();
+            cx.notify();
+            return;
+        }
+
+        let active_standard_tags: Vec<MacroTag> = self
+            .current_filter_tags
+            .iter()
+            .filter(|t| matches!(t, MacroTag::Standard(_)))
+            .cloned()
+            .collect();
+
+        let mts = MtagService::new()
+            .tags(config_filters)
+            .tags(&active_standard_tags);
+        let query = match mts.build() {
+            Ok(q) => q,
+            Err(err) => {
+                tracing::error!("二次统计查询失败: {err:#}");
+                return;
+            }
+        };
+
+        let db = cx.global::<AppState>().db.clone();
+        let rt = cx.global::<AppState>().rt.clone();
+        let expected_tags = self.current_filter_tags.clone();
+
+        cx.spawn(async move |this, cx| {
+            let stats_res = cx
+                .background_spawn(async move { rt.block_on(query.query_stats(&db)) })
+                .await;
+
+            this.update(cx, |this, cx| {
+                if this.current_filter_tags != expected_tags {
+                    return;
+                }
+                if let Ok(stats) = stats_res {
+                    this.filter_bar.update_intersect_stats(stats.tags_summary);
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub fn reload_files(&mut self, cx: &mut Context<Self>) {
@@ -358,9 +414,8 @@ impl GenericView {
     pub fn reload_all(&mut self, cx: &mut Context<Self>) {
         self.reload_files(cx);
         self.reload_candidates(cx);
-        let is_empty = self.config.filters.is_empty();
-        let excluded = self.config.filters.clone();
-        self.filter_bar.set_excluded_tags(excluded, is_empty);
+        self.filter_bar
+            .set_excluded_tags(self.config.filters.clone());
         self.reload_filter_stats(cx);
     }
 
@@ -369,7 +424,7 @@ impl GenericView {
             return;
         }
 
-        if self.filter_bar.is_empty_filter() {
+        if self.config.filters.is_empty() {
             self.filter_bar.clear_stats();
             cx.notify();
             return;
@@ -393,6 +448,9 @@ impl GenericView {
                         stats.untagged_files,
                         stats.total_files,
                     );
+                    if !this.current_filter_tags.is_empty() {
+                        this.filter_stats(cx);
+                    }
                 }
                 cx.notify();
             })
