@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::components::collection_config_editor::{CollectionConfigEditor, ConfigEditorEvent};
-use crate::components::file_content_view::{FileContentEvent, FilePoolView};
+use crate::components::generic_file_view::{FileContentEvent, GenericFileView};
 use crate::components::tag_bar_editor::TagBatchEditor;
 use crate::components::tag_bar_filter::{TagFilterBar, TagFilterEvent};
 use crate::components::view_scaffold::ViewScaffold;
@@ -41,7 +41,7 @@ pub struct GenericView {
     icon: Option<SharedString>,
     on_back: Option<Rc<dyn Fn(&mut Window, &mut App) + 'static>>,
 
-    content_view: Entity<FilePoolView>,
+    content_view: Entity<GenericFileView>,
     filter_bar: TagFilterBar,
     batch_editor: Entity<TagBatchEditor>,
     bar_mode: BarMode,
@@ -97,7 +97,7 @@ impl GenericView {
         });
 
         let content_view = cx.new(|cx| {
-            FilePoolView::new(
+            GenericFileView::new(
                 config.view,
                 config.sort_field,
                 config.group_mode,

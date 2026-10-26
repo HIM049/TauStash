@@ -23,7 +23,7 @@ pub enum FileContentEvent {
     RefreshRequested,
 }
 
-pub struct FilePoolView {
+pub struct GenericFileView {
     file_list: Vec<FileInfo>,
     view_mode: ViewOption,
     sort_field: FileSortField,
@@ -38,9 +38,9 @@ pub struct FilePoolView {
     empty_placeholder: SharedString,
 }
 
-impl EventEmitter<FileContentEvent> for FilePoolView {}
+impl EventEmitter<FileContentEvent> for GenericFileView {}
 
-impl FilePoolView {
+impl GenericFileView {
     pub fn new(
         view_mode: ViewOption,
         sort_field: FileSortField,
@@ -369,7 +369,7 @@ impl FilePoolView {
     }
 }
 
-impl Render for FilePoolView {
+impl Render for GenericFileView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let menu_entity = cx.entity().clone();
         let editing_id = self.editing_id;
