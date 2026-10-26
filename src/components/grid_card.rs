@@ -251,18 +251,17 @@ impl RenderOnce for GridCard {
             .p_2p5()
             .rounded(cx.theme().radius)
             .border_1()
-            // .border_color(gpui_kit::white().alpha(0.))
             .when(is_selected, |this| this.bg(cx.theme().accent.opacity(0.9)))
             .when(self.is_cursor, |this| {
                 this.border_color(cx.theme().border)
-                    .bg(cx.theme().accent.opacity(0.6))
             })
             .hover(|s| {
                 if is_selected {
                     s.border_color(cx.theme().border)
                         .bg(cx.theme().accent.opacity(0.6))
                 } else {
-                    s.bg(cx.theme().accent.opacity(0.9))
+                    s.border_color(cx.theme().accent.opacity(0.9))
+                        .bg(cx.theme().accent.opacity(0.9))
                 }
             })
             .when_some(on_secondary_click.clone(), |this, on_sec| {
