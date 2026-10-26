@@ -743,7 +743,9 @@ impl Render for GenericView {
                                 match event {
                                     TagFilterEvent::All => this.filter_bar.select_all(),
                                     TagFilterEvent::Untagged => this.filter_bar.toggle_untagged(),
-                                    TagFilterEvent::Tag(tag) => this.filter_bar.toggle_tag(&tag),
+                                    TagFilterEvent::Tag { tag, is_multi } => {
+                                        this.filter_bar.toggle_tag(&tag, is_multi)
+                                    }
                                 }
                                 let current_tags = this.filter_bar.current_tags();
                                 this.apply_filter(current_tags, cx);

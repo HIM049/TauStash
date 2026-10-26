@@ -14,7 +14,7 @@ use crate::services::MacroTag;
 pub enum TagFilterEvent {
     All,
     Untagged,
-    Tag(MacroTag),
+    Tag { tag: MacroTag, is_multi: bool },
 }
 
 pub struct TagFilterBar {
@@ -137,13 +137,22 @@ impl TagFilterBar {
         }
     }
 
-    pub fn toggle_tag(&mut self, tag: &MacroTag) {
+    pub fn toggle_tag(&mut self, tag: &MacroTag, is_multi: bool) {
         self.active_tags.remove(&MacroTag::Untagged);
 
-        if self.active_tags.contains(tag) {
-            self.active_tags.remove(tag);
+        if is_multi {
+            if self.active_tags.contains(tag) {
+                self.active_tags.remove(tag);
+            } else {
+                self.active_tags.insert(tag.clone());
+            }
         } else {
-            self.active_tags.insert(tag.clone());
+            if self.active_tags.len() == 1 && self.active_tags.contains(tag) {
+                self.active_tags.clear();
+            } else {
+                self.active_tags.clear();
+                self.active_tags.insert(tag.clone());
+            }
         }
     }
 
@@ -214,7 +223,16 @@ impl TagFilterBar {
                     let macro_tag = macro_tag.clone();
                     move |_, window, cx| {
                         cx.stop_propagation();
-                        on_toggle(TagFilterEvent::Tag(macro_tag.clone()), window, cx);
+                        let modifiers = window.modifiers();
+                        let is_multi = modifiers.control || modifiers.platform;
+                        on_toggle(
+                            TagFilterEvent::Tag {
+                                tag: macro_tag.clone(),
+                                is_multi,
+                            },
+                            window,
+                            cx,
+                        );
                     }
                 });
 
