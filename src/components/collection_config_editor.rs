@@ -1,7 +1,6 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants};
 use gpui_kit::component::input::{Enter, Escape, Input, InputEvent, InputState};
-use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::popover::Popover;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::*;
@@ -160,6 +159,7 @@ impl CollectionConfigEditor {
         if q.is_empty() {
             return;
         }
+
         // match macro tag
         let matching_macro = preset_macro_tags().into_iter().find(|t| {
             !this.draft_config.filters.contains(t)
@@ -260,6 +260,20 @@ impl CollectionConfigEditor {
             .ok();
         })
         .detach();
+    }
+
+    pub fn add_pinned_tag(&mut self, tag: MacroTag, cx: &mut Context<Self>) {
+        if !self.draft_config.pinned_tags.iter().any(|t| t == &tag) {
+            self.draft_config.pinned_tags.push(tag);
+            cx.emit(ConfigEditorEvent::DraftChanged);
+            cx.notify();
+        }
+    }
+
+    pub fn remove_pinned_tag(&mut self, tag: &MacroTag, cx: &mut Context<Self>) {
+        self.draft_config.pinned_tags.retain(|t| t != tag);
+        cx.emit(ConfigEditorEvent::DraftChanged);
+        cx.notify();
     }
 
     pub fn add_filter(&mut self, tag: MacroTag, cx: &mut Context<Self>) {
@@ -703,6 +717,32 @@ impl Render for CollectionConfigEditor {
                                             .text_sm()
                                             .font_medium()
                                             .text_color(theme.foreground)
+                                            .child("隐藏标签栏:"),
+                                    )
+                                    .child(
+                                        Switch::new("cfg-hide-tagbar-switch")
+                                            .small()
+                                            .checked(self.draft_config.is_hide_tagbar)
+                                            .on_click(cx.listener(
+                                                |this, checked: &bool, _window, cx| {
+                                                    this.draft_config.is_hide_tagbar = *checked;
+                                                    cx.emit(ConfigEditorEvent::DraftChanged);
+                                                    cx.notify();
+                                                },
+                                            )),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .h_flex()
+                                    .items_center()
+                                    .gap_3()
+                                    .child(
+                                        div()
+                                            .w(px(72.0))
+                                            .text_sm()
+                                            .font_medium()
+                                            .text_color(theme.foreground)
                                             .child("排序:"),
                                     )
                                     .child(
@@ -711,38 +751,54 @@ impl Render for CollectionConfigEditor {
                                             .items_center()
                                             .gap_2()
                                             .child(
-                                                Button::new("cfg-sort-dropdown")
-                                                    .small()
-                                                    .w(px(130.0))
-                                                    .label(sort_field_label(self.draft_config.sort_field))
-                                                    .dropdown_caret(true)
-                                                    .dropdown_menu({
+                                                Popover::new("cfg-sort-popover")
+                                                    .trigger(
+                                                        Button::new("cfg-sort-dropdown")
+                                                            .small()
+                                                            .w(px(130.0))
+                                                            .label(sort_field_label(self.draft_config.sort_field))
+                                                            .dropdown_caret(true)
+                                                    )
+                                                    .content({
                                                         let editor = cx.entity().clone();
                                                         let current_sort = self.draft_config.sort_field;
-                                                        move |menu, _window, _cx| {
-                                                            let mut m = menu;
-                                                            for &field in ALL_SORT_FIELDS {
-                                                                let editor = editor.clone();
-                                                                m = m.item(
-                                                                    PopupMenuItem::new(sort_field_label(field))
-                                                                        .checked(current_sort == field)
-                                                                        .on_click(move |_, _, cx| {
-                                                                            editor.update(cx, |this, cx| {
-                                                                                this.draft_config.sort_field = field;
-                                                                                if field == FileSortField::Size {
-                                                                                    if matches!(this.draft_config.group_mode, GroupMode::Time(_)) {
-                                                                                        this.draft_config.group_mode = GroupMode::Size;
+                                                        move |_, _, cx| {
+                                                            div()
+                                                                .p_1()
+                                                                .v_flex()
+                                                                .gap_0p5()
+                                                                .min_w(px(130.0))
+                                                                .bg(cx.theme().background)
+                                                                .rounded(cx.theme().radius)
+                                                                .border_1()
+                                                                .border_color(cx.theme().border)
+                                                                .children(ALL_SORT_FIELDS.iter().enumerate().map(|(idx, &field)| {
+                                                                    let editor = editor.clone();
+                                                                    let is_checked = current_sort == field;
+                                                                    Button::new(("sort-opt", idx))
+                                                                        .small()
+                                                                        .when(is_checked, |b| b.secondary())
+                                                                        .when(!is_checked, |b| b.ghost())
+                                                                        .label(sort_field_label(field))
+                                                                        .on_click(cx.listener({
+                                                                            let editor = editor.clone();
+                                                                            move |state, _, window, cx| {
+                                                                                editor.update(cx, |this, cx| {
+                                                                                    this.draft_config.sort_field = field;
+                                                                                    if field == FileSortField::Size {
+                                                                                        if matches!(this.draft_config.group_mode, GroupMode::Time(_)) {
+                                                                                            this.draft_config.group_mode = GroupMode::Size;
+                                                                                        }
+                                                                                    } else if this.draft_config.group_mode == GroupMode::Size {
+                                                                                        this.draft_config.group_mode = GroupMode::Time(TimeGroup::Day);
                                                                                     }
-                                                                                } else if this.draft_config.group_mode == GroupMode::Size {
-                                                                                    this.draft_config.group_mode = GroupMode::Time(TimeGroup::Day);
-                                                                                }
-                                                                                cx.emit(ConfigEditorEvent::DraftChanged);
-                                                                                cx.notify();
-                                                                            });
-                                                                        }),
-                                                                );
-                                                            }
-                                                            m
+                                                                                    cx.emit(ConfigEditorEvent::DraftChanged);
+                                                                                    cx.notify();
+                                                                                });
+                                                                                state.dismiss(window, cx);
+                                                                            }
+                                                                        }))
+                                                                }))
                                                         }
                                                     }),
                                             )
@@ -776,12 +832,15 @@ impl Render for CollectionConfigEditor {
                                             .child("分组:"),
                                     )
                                     .child(
-                                        Button::new("cfg-group-dropdown")
-                                            .small()
-                                            .w(px(130.0))
-                                            .label(group_mode_label(self.draft_config.group_mode))
-                                            .dropdown_caret(true)
-                                            .dropdown_menu({
+                                        Popover::new("cfg-group-popover")
+                                            .trigger(
+                                                Button::new("cfg-group-dropdown")
+                                                    .small()
+                                                    .w(px(130.0))
+                                                    .label(group_mode_label(self.draft_config.group_mode))
+                                                    .dropdown_caret(true)
+                                            )
+                                            .content({
                                                 let editor = cx.entity().clone();
                                                 let current_mode = self.draft_config.group_mode;
                                                 let is_size = self.draft_config.sort_field == FileSortField::Size;
@@ -790,30 +849,112 @@ impl Render for CollectionConfigEditor {
                                                 } else {
                                                     TIME_GROUP_MODES
                                                 };
-                                                move |menu, _window, _cx| {
-                                                    let mut m = menu;
-                                                    for &mode in options {
-                                                        if mode == GroupMode::Time(TimeGroup::Day) || mode == GroupMode::Size {
-                                                            m = m.separator();
-                                                        }
-                                                        let editor = editor.clone();
-                                                        m = m.item(
-                                                            PopupMenuItem::new(group_mode_label(mode))
-                                                                .checked(current_mode == mode)
-                                                                .on_click(move |_, _, cx| {
-                                                                    editor.update(cx, |this, cx| {
-                                                                        this.draft_config.group_mode = mode;
-                                                                        cx.emit(
-                                                                            ConfigEditorEvent::DraftChanged,
-                                                                        );
-                                                                        cx.notify();
-                                                                    });
-                                                                }),
-                                                        );
-                                                    }
-                                                    m
+                                                move |_, _, cx| {
+                                                    div()
+                                                        .p_1()
+                                                        .v_flex()
+                                                        .gap_0p5()
+                                                        .min_w(px(130.0))
+                                                        .bg(cx.theme().background)
+                                                        .rounded(cx.theme().radius)
+                                                        .border_1()
+                                                        .border_color(cx.theme().border)
+                                                        .children(options.iter().enumerate().map(|(idx, &mode)| {
+                                                            let editor = editor.clone();
+                                                            let is_checked = current_mode == mode;
+                                                            Button::new(("group-opt", idx))
+                                                                .small()
+                                                                .when(is_checked, |b| b.secondary())
+                                                                .when(!is_checked, |b| b.ghost())
+                                                                .label(group_mode_label(mode))
+                                                                .on_click(cx.listener({
+                                                                    let editor = editor.clone();
+                                                                    move |state, _, window, cx| {
+                                                                        editor.update(cx, |this, cx| {
+                                                                            this.draft_config.group_mode = mode;
+                                                                            cx.emit(
+                                                                                ConfigEditorEvent::DraftChanged,
+                                                                            );
+                                                                            cx.notify();
+                                                                        });
+                                                                        state.dismiss(window, cx);
+                                                                    }
+                                                                }))
+                                                        }))
                                                 }
                                             }),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .h_flex()
+                                    .items_center()
+                                    .gap_3()
+                                    .child(
+                                        div()
+                                            .w(px(72.0))
+                                            .text_sm()
+                                            .font_medium()
+                                            .text_color(theme.foreground)
+                                            .child("固定标签:"),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .h_flex()
+                                            .items_center()
+                                            .gap_1p5()
+                                            .children(self.draft_config.pinned_tags.iter().enumerate().map(|(idx, tag)| {
+                                                let tag_clone = tag.clone();
+                                                TagChip::new(("pinned-chip", idx), tag.display_name())
+                                                    .small()
+                                                    .trailing_icon(
+                                                        Icon::new(IconName::Close)
+                                                            .size_3()
+                                                            .text_color(theme.muted_foreground),
+                                                    )
+                                                    .on_click(cx.listener(move |this, _, _window, cx| {
+                                                        this.remove_pinned_tag(&tag_clone, cx);
+                                                    }))
+                                            }))
+                                            .child(
+                                                Popover::new("cfg-pinned-popover")
+                                                    .trigger(
+                                                        Button::new("btn-add-pinned-tag")
+                                                            .small()
+                                                            .ghost()
+                                                            .icon(IconName::Plus)
+                                                    )
+                                                    .content({
+                                                        let editor = cx.entity().clone();
+                                                        let current_pinned = self.draft_config.pinned_tags.clone();
+                                                        move |_, _, cx| {
+                                                            div()
+                                                                .v_flex()
+                                                                .gap_0p5()
+                                                                .min_w(px(120.0))
+                                                                .children(preset_macro_tags().into_iter().filter(|t| !current_pinned.contains(t)).enumerate().map(|(idx, tag)| {
+                                                                    let editor = editor.clone();
+                                                                    let tag_name = tag.display_name();
+                                                                    let tag_clone = tag.clone();
+                                                                    Button::new(("pinned-opt", idx))
+                                                                        .small()
+                                                                        .ghost()
+                                                                        .label(tag_name)
+                                                                        .on_click(cx.listener({
+                                                                            let editor = editor.clone();
+                                                                            move |state, _, window, cx| {
+                                                                                editor.update(cx, |this, cx| {
+                                                                                    this.add_pinned_tag(tag_clone.clone(), cx);
+                                                                                });
+                                                                                state.dismiss(window, cx);
+                                                                            }
+                                                                        }))
+                                                                }))
+                                                        }
+                                                    }),
+                                            )
                                     ),
                             )
                             .child(

@@ -420,10 +420,7 @@ impl GenericView {
             .as_ref()
             .unwrap_or(&self.config.filters);
 
-        let base_query = MtagService::new()
-            .tags(filters)
-            .build()
-            .unwrap_or_default();
+        let base_query = MtagService::new().tags(filters).build().unwrap_or_default();
 
         self.filter_bar = TagFilterBar::with_excluded_tags(base_query, filters.clone());
     }
