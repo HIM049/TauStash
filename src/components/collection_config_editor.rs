@@ -1,6 +1,8 @@
 use gpui_kit::assets::IconName;
-use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants};
+use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonGroup, ButtonVariants};
+use gpui_kit::component::form::{field, h_form};
 use gpui_kit::component::input::{Enter, Escape, Input, InputEvent, InputState};
+use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::popover::Popover;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::*;
@@ -347,10 +349,341 @@ impl CollectionConfigEditor {
         })
         .detach();
     }
-}
 
-impl Render for CollectionConfigEditor {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_config_form(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+
+        h_form()
+            .small()
+            .columns(2)
+            .label_width(px(88.0))
+            .gap_x_8()
+            .gap_y_3()
+            .child(
+                field().label("名称:").items_center().child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .h_flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            Popover::new("icon-picker-popover")
+                                .trigger(
+                                    Button::new("btn-icon-trigger")
+                                        .small()
+                                        .icon(Icon::default().path(self.current_icon.clone())),
+                                )
+                                .content({
+                                    let editor = cx.entity().clone();
+                                    let current = self.current_icon.clone();
+                                    move |_state, _window, cx| {
+                                        div().p_2().v_flex().gap_1p5().child(
+                                            div().grid().grid_cols(4).gap_1().children(
+                                                PRESET_ICONS.iter().enumerate().map(
+                                                    |(idx, &icon)| {
+                                                        let path = icon.path();
+                                                        let is_selected = current == path.as_ref();
+                                                        let path_str = path.to_string();
+                                                        let editor = editor.clone();
+                                                        Button::new(("preset-icon", idx))
+                                                            .icon(icon)
+                                                            .small()
+                                                            .when(is_selected, |b| b.secondary())
+                                                            .when(!is_selected, |b| b.ghost())
+                                                            .on_click(cx.listener({
+                                                                let editor = editor.clone();
+                                                                move |state, _, window, cx| {
+                                                                    editor.update(
+                                                                        cx,
+                                                                        |this, cx| {
+                                                                            this.set_icon(
+                                                                                &path_str, cx,
+                                                                            );
+                                                                        },
+                                                                    );
+                                                                    state.dismiss(window, cx);
+                                                                }
+                                                            }))
+                                                    },
+                                                ),
+                                            ),
+                                        )
+                                    }
+                                }),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .child(Input::new(&self.name_input).small()),
+                        ),
+                ),
+            )
+            .child(
+                field().label("侧边视图:").items_center().child(
+                    Switch::new("cfg-collection-type-switch")
+                        .small()
+                        .checked(self.collection_type == CollectionType::View)
+                        .on_click(cx.listener(|this, checked: &bool, _window, cx| {
+                            this.collection_type = if *checked {
+                                CollectionType::View
+                            } else {
+                                CollectionType::Folder
+                            };
+                            cx.emit(ConfigEditorEvent::DraftChanged);
+                            cx.notify();
+                        })),
+                ),
+            )
+            .child(
+                field().label("视图:").items_center().child(
+                    ButtonGroup::new("cfg-view-group")
+                        .small()
+                        .child(
+                            Button::new("cfg-view-grid")
+                                .icon(IconName::LayoutGrid)
+                                .label("网格")
+                                .selected(self.draft_config.view == ViewOption::Grid),
+                        )
+                        .child(
+                            Button::new("cfg-view-list")
+                                .icon(IconName::List)
+                                .label("列表")
+                                .selected(self.draft_config.view == ViewOption::List),
+                        )
+                        .child(
+                            Button::new("cfg-view-gallery")
+                                .icon(IconName::Image)
+                                .label("画廊")
+                                .selected(self.draft_config.view == ViewOption::Gallery),
+                        )
+                        .on_click(cx.listener(|this, clicks: &Vec<usize>, _window, cx| {
+                            let views = [ViewOption::Grid, ViewOption::List, ViewOption::Gallery];
+                            let Some(&view) = clicks.first().and_then(|&ix| views.get(ix)) else {
+                                return;
+                            };
+                            this.draft_config.view = view;
+                            cx.emit(ConfigEditorEvent::DraftChanged);
+                            cx.notify();
+                        })),
+                ),
+            )
+            .child(
+                field().label("隐藏标签栏:").items_center().child(
+                    Switch::new("cfg-hide-tagbar-switch")
+                        .small()
+                        .checked(self.draft_config.is_hide_tagbar)
+                        .on_click(cx.listener(|this, checked: &bool, _window, cx| {
+                            this.draft_config.is_hide_tagbar = *checked;
+                            cx.emit(ConfigEditorEvent::DraftChanged);
+                            cx.notify();
+                        })),
+                ),
+            )
+            .child(
+                field().label("排序:").items_center().child(
+                    div()
+                        .h_flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            Button::new("cfg-sort-dropdown")
+                                .small()
+                                .w(px(130.0))
+                                .label(sort_field_label(self.draft_config.sort_field))
+                                .dropdown_caret(true)
+                                .dropdown_menu({
+                                    let editor = cx.entity().clone();
+                                    let current_sort = self.draft_config.sort_field;
+                                    move |menu, _, _| {
+                                        ALL_SORT_FIELDS.iter().fold(menu, |menu, &field| {
+                                            let editor = editor.clone();
+                                            menu.item(
+                                                PopupMenuItem::new(sort_field_label(field))
+                                                    .checked(current_sort == field)
+                                                    .on_click(move |_, _, cx| {
+                                                        editor.update(cx, |this, cx| {
+                                                            this.draft_config.sort_field = field;
+                                                            if field == FileSortField::Size {
+                                                                if matches!(
+                                                                    this.draft_config.group_mode,
+                                                                    GroupMode::Time(_)
+                                                                ) {
+                                                                    this.draft_config.group_mode =
+                                                                        GroupMode::Size;
+                                                                }
+                                                            } else if this.draft_config.group_mode
+                                                                == GroupMode::Size
+                                                            {
+                                                                this.draft_config.group_mode =
+                                                                    GroupMode::Time(TimeGroup::Day);
+                                                            }
+                                                            cx.emit(
+                                                                ConfigEditorEvent::DraftChanged,
+                                                            );
+                                                            cx.notify();
+                                                        });
+                                                    }),
+                                            )
+                                        })
+                                    }
+                                }),
+                        )
+                        .child(
+                            Button::new("cfg-sort-direction")
+                                .small()
+                                .label(if self.draft_config.is_desc {
+                                    "降序 ↓"
+                                } else {
+                                    "升序 ↑"
+                                })
+                                .on_click(cx.listener(|this, _, _window, cx| {
+                                    this.draft_config.is_desc = !this.draft_config.is_desc;
+                                    cx.emit(ConfigEditorEvent::DraftChanged);
+                                    cx.notify();
+                                })),
+                        ),
+                ),
+            )
+            .child(
+                field().label("分组:").items_center().child(
+                    Button::new("cfg-group-dropdown")
+                        .small()
+                        .w(px(130.0))
+                        .label(group_mode_label(self.draft_config.group_mode))
+                        .dropdown_caret(true)
+                        .dropdown_menu({
+                            let editor = cx.entity().clone();
+                            let current_mode = self.draft_config.group_mode;
+                            let options = if self.draft_config.sort_field == FileSortField::Size {
+                                SIZE_GROUP_MODES
+                            } else {
+                                TIME_GROUP_MODES
+                            };
+                            move |menu, _, _| {
+                                options.iter().fold(menu, |menu, &mode| {
+                                    let editor = editor.clone();
+                                    menu.item(
+                                        PopupMenuItem::new(group_mode_label(mode))
+                                            .checked(current_mode == mode)
+                                            .on_click(move |_, _, cx| {
+                                                editor.update(cx, |this, cx| {
+                                                    this.draft_config.group_mode = mode;
+                                                    cx.emit(ConfigEditorEvent::DraftChanged);
+                                                    cx.notify();
+                                                });
+                                            }),
+                                    )
+                                })
+                            }
+                        }),
+                ),
+            )
+            .child(
+                field().label("固定标签:").items_center().child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .h_flex()
+                        .items_center()
+                        .gap_1p5()
+                        .children(self.draft_config.pinned_tags.iter().enumerate().map(
+                            |(idx, tag)| {
+                                let tag_clone = tag.clone();
+                                TagChip::new(("pinned-chip", idx), tag.display_name())
+                                    .small()
+                                    .trailing_icon(
+                                        Icon::new(IconName::Close)
+                                            .size_3()
+                                            .text_color(theme.muted_foreground),
+                                    )
+                                    .on_click(cx.listener(move |this, _, _window, cx| {
+                                        this.remove_pinned_tag(&tag_clone, cx);
+                                    }))
+                            },
+                        ))
+                        .child(
+                            Button::new("btn-add-pinned-tag")
+                                .small()
+                                .ghost()
+                                .icon(IconName::Plus)
+                                .dropdown_menu({
+                                    let editor = cx.entity().clone();
+                                    let current_pinned = self.draft_config.pinned_tags.clone();
+                                    move |menu, _, _| {
+                                        preset_macro_tags()
+                                            .into_iter()
+                                            .filter(|t| !current_pinned.contains(t))
+                                            .fold(menu, |menu, tag| {
+                                                let editor = editor.clone();
+                                                menu.item(
+                                                    PopupMenuItem::new(tag.display_name())
+                                                        .on_click(move |_, _, cx| {
+                                                            editor.update(cx, |this, cx| {
+                                                                this.add_pinned_tag(
+                                                                    tag.clone(),
+                                                                    cx,
+                                                                );
+                                                            });
+                                                        }),
+                                                )
+                                            })
+                                    }
+                                }),
+                        ),
+                ),
+            )
+            .child(
+                field()
+                    .label(if self.confirm_delete {
+                        "确认删除:"
+                    } else {
+                        "操作:"
+                    })
+                    .items_center()
+                    .child(if !self.confirm_delete {
+                        Button::new("btn-delete-collection")
+                            .small()
+                            .icon(IconName::Trash)
+                            .label("删除合集")
+                            .on_click(cx.listener(|this, _, _window, cx| {
+                                this.confirm_delete = true;
+                                cx.notify();
+                            }))
+                            .into_any_element()
+                    } else {
+                        div()
+                            .h_flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                Button::new("btn-confirm-delete")
+                                    .danger()
+                                    .small()
+                                    .icon(IconName::Check)
+                                    .label("确认")
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.confirm_delete = false;
+                                        cx.emit(ConfigEditorEvent::DeleteRequested);
+                                    })),
+                            )
+                            .child(
+                                Button::new("btn-cancel-delete")
+                                    .ghost()
+                                    .small()
+                                    .icon(IconName::Close)
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.confirm_delete = false;
+                                        cx.notify();
+                                    })),
+                            )
+                            .into_any_element()
+                    }),
+            )
+    }
+
+    fn render_filter_editor(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let search_query = self.tag_search_input.read(cx).value().trim().to_string();
 
@@ -370,12 +703,6 @@ impl Render for CollectionConfigEditor {
             && !is_query_in_results
             && !is_query_in_macro
             && !is_query_in_filters;
-
-        let btn_variant = ButtonCustomVariant::new(cx)
-            .color(cx.theme().transparent)
-            .foreground(cx.theme().muted_foreground)
-            .hover(cx.theme().muted.darken(0.05))
-            .active(cx.theme().muted.darken(0.10));
 
         // SELECTED tags
         let selected_chips: Vec<_> = self
@@ -474,6 +801,84 @@ impl Render for CollectionConfigEditor {
         let has_standard = !unselected_standard_chips.is_empty();
 
         div()
+            .v_flex()
+            .gap_3()
+            .child(
+                div()
+                    .h_flex()
+                    .items_center()
+                    .justify_between()
+                    .gap_3()
+                    .child(
+                        div()
+                            .h_flex()
+                            .items_center()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_medium()
+                                    .text_color(theme.foreground)
+                                    .child("视图过滤规则:"),
+                            )
+                            .child(
+                                div()
+                                    .w(px(320.0))
+                                    .on_action(cx.listener(Self::on_search_action))
+                                    .child(
+                                        Input::new(&self.tag_search_input).small().cleanable(true),
+                                    ),
+                            ),
+                    )
+                    .when(can_create_new, |this| {
+                        let q = search_query.clone();
+                        this.child(
+                            Button::new("create-new-tag")
+                                .ghost()
+                                .small()
+                                .icon(IconName::Plus)
+                                .label(&q)
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.create_and_add_tag(&q, window, cx);
+                                })),
+                        )
+                    }),
+            )
+            .child(
+                div()
+                    .id("tag-cloud-container")
+                    .h_flex()
+                    .flex_wrap()
+                    .items_center()
+                    .gap_2()
+                    .w_full()
+                    .min_h(px(32.0))
+                    .max_h(px(140.0))
+                    .overflow_y_scroll()
+                    .p_2()
+                    .bg(theme.muted.opacity(0.3))
+                    .children(selected_chips)
+                    .when(has_selected && (has_macro || has_standard), |this| {
+                        this.child(div().w(px(1.)).h_5().mx_0p5().bg(theme.border.darken(0.2)))
+                    })
+                    .children(unselected_macro_chips)
+                    .when(has_macro && has_standard, |this| {
+                        this.child(div().w(px(1.)).h_5().mx_0p5().bg(theme.border.darken(0.2)))
+                    })
+                    .children(unselected_standard_chips),
+            )
+    }
+}
+
+impl Render for CollectionConfigEditor {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let btn_variant = ButtonCustomVariant::new(cx)
+            .color(cx.theme().transparent)
+            .foreground(cx.theme().muted_foreground)
+            .hover(cx.theme().muted.darken(0.05))
+            .active(cx.theme().muted.darken(0.10));
+
+        div()
             .id("collection-config-editor")
             .v_flex()
             .gap_2()
@@ -503,601 +908,15 @@ impl Render for CollectionConfigEditor {
                     .px_6()
                     .v_flex()
                     .gap_3()
-                    .child(
-                        div()
-                            .grid()
-                            .grid_cols(2)
-                            .gap_x_8()
-                            .gap_y_3()
-                            .items_center()
-                            .child(
-                                div()
-                                    .h_flex()
-                                    .items_center()
-                                    .gap_3()
-                                    .child(
-                                        div()
-                                            .w(px(72.0))
-                                            .text_sm()
-                                            .font_medium()
-                                            .text_color(theme.foreground)
-                                            .child("名称:"),
-                                    )
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_w_0()
-                                            .h_flex()
-                                            .items_center()
-                                            .gap_2()
-                                            .child(
-                                                Popover::new("icon-picker-popover")
-                                                    .trigger(
-                                                        Button::new("btn-icon-trigger")
-                                                            .small()
-                                                            .icon(Icon::default().path(self.current_icon.clone()))
-                                                    )
-                                                    .content({
-                                                        let editor = cx.entity().clone();
-                                                        let current = self.current_icon.clone();
-                                                        move |_state, _window, cx| {
-                                                            div()
-                                                                .p_2()
-                                                                .v_flex()
-                                                                .gap_1p5()
-                                                                .child(
-                                                                    div()
-                                                                        .grid()
-                                                                        .grid_cols(4)
-                                                                        .gap_1()
-                                                                        .children(PRESET_ICONS.iter().enumerate().map(
-                                                                            |(idx, &icon)| {
-                                                                                let path = icon.path();
-                                                                                let is_selected = current == path.as_ref();
-                                                                                let path_str = path.to_string();
-                                                                                let editor = editor.clone();
-                                                                                Button::new(("preset-icon", idx))
-                                                                                    .icon(icon)
-                                                                                    .small()
-                                                                                    .when(is_selected, |b| b.secondary())
-                                                                                    .when(!is_selected, |b| b.ghost())
-                                                                                    .on_click(cx.listener({
-                                                                                        let editor = editor.clone();
-                                                                                        move |state, _, window, cx| {
-                                                                                            editor.update(cx, |this, cx| {
-                                                                                                this.set_icon(&path_str, cx);
-                                                                                            });
-                                                                                            state.dismiss(window, cx);
-                                                                                        }
-                                                                                    }))
-                                                                            },
-                                                                        )),
-                                                                )
-                                                        }
-                                                    }),
-                                            )
-                                            .child(
-                                                div()
-                                                    .flex_1()
-                                                    .min_w_0()
-                                                    .child(Input::new(&self.name_input).small()),
-                                            ),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .h_flex()
-                                    .items_center()
-                                    .gap_3()
-                                    .child(
-                                        div()
-                                            .w(px(72.0))
-                                            .text_sm()
-                                            .font_medium()
-                                            .text_color(theme.foreground)
-                                            .child("侧边视图:"),
-                                    )
-                                    .child(
-                                        Switch::new("cfg-collection-type-switch")
-                                            .small()
-                                            .checked(self.collection_type == CollectionType::View)
-                                            .on_click(cx.listener(
-                                                |this, checked: &bool, _window, cx| {
-                                                    this.collection_type = if *checked {
-                                                        CollectionType::View
-                                                    } else {
-                                                        CollectionType::Folder
-                                                    };
-                                                    cx.emit(ConfigEditorEvent::DraftChanged);
-                                                    cx.notify();
-                                                },
-                                            )),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .h_flex()
-                                    .items_center()
-                                    .gap_3()
-                                    .child(
-                                        div()
-                                            .w(px(72.0))
-                                            .text_sm()
-                                            .font_medium()
-                                            .text_color(theme.foreground)
-                                            .child("视图:"),
-                                    )
-                                    .child(
-                                        div()
-                                            .h_flex()
-                                            .items_center()
-                                            .gap_1()
-                                            .child(
-                                                Button::new("cfg-view-grid")
-                                                    .icon(IconName::LayoutGrid)
-                                                    .small()
-                                                    .label("网格")
-                                                    .when(
-                                                        self.draft_config.view == ViewOption::Grid,
-                                                        |b| b.secondary(),
-                                                    )
-                                                    .when(
-                                                        self.draft_config.view != ViewOption::Grid,
-                                                        |b| b.ghost(),
-                                                    )
-                                                    .on_click(cx.listener(
-                                                        |this, _, _window, cx| {
-                                                            this.draft_config.view =
-                                                                ViewOption::Grid;
-                                                            cx.emit(
-                                                                ConfigEditorEvent::DraftChanged,
-                                                            );
-                                                            cx.notify();
-                                                        },
-                                                    )),
-                                            )
-                                            .child(
-                                                Button::new("cfg-view-list")
-                                                    .icon(IconName::List)
-                                                    .small()
-                                                    .label("列表")
-                                                    .when(
-                                                        self.draft_config.view == ViewOption::List,
-                                                        |b| b.secondary(),
-                                                    )
-                                                    .when(
-                                                        self.draft_config.view != ViewOption::List,
-                                                        |b| b.ghost(),
-                                                    )
-                                                    .on_click(cx.listener(
-                                                        |this, _, _window, cx| {
-                                                            this.draft_config.view =
-                                                                ViewOption::List;
-                                                            cx.emit(
-                                                                ConfigEditorEvent::DraftChanged,
-                                                            );
-                                                            cx.notify();
-                                                        },
-                                                    )),
-                                            )
-                                            .child(
-                                                Button::new("cfg-view-gallery")
-                                                    .icon(IconName::Image)
-                                                    .small()
-                                                    .label("画廊")
-                                                    .when(
-                                                        self.draft_config.view == ViewOption::Gallery,
-                                                        |b| b.secondary(),
-                                                    )
-                                                    .when(
-                                                        self.draft_config.view != ViewOption::Gallery,
-                                                        |b| b.ghost(),
-                                                    )
-                                                    .on_click(cx.listener(
-                                                        |this, _, _window, cx| {
-                                                            this.draft_config.view =
-                                                                ViewOption::Gallery;
-                                                            cx.emit(
-                                                                ConfigEditorEvent::DraftChanged,
-                                                            );
-                                                            cx.notify();
-                                                        },
-                                                    )),
-                                            ),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .h_flex()
-                                    .items_center()
-                                    .gap_3()
-                                    .child(
-                                        div()
-                                            .w(px(72.0))
-                                            .text_sm()
-                                            .font_medium()
-                                            .text_color(theme.foreground)
-                                            .child("隐藏标签栏:"),
-                                    )
-                                    .child(
-                                        Switch::new("cfg-hide-tagbar-switch")
-                                            .small()
-                                            .checked(self.draft_config.is_hide_tagbar)
-                                            .on_click(cx.listener(
-                                                |this, checked: &bool, _window, cx| {
-                                                    this.draft_config.is_hide_tagbar = *checked;
-                                                    cx.emit(ConfigEditorEvent::DraftChanged);
-                                                    cx.notify();
-                                                },
-                                            )),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .h_flex()
-                                    .items_center()
-                                    .gap_3()
-                                    .child(
-                                        div()
-                                            .w(px(72.0))
-                                            .text_sm()
-                                            .font_medium()
-                                            .text_color(theme.foreground)
-                                            .child("排序:"),
-                                    )
-                                    .child(
-                                        div()
-                                            .h_flex()
-                                            .items_center()
-                                            .gap_2()
-                                            .child(
-                                                Popover::new("cfg-sort-popover")
-                                                    .trigger(
-                                                        Button::new("cfg-sort-dropdown")
-                                                            .small()
-                                                            .w(px(130.0))
-                                                            .label(sort_field_label(self.draft_config.sort_field))
-                                                            .dropdown_caret(true)
-                                                    )
-                                                    .content({
-                                                        let editor = cx.entity().clone();
-                                                        let current_sort = self.draft_config.sort_field;
-                                                        move |_, _, cx| {
-                                                            div()
-                                                                .p_1()
-                                                                .v_flex()
-                                                                .gap_0p5()
-                                                                .min_w(px(130.0))
-                                                                .bg(cx.theme().background)
-                                                                .rounded(cx.theme().radius)
-                                                                .border_1()
-                                                                .border_color(cx.theme().border)
-                                                                .children(ALL_SORT_FIELDS.iter().enumerate().map(|(idx, &field)| {
-                                                                    let editor = editor.clone();
-                                                                    let is_checked = current_sort == field;
-                                                                    Button::new(("sort-opt", idx))
-                                                                        .small()
-                                                                        .when(is_checked, |b| b.secondary())
-                                                                        .when(!is_checked, |b| b.ghost())
-                                                                        .label(sort_field_label(field))
-                                                                        .on_click(cx.listener({
-                                                                            let editor = editor.clone();
-                                                                            move |state, _, window, cx| {
-                                                                                editor.update(cx, |this, cx| {
-                                                                                    this.draft_config.sort_field = field;
-                                                                                    if field == FileSortField::Size {
-                                                                                        if matches!(this.draft_config.group_mode, GroupMode::Time(_)) {
-                                                                                            this.draft_config.group_mode = GroupMode::Size;
-                                                                                        }
-                                                                                    } else if this.draft_config.group_mode == GroupMode::Size {
-                                                                                        this.draft_config.group_mode = GroupMode::Time(TimeGroup::Day);
-                                                                                    }
-                                                                                    cx.emit(ConfigEditorEvent::DraftChanged);
-                                                                                    cx.notify();
-                                                                                });
-                                                                                state.dismiss(window, cx);
-                                                                            }
-                                                                        }))
-                                                                }))
-                                                        }
-                                                    }),
-                                            )
-                                            .child(
-                                                Button::new("cfg-sort-direction")
-                                                    .small()
-                                                    .label(if self.draft_config.is_desc {
-                                                        "降序 ↓"
-                                                    } else {
-                                                        "升序 ↑"
-                                                    })
-                                                    .on_click(cx.listener(|this, _, _window, cx| {
-                                                        this.draft_config.is_desc = !this.draft_config.is_desc;
-                                                        cx.emit(ConfigEditorEvent::DraftChanged);
-                                                        cx.notify();
-                                                    })),
-                                            ),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .h_flex()
-                                    .items_center()
-                                    .gap_3()
-                                    .child(
-                                        div()
-                                            .w(px(72.0))
-                                            .text_sm()
-                                            .font_medium()
-                                            .text_color(theme.foreground)
-                                            .child("分组:"),
-                                    )
-                                    .child(
-                                        Popover::new("cfg-group-popover")
-                                            .trigger(
-                                                Button::new("cfg-group-dropdown")
-                                                    .small()
-                                                    .w(px(130.0))
-                                                    .label(group_mode_label(self.draft_config.group_mode))
-                                                    .dropdown_caret(true)
-                                            )
-                                            .content({
-                                                let editor = cx.entity().clone();
-                                                let current_mode = self.draft_config.group_mode;
-                                                let is_size = self.draft_config.sort_field == FileSortField::Size;
-                                                let options = if is_size {
-                                                    SIZE_GROUP_MODES
-                                                } else {
-                                                    TIME_GROUP_MODES
-                                                };
-                                                move |_, _, cx| {
-                                                    div()
-                                                        .p_1()
-                                                        .v_flex()
-                                                        .gap_0p5()
-                                                        .min_w(px(130.0))
-                                                        .bg(cx.theme().background)
-                                                        .rounded(cx.theme().radius)
-                                                        .border_1()
-                                                        .border_color(cx.theme().border)
-                                                        .children(options.iter().enumerate().map(|(idx, &mode)| {
-                                                            let editor = editor.clone();
-                                                            let is_checked = current_mode == mode;
-                                                            Button::new(("group-opt", idx))
-                                                                .small()
-                                                                .when(is_checked, |b| b.secondary())
-                                                                .when(!is_checked, |b| b.ghost())
-                                                                .label(group_mode_label(mode))
-                                                                .on_click(cx.listener({
-                                                                    let editor = editor.clone();
-                                                                    move |state, _, window, cx| {
-                                                                        editor.update(cx, |this, cx| {
-                                                                            this.draft_config.group_mode = mode;
-                                                                            cx.emit(
-                                                                                ConfigEditorEvent::DraftChanged,
-                                                                            );
-                                                                            cx.notify();
-                                                                        });
-                                                                        state.dismiss(window, cx);
-                                                                    }
-                                                                }))
-                                                        }))
-                                                }
-                                            }),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .h_flex()
-                                    .items_center()
-                                    .gap_3()
-                                    .child(
-                                        div()
-                                            .w(px(72.0))
-                                            .text_sm()
-                                            .font_medium()
-                                            .text_color(theme.foreground)
-                                            .child("固定标签:"),
-                                    )
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_w_0()
-                                            .h_flex()
-                                            .items_center()
-                                            .gap_1p5()
-                                            .children(self.draft_config.pinned_tags.iter().enumerate().map(|(idx, tag)| {
-                                                let tag_clone = tag.clone();
-                                                TagChip::new(("pinned-chip", idx), tag.display_name())
-                                                    .small()
-                                                    .trailing_icon(
-                                                        Icon::new(IconName::Close)
-                                                            .size_3()
-                                                            .text_color(theme.muted_foreground),
-                                                    )
-                                                    .on_click(cx.listener(move |this, _, _window, cx| {
-                                                        this.remove_pinned_tag(&tag_clone, cx);
-                                                    }))
-                                            }))
-                                            .child(
-                                                Popover::new("cfg-pinned-popover")
-                                                    .trigger(
-                                                        Button::new("btn-add-pinned-tag")
-                                                            .small()
-                                                            .ghost()
-                                                            .icon(IconName::Plus)
-                                                    )
-                                                    .content({
-                                                        let editor = cx.entity().clone();
-                                                        let current_pinned = self.draft_config.pinned_tags.clone();
-                                                        move |_, _, cx| {
-                                                            div()
-                                                                .v_flex()
-                                                                .gap_0p5()
-                                                                .min_w(px(120.0))
-                                                                .children(preset_macro_tags().into_iter().filter(|t| !current_pinned.contains(t)).enumerate().map(|(idx, tag)| {
-                                                                    let editor = editor.clone();
-                                                                    let tag_name = tag.display_name();
-                                                                    let tag_clone = tag.clone();
-                                                                    Button::new(("pinned-opt", idx))
-                                                                        .small()
-                                                                        .ghost()
-                                                                        .label(tag_name)
-                                                                        .on_click(cx.listener({
-                                                                            let editor = editor.clone();
-                                                                            move |state, _, window, cx| {
-                                                                                editor.update(cx, |this, cx| {
-                                                                                    this.add_pinned_tag(tag_clone.clone(), cx);
-                                                                                });
-                                                                                state.dismiss(window, cx);
-                                                                            }
-                                                                        }))
-                                                                }))
-                                                        }
-                                                    }),
-                                            )
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .h_flex()
-                                    .items_center()
-                                    .gap_3()
-                                    .child(
-                                        div()
-                                            .w(px(72.0))
-                                            .text_sm()
-                                            .font_medium()
-                                            .text_color(theme.foreground)
-                                            .when_else(
-                                                self.confirm_delete,
-                                                |this| this.child("确认删除:"),
-                                                |this| this.child("操作:"),
-                                            ),
-                                    )
-                                    .child(if !self.confirm_delete {
-                                        Button::new("btn-delete-collection")
-                                            .small()
-                                            .icon(IconName::Trash)
-                                            .label("删除合集")
-                                            .on_click(cx.listener(|this, _, _window, cx| {
-                                                this.confirm_delete = true;
-                                                cx.notify();
-                                            }))
-                                            .into_any_element()
-                                    } else {
-                                        div()
-                                            .h_flex()
-                                            .items_center()
-                                            .gap_2()
-                                            .child(
-                                                Button::new("btn-confirm-delete")
-                                                    .danger()
-                                                    .small()
-                                                    .icon(IconName::Check)
-                                                    .label("确认")
-                                                    .on_click(cx.listener(
-                                                        |this, _, _window, cx| {
-                                                            this.confirm_delete = false;
-                                                            cx.emit(
-                                                                ConfigEditorEvent::DeleteRequested,
-                                                            );
-                                                        },
-                                                    )),
-                                            )
-                                            .child(
-                                                Button::new("btn-cancel-delete")
-                                                    .ghost()
-                                                    .small()
-                                                    .icon(IconName::Close)
-                                                    .on_click(cx.listener(
-                                                        |this, _, _window, cx| {
-                                                            this.confirm_delete = false;
-                                                            cx.notify();
-                                                        },
-                                                    )),
-                                            )
-                                            .into_any_element()
-                                    }),
-                            ),
-                    )
-
+                    .child(self.render_config_form(cx))
                     .child(
                         div()
                             .w_full()
                             .h(px(1.))
                             .my_1()
-                            .bg(theme.border.opacity(0.4)),
+                            .bg(cx.theme().border.opacity(0.4)),
                     )
-                    .child(
-                        div()
-                            .h_flex()
-                            .items_center()
-                            .justify_between()
-                            .gap_3()
-                            .child(
-                                div()
-                                    .h_flex()
-                                    .items_center()
-                                    .gap_3()
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .font_medium()
-                                            .text_color(theme.foreground)
-                                            .child("视图过滤规则:"),
-                                    )
-                                    .child(
-                                        div()
-                                            .w(px(320.0))
-                                            .on_action(cx.listener(Self::on_search_action))
-                                            .child(
-                                                Input::new(&self.tag_search_input)
-                                                    .small()
-                                                    .cleanable(true),
-                                            ),
-                                    ),
-                            )
-                            .when(can_create_new, |this| {
-                                let q = search_query.clone();
-                                this.child(
-                                    Button::new("create-new-tag")
-                                        .ghost()
-                                        .small()
-                                        .icon(IconName::Plus)
-                                        .label(&q)
-                                        .on_click(cx.listener(move |this, _, window, cx| {
-                                            this.create_and_add_tag(&q, window, cx);
-                                        })),
-                                )
-                            }),
-                    )
-                    .child(
-                        div()
-                            .id("tag-cloud-container")
-                            .h_flex()
-                            .flex_wrap()
-                            .items_center()
-                            .gap_2()
-                            .w_full()
-                            .min_h(px(32.0))
-                            .max_h(px(140.0))
-                            .overflow_y_scroll()
-                            .p_2()
-                            .bg(theme.muted.opacity(0.3))
-                            .children(selected_chips)
-                            .when(has_selected && (has_macro || has_standard), |this| {
-                                this.child(
-                                    div().w(px(1.)).h_5().mx_0p5().bg(theme.border.darken(0.2)),
-                                )
-                            })
-                            .children(unselected_macro_chips)
-                            .when(has_macro && has_standard, |this| {
-                                this.child(
-                                    div().w(px(1.)).h_5().mx_0p5().bg(theme.border.darken(0.2)),
-                                )
-                            })
-                            .children(unselected_standard_chips),
-                    ),
+                    .child(self.render_filter_editor(cx)),
             )
     }
 }
