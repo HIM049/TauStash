@@ -73,6 +73,8 @@ pub struct Model {
     pub file_replicas: HasMany<super::file_replica::Entity>,
     #[sea_orm(has_many, via = "file_tag")]
     pub tags: HasMany<super::tag::Entity>,
+    #[sea_orm(has_one)]
+    pub thumbnail: HasOne<super::file_thumbnail::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

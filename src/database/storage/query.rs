@@ -1,4 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+};
 
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait, PaginatorTrait,
@@ -11,7 +14,7 @@ use uuid::Uuid;
 
 use super::file::DbFileRecord;
 use crate::database::entities::{
-    FileState, ReplicaState, TagNamespace, file, file_replica, file_tag, tag,
+    FileState, ReplicaState, TagNamespace, file, file_replica, file_tag, file_thumbnail, tag,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -322,13 +325,16 @@ impl FileQueryer {
     /// run query
     pub async fn execute(&self, db: &DatabaseConnection) -> anyhow::Result<Vec<DbFileRecord>> {
         let select = build_file_select(self);
-        let files = select.all(db).await?;
+        let files = select
+            .find_also_related(file_thumbnail::Entity)
+            .all(db)
+            .await?;
 
         if files.is_empty() {
             return Ok(Vec::new());
         }
 
-        let file_ids: Vec<Uuid> = files.iter().map(|f| f.id).collect();
+        let file_ids: Vec<Uuid> = files.iter().map(|(f, _)| f.id).collect();
 
         // load replica not missed
         let replicas = file_replica::Entity::find()
@@ -344,7 +350,7 @@ impl FileQueryer {
 
         let records = files
             .into_iter()
-            .filter_map(|f| {
+            .filter_map(|(f, thumb)| {
                 let replica = replica_map.get(&f.id)?;
                 Some(DbFileRecord {
                     file_id: f.id,
@@ -357,6 +363,7 @@ impl FileQueryer {
                         .unwrap_or_else(|| "application/octet-stream".to_string()),
                     ext: f.ext,
                     state: f.state,
+                    thumbnail: thumb.map(|t| PathBuf::from(t.path)),
                     content_created_at: f.content_created_at,
                     content_modified_at: f.content_modified_at,
                     created_at: f.created_at,

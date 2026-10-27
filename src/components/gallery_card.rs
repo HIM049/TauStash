@@ -63,16 +63,17 @@ impl GalleryCard {
 
 impl From<&FileInfo> for GalleryCard {
     fn from(file: &FileInfo) -> Self {
-        let image = if file.mime.starts_with("image/") {
-            let p = crate::services::thumbnail::get_thumbnail_path(&file.hash);
-            CardImage::Image(p)
-        } else {
-            let ext = file.ext.as_deref().unwrap_or("FILE");
-            CardImage::Icon {
-                name: IconName::File.path(),
-                label: Some(ext.into()),
-            }
-        };
+        let image = file
+            .thumb
+            .as_ref()
+            .map(|t| CardImage::Image(t.clone()))
+            .unwrap_or({
+                let ext = file.ext.as_deref().unwrap_or("FILE");
+                CardImage::Icon {
+                    name: IconName::File.path(),
+                    label: Some(ext.into()),
+                }
+            });
         Self {
             id: file.file_id.into(),
             title: SharedString::new(file.file_name.as_str()),

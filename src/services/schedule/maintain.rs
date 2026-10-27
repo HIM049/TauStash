@@ -166,9 +166,6 @@ pub async fn maintain_storage(
                 )
                 .await?;
 
-                if new_file_meta.mime.starts_with("image/") {
-                    let _ = thumbnail::ensure_thumbnail(path, &new_file_meta.hash);
-                }
                 new_file.id
             };
 

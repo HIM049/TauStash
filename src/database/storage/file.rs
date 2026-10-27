@@ -1,6 +1,7 @@
-use std::collections::HashMap;
 use std::path::Path;
+use std::{collections::HashMap, path::PathBuf};
 
+use crate::database::entities::file_thumbnail;
 use crate::database::{
     entities::{FileState, ReplicaState, file, file_replica, file_tag, tag},
     utils,
@@ -23,6 +24,7 @@ pub struct DbFileRecord {
     pub mime: String,
     pub ext: Option<String>,
     pub state: FileState,
+    pub thumbnail: Option<PathBuf>,
     pub content_created_at: Option<DateTimeUtc>,
     pub content_modified_at: Option<DateTimeUtc>,
     pub created_at: DateTimeUtc,
@@ -337,42 +339,6 @@ pub async fn rename_file(
     Ok(())
 }
 
-/// Get detail of a single file by id
-pub async fn get_file_by_id(
-    db: &DatabaseConnection,
-    file_id: Uuid,
-) -> anyhow::Result<Option<DbFileRecord>> {
-    let Some(f) = file::Entity::find_by_id(file_id).one(db).await? else {
-        return Ok(None);
-    };
-
-    let replica = file_replica::Entity::find()
-        .filter(file_replica::Column::FileId.eq(f.id))
-        .one(db)
-        .await?;
-    let path = match replica {
-        Some(r) => r.uri,
-        None => "(Missed)".into(),
-    };
-
-    Ok(Some(DbFileRecord {
-        file_id: f.id,
-        file_name: f.file_name,
-        path,
-        hash: f.hash,
-        size: f.size,
-        mime: f
-            .mime
-            .unwrap_or_else(|| "application/octet-stream".to_string()),
-        ext: f.ext,
-        state: f.state,
-        content_created_at: f.content_created_at,
-        content_modified_at: f.content_modified_at,
-        created_at: f.created_at,
-        updated_at: f.updated_at,
-    }))
-}
-
 /// Retrieve all tag names for multiple files
 pub async fn get_files_tags_batch(
     db: &DatabaseConnection,
@@ -409,25 +375,52 @@ pub async fn get_files_tags_batch(
     Ok(result)
 }
 
-/// Retrieve all tag records for a given file
-pub async fn get_file_tags(
+pub async fn upsert_thumbnail(
     db: &DatabaseConnection,
     file_id: Uuid,
-) -> anyhow::Result<Vec<tag::Model>> {
-    let links = file_tag::Entity::find()
-        .filter(file_tag::Column::FileId.eq(file_id))
-        .all(db)
+    thumb_path: PathBuf,
+    size: i64,
+) -> anyhow::Result<file_thumbnail::Model> {
+    let thumb = file_thumbnail::ActiveModel {
+        file_id: Set(file_id),
+        path: Set(thumb_path.to_string_lossy().to_string()),
+        size: Set(size as i64),
+        create_at: Set(Utc::now()),
+    };
+
+    let result = file_thumbnail::Entity::find()
+        .filter(file_thumbnail::Column::FileId.eq(file_id))
+        .one(db)
         .await?;
 
-    if links.is_empty() {
-        return Ok(Vec::new());
-    }
+    let model = if result.is_some() {
+        file_thumbnail::Entity::update(thumb).exec(db).await?
+    } else {
+        thumb.insert(db).await?
+    };
 
-    let tag_ids: Vec<Uuid> = links.into_iter().map(|l| l.tag_id).collect();
-    let tags = tag::Entity::find()
-        .filter(tag::Column::Id.is_in(tag_ids))
-        .all(db)
-        .await?;
-
-    Ok(tags)
+    Ok(model)
 }
+
+// /// Retrieve all tag records for a given file
+// pub async fn get_file_tags(
+//     db: &DatabaseConnection,
+//     file_id: Uuid,
+// ) -> anyhow::Result<Vec<tag::Model>> {
+//     let links = file_tag::Entity::find()
+//         .filter(file_tag::Column::FileId.eq(file_id))
+//         .all(db)
+//         .await?;
+
+//     if links.is_empty() {
+//         return Ok(Vec::new());
+//     }
+
+//     let tag_ids: Vec<Uuid> = links.into_iter().map(|l| l.tag_id).collect();
+//     let tags = tag::Entity::find()
+//         .filter(tag::Column::Id.is_in(tag_ids))
+//         .all(db)
+//         .await?;
+
+//     Ok(tags)
+// }

@@ -20,6 +20,7 @@ pub async fn create_tables(db: &DatabaseConnection) -> Result<(), DbErr> {
     init_entity(db, &schema, FileTag).await?;
     init_entity(db, &schema, ScanSource).await?;
     init_entity(db, &schema, Collection).await?;
+    init_entity(db, &schema, FileThumbnail).await?;
 
     Ok(())
 }

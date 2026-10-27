@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use sea_orm::DatabaseConnection;
@@ -112,6 +114,7 @@ pub struct FileInfo {
     pub is_duplicate: bool,
     pub tags: Vec<MacroTag>,
     pub state: FileState,
+    pub thumb: Option<PathBuf>,
     pub meta: OrderMeta,
 }
 
@@ -128,6 +131,7 @@ impl FileInfo {
             is_duplicate: false,
             tags,
             state: record.state,
+            thumb: record.thumbnail,
             meta,
         }
     }
@@ -150,20 +154,20 @@ impl FileInfo {
     }
 }
 
-/// Fetch full UI detail for a given file_id (including tags)
-pub async fn get_file_detail(db: &DatabaseConnection, file_id: Uuid) -> Result<Option<FileInfo>> {
-    let Some(record) = storage::file::get_file_by_id(db, file_id).await? else {
-        return Ok(None);
-    };
+// /// Fetch full UI detail for a given file_id (including tags)
+// pub async fn get_file_detail(db: &DatabaseConnection, file_id: Uuid) -> Result<Option<FileInfo>> {
+//     let Some(record) = storage::file::get_file_by_id(db, file_id).await? else {
+//         return Ok(None);
+//     };
 
-    let tags: Vec<MacroTag> = storage::file::get_file_tags(db, file_id)
-        .await?
-        .into_iter()
-        .map(|t| MacroTag::Standard(t.into()))
-        .collect();
+//     let tags: Vec<MacroTag> = storage::file::get_file_tags(db, file_id)
+//         .await?
+//         .into_iter()
+//         .map(|t| MacroTag::Standard(t.into()))
+//         .collect();
 
-    Ok(Some(FileInfo::from_query(record, tags)))
-}
+//     Ok(Some(FileInfo::from_query(record, tags)))
+// }
 
 /// List files filtered by query from database
 pub async fn list_files(db: &DatabaseConnection, query: &FileQueryer) -> Result<Vec<FileInfo>> {

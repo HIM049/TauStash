@@ -108,16 +108,17 @@ impl GridCard {
 
 impl From<&FileInfo> for GridCard {
     fn from(file: &FileInfo) -> Self {
-        let image = if file.mime.starts_with("image/") {
-            let p = crate::services::thumbnail::get_thumbnail_path(&file.hash);
-            CardImage::Image(p)
-        } else {
-            let ext = file.ext.as_deref().unwrap_or("FILE");
-            CardImage::Icon {
-                name: IconName::File.path(),
-                label: Some(ext.into()),
-            }
-        };
+        let image = file
+            .thumb
+            .as_ref()
+            .map(|t| CardImage::Image(t.clone()))
+            .unwrap_or({
+                let ext = file.ext.as_deref().unwrap_or("FILE");
+                CardImage::Icon {
+                    name: IconName::File.path(),
+                    label: Some(ext.into()),
+                }
+            });
 
         Self::new(
             file.file_id,
@@ -252,9 +253,7 @@ impl RenderOnce for GridCard {
             .rounded(cx.theme().radius)
             .border_1()
             .when(is_selected, |this| this.bg(cx.theme().accent.opacity(0.9)))
-            .when(self.is_cursor, |this| {
-                this.border_color(cx.theme().border)
-            })
+            .when(self.is_cursor, |this| this.border_color(cx.theme().border))
             .hover(|s| {
                 if is_selected {
                     s.border_color(cx.theme().border)

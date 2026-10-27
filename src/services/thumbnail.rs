@@ -1,6 +1,10 @@
+use sea_orm::DatabaseConnection;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use tracing::{debug, warn};
+use uuid::Uuid;
+
+use crate::database::{self, storage};
 
 /// Target resolution: 360px on the longest edge.
 const MAX_THUMBNAIL_EDGE: u32 = 360;
@@ -16,14 +20,17 @@ static THUMBNAILS_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
     dir
 });
 
-/// Directory where thumbnail images are stored
-pub fn thumbnails_dir() -> &'static Path {
-    &THUMBNAILS_DIR
+pub fn get_thumbnail_path_ensure(hash: &str) -> PathBuf {
+    let thumb_path = get_thumbnail_path(hash);
+    if let Some(parent) = thumb_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    thumb_path
 }
 
 /// get thumbnail file path
 pub fn get_thumbnail_path(hash: &str) -> PathBuf {
-    THUMBNAILS_DIR.join(format!("{hash}.jpg"))
+    THUMBNAILS_DIR.join(&hash[..2]).join(format!("{hash}.jpg"))
 }
 
 /// Check whether thumbnail already exists
@@ -32,11 +39,8 @@ pub fn thumbnail_exists(hash: &str) -> bool {
 }
 
 /// Ensure a thumbnail exists
-pub fn ensure_thumbnail(src_path: &Path, hash: &str) -> Option<PathBuf> {
-    let thumb_path = get_thumbnail_path(hash);
-    if thumb_path.is_file() {
-        return Some(thumb_path);
-    }
+fn generate_thumbnail(src_path: &Path, hash: &str) -> Option<(PathBuf, i64)> {
+    let thumb_path = get_thumbnail_path_ensure(hash);
 
     if !src_path.is_file() {
         warn!(
@@ -70,7 +74,26 @@ pub fn ensure_thumbnail(src_path: &Path, hash: &str) -> Option<PathBuf> {
         return None;
     }
 
+    let size = std::fs::metadata(&thumb_path)
+        .map(|m| m.len() as i64)
+        .unwrap_or(0);
+
     debug!("Generated thumbnail for {} in {:?}", hash, start.elapsed());
 
-    Some(thumb_path)
+    Some((thumb_path, size))
+}
+
+pub async fn create_thumbnail(
+    db: &DatabaseConnection,
+    file_id: Uuid,
+    file_hash: &str,
+    source: PathBuf,
+) -> anyhow::Result<()> {
+    if let Some((path, size)) = generate_thumbnail(&source, &file_hash) {
+        storage::file::upsert_thumbnail(db, file_id, path, size).await?;
+    } else {
+        anyhow::bail!("failed to generate thumbnail")
+    }
+
+    Ok(())
 }

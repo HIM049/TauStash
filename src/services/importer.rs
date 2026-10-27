@@ -104,11 +104,6 @@ pub async fn import_file(
         utime,
     } = compute_file_metadata(path)?;
 
-    // generate thumbnail for images on import
-    if mime.starts_with("image/") {
-        super::thumbnail::ensure_thumbnail(path, &hash);
-    }
-
     // Deduplication check
     let existing_file = storage::file::find_file_by_hash(db, &hash).await?;
 
@@ -142,7 +137,7 @@ pub async fn import_file(
                 file_name: &file_name,
                 hash: &hash,
                 size,
-                mime: Some(mime),
+                mime: Some(mime.clone()),
                 ext,
                 state: FileState::Pending,
                 content_times: ContentTimes {
@@ -173,6 +168,11 @@ pub async fn import_file(
 
         (new_id, false)
     };
+
+    // generate thumbnail for images on import
+    if mime.starts_with("image/") {
+        super::thumbnail::create_thumbnail(db, file_id, &hash, path.to_path_buf()).await?;
+    }
 
     Ok((file_id, is_duplicate))
 }
