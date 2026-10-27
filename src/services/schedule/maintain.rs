@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::database::entities::{FileState, ReplicaState, file, file_replica};
 use crate::database::storage::{self, file::ContentTimes};
-use crate::services::{importer, thumbnail};
+use crate::services::importer;
 
 #[derive(Debug, Clone, Default)]
 pub struct MaintenanceReport {

@@ -178,9 +178,11 @@ impl ScheduleService {
                 }
             };
 
-            tokio::select! {
-                _ = tokio::time::sleep(sleep_duration), if sleep_duration > Duration::ZERO => {}
-                _ = notify.notified() => { continue; }
+            if sleep_duration > Duration::ZERO {
+                tokio::select! {
+                    _ = tokio::time::sleep(sleep_duration) => {}
+                    _ = notify.notified() => { continue; }
+                }
             }
 
             let task_to_run = {

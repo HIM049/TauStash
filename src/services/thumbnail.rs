@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
-use crate::database::{self, storage};
+use crate::database::storage;
 
 /// Target resolution: 360px on the longest edge.
 const MAX_THUMBNAIL_EDGE: u32 = 360;

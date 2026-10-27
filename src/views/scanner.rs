@@ -282,6 +282,9 @@ impl ScannerView {
                     cx.notify();
                     let file = cx.global::<AppState>().file.clone();
                     file.update(cx, |_, cx| cx.notify());
+                    cx.global::<AppState>()
+                        .schedule
+                        .trigger_now("maintain_thumbnails");
                     match res {
                         Ok(report) if report.failed.is_empty() => SharedString::new("扫描完成"),
                         Ok(report) => SharedString::from(format!(

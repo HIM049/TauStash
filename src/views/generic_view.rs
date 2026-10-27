@@ -232,6 +232,9 @@ impl GenericView {
 
                     let file = cx.global::<AppState>().file.clone();
                     file.update(cx, |_, cx| cx.notify());
+                    cx.global::<AppState>()
+                        .schedule
+                        .trigger_now("maintain_thumbnails");
                     message
                 })
                 .ok();

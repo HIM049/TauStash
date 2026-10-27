@@ -169,11 +169,6 @@ pub async fn import_file(
         (new_id, false)
     };
 
-    // generate thumbnail for images on import
-    if mime.starts_with("image/") {
-        super::thumbnail::create_thumbnail(db, file_id, &hash, path.to_path_buf()).await?;
-    }
-
     Ok((file_id, is_duplicate))
 }
 
