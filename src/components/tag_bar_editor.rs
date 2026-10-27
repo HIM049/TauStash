@@ -37,7 +37,6 @@ pub struct TagBatchEditor {
     tracked_items: Vec<TrackedBatchItem>,
 
     is_adding: bool,
-    padding_x: bool,
     input_state: Entity<InputState>,
 
     on_commit: Option<CommitListener>,
@@ -53,16 +52,10 @@ impl TagBatchEditor {
             selected_count: 0,
             tracked_items: Vec::new(),
             is_adding: false,
-            padding_x: false,
             input_state,
             on_commit: None,
             on_cancel: None,
         }
-    }
-
-    pub fn padding_x(mut self) -> Self {
-        self.padding_x = true;
-        self
     }
 
     pub fn on_commit(
@@ -371,7 +364,6 @@ impl Render for TagBatchEditor {
             .w_full()
             .pl_6()
             .py_1()
-            .when(self.padding_x, |this| this.px_6())
             .gap_2()
             .bg(theme.accent.opacity(0.08))
             .border_color(theme.border)

@@ -105,18 +105,6 @@ impl GenericFileView {
         cx.notify();
     }
 
-    pub fn view_mode(&self) -> ViewOption {
-        self.view_mode
-    }
-
-    pub fn file_list(&self) -> &[FileInfo] {
-        &self.file_list
-    }
-
-    pub fn selected_files(&self) -> &HashSet<Uuid> {
-        &self.selected_files
-    }
-
     pub fn selected_ids(&self) -> Vec<Uuid> {
         self.selected_files.iter().copied().collect()
     }

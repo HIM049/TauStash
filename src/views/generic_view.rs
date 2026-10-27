@@ -413,12 +413,26 @@ impl GenericView {
         cx.notify();
     }
 
+    /// Reconstructs the filter_bar based on active filter rules (preview or persisted)
+    pub fn reload_filter_bar(&mut self) {
+        let filters = self
+            .preview_filter_tags
+            .as_ref()
+            .unwrap_or(&self.config.filters);
+
+        let base_query = MtagService::new()
+            .tags(filters)
+            .build()
+            .unwrap_or_default();
+
+        self.filter_bar = TagFilterBar::with_excluded_tags(base_query, filters.clone());
+    }
+
     /// refresh file list and tell filter_bar to reload its facet stats
     pub fn reload_all(&mut self, cx: &mut Context<Self>) {
         self.reload_files(cx);
         self.reload_candidates(cx);
-        self.filter_bar
-            .set_excluded_tags(self.config.filters.clone());
+        self.reload_filter_bar();
         self.reload_filter_stats(cx);
     }
 
@@ -427,7 +441,12 @@ impl GenericView {
             return;
         }
 
-        if self.config.filters.is_empty() {
+        let config_filters = self
+            .preview_filter_tags
+            .as_ref()
+            .unwrap_or(&self.config.filters);
+
+        if config_filters.is_empty() {
             self.filter_bar.clear_stats();
             cx.notify();
             return;
@@ -486,11 +505,13 @@ impl GenericView {
                 ConfigEditorEvent::DraftChanged => {
                     let draft_config = editor.read(cx).current_config().clone();
                     this.preview_filter_tags = Some(draft_config.filters.clone());
+                    this.reload_filter_bar();
                     this.content_view.update(cx, |view, cx| {
                         view.set_view_mode(draft_config.view, cx);
                         view.set_grouping(draft_config.sort_field, draft_config.group_mode, cx);
                     });
                     this.reload_files(cx);
+                    this.reload_filter_stats(cx);
                 }
                 ConfigEditorEvent::CancelRequested => {
                     this.cancel_configuration(cx);
@@ -569,12 +590,14 @@ impl GenericView {
         self.title = new_name.clone().into();
         self.icon = Some(new_icon.to_string().into());
         self.config = new_config.clone();
+        self.bar_mode = BarMode::Normal;
+        self.preview_filter_tags = None;
+        self.reload_filter_bar();
+
         self.content_view.update(cx, |view, cx| {
             view.set_view_mode(self.config.view, cx);
             view.set_grouping(self.config.sort_field, self.config.group_mode, cx);
         });
-        self.bar_mode = BarMode::Normal;
-        self.preview_filter_tags = None;
         if let Some(id) = self.collection_id {
             let views = cx.global::<AppState>().views.clone();
             let collections = cx.global::<AppState>().collections.clone();
@@ -625,6 +648,7 @@ impl GenericView {
     pub fn cancel_configuration(&mut self, cx: &mut Context<Self>) {
         self.bar_mode = BarMode::Normal;
         self.preview_filter_tags = None;
+        self.reload_filter_bar();
         self.content_view.update(cx, |view, cx| {
             view.set_view_mode(self.config.view, cx);
             view.set_grouping(self.config.sort_field, self.config.group_mode, cx);
