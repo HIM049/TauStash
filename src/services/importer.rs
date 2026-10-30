@@ -11,7 +11,6 @@ pub use super::scanner::BatchReport;
 use crate::database::entities::{FileState, ReplicaState};
 use crate::database::storage::file::{ContentTimes, CreateFileParams, UpsertReplicaParams};
 use crate::database::storage::{self};
-use crate::services::FileState::Managed;
 use crate::services::macrotag::MacroTag;
 use crate::services::tags_queryer::MtagService;
 
@@ -177,14 +176,19 @@ pub async fn import_from_paths(
     db: &DatabaseConnection,
     paths: &[PathBuf],
     device_id: &str,
+    tags: &[MacroTag],
 ) -> Result<BatchReport> {
     let mut report = BatchReport::default();
     let paths = flat_paths(paths.to_vec());
 
     for path in paths {
-        let tags = vec![MacroTag::State(Managed)];
-        match import_file(db, &path, device_id, &tags).await {
-            Ok((_id, is_duplicate)) => {
+        match import_file(db, &path, device_id, &[]).await {
+            Ok((id, is_duplicate)) => {
+                if let Err(e) = MtagService::apply_changes(db, &[id], tags, &[]).await {
+                    tracing::warn!("failed to tag {}: {}", path.display(), e);
+                    report.failed.push(path.to_string_lossy().into_owned());
+                    continue;
+                }
                 report.total_found += 1;
                 if is_duplicate {
                     report.skipped_unchanged += 1;

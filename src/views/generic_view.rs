@@ -50,7 +50,6 @@ pub struct GenericView {
     candidate_tags: Vec<MacroTag>,
     // for any working state
     working: bool,
-    enable_drag: bool,
 }
 
 impl GenericView {
@@ -149,7 +148,6 @@ impl GenericView {
             preview_filter_tags: None,
             candidate_tags,
             working: false,
-            enable_drag: config.enable_drag,
         };
 
         view.reload_files(cx);
@@ -198,7 +196,7 @@ impl GenericView {
         paths: Vec<PathBuf>,
         cx: &mut Context<Self>,
     ) {
-        if !self.enable_drag || self.working || paths.is_empty() {
+        if !self.config.enable_drag || self.working || paths.is_empty() {
             return;
         }
 
@@ -210,10 +208,21 @@ impl GenericView {
         let rt = cx.global::<AppState>().rt.clone();
         let device_id = cx.global::<AppState>().config.device_id.clone();
 
+        let filters = &self.config.filters;
+        let mut tags: Vec<MacroTag> = filters
+            .iter()
+            .filter(|t| t.is_writable())
+            .cloned()
+            .collect();
+        // State fallback to managed
+        if !filters.iter().any(|t| matches!(t, MacroTag::State(_))) {
+            tags.push(MacroTag::State(FileState::Managed));
+        }
+
         cx.spawn_in(window, async move |this, cx: &mut AsyncWindowContext| {
             let res = cx
                 .background_spawn(async move {
-                    rt.block_on(importer::import_from_paths(&db, &paths, &device_id))
+                    rt.block_on(importer::import_from_paths(&db, &paths, &device_id, &tags))
                 })
                 .await;
 
@@ -224,10 +233,10 @@ impl GenericView {
                         if report.failed.is_empty() {
                             format!("{} 个内容导入成功", report.newly_imported).into()
                         } else {
-                            format!("{} 内容径导入失败", report.failed.len()).into()
+                            format!("{} 个内容导入失败", report.failed.len()).into()
                         }
                     } else {
-                        "导入成功".into()
+                        "导入失败".into()
                     };
 
                     let file = cx.global::<AppState>().file.clone();

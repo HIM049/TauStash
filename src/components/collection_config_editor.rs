@@ -482,6 +482,18 @@ impl CollectionConfigEditor {
                 ),
             )
             .child(
+                field().label("拖拽导入:").items_center().child(
+                    Switch::new("cfg-enable-drag-switch")
+                        .small()
+                        .checked(self.draft_config.enable_drag)
+                        .on_click(cx.listener(|this, checked: &bool, _window, cx| {
+                            this.draft_config.enable_drag = *checked;
+                            cx.emit(ConfigEditorEvent::DraftChanged);
+                            cx.notify();
+                        })),
+                ),
+            )
+            .child(
                 field().label("排序:").items_center().child(
                     div()
                         .h_flex()
