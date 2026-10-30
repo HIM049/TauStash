@@ -361,12 +361,7 @@ impl ScannerView {
             MacroTag::State(FileState::Ignored),
         ];
 
-        let candidate_tags = cx
-            .global::<AppState>()
-            .tags
-            .read(cx)
-            .cached_tags
-            .clone();
+        let candidate_tags = cx.global::<AppState>().tags.read(cx).cached_tags.clone();
 
         self.batch_editor.update(cx, |editor, cx| {
             editor.set_tags(&tag_slices, &candidate_tags, &pinned_tags, cx);
@@ -611,7 +606,7 @@ impl Render for ScannerView {
         let sub_bar = if has_selection {
             div()
                 .id("scanner-batch-editor-container")
-                .h(px(34.))
+                .h(px(42.))
                 .w_full()
                 .on_click(|_, _, cx| cx.stop_propagation())
                 .child(self.batch_editor.clone())
@@ -621,7 +616,8 @@ impl Render for ScannerView {
                 .h_flex()
                 .items_center()
                 .w_full()
-                .h(px(34.))
+                .h(px(42.))
+                .px_6()
                 .text_color(cx.theme().muted_foreground)
                 .child(
                     div()
@@ -641,6 +637,7 @@ impl Render for ScannerView {
 
         ViewScaffold::new("scanner-scaffold", "扫描管理")
             .on_drop(cx.listener(Self::handle_drag))
+            .drop_label("松开以添加为扫描源")
             .on_click(cx.listener(|this, _, _, cx| {
                 this.clear_selection(cx);
             }))

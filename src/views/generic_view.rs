@@ -872,6 +872,13 @@ impl Render for GenericView {
             scaffold = scaffold.sub_bar(bar);
         }
 
+        scaffold = scaffold.on_drop(cx.listener(|this, e: &ExternalPaths, w, cx| {
+            this.handle_drag(w, e.paths().to_vec(), cx);
+        }));
+        if self.config.enable_drag && !self.working {
+            scaffold = scaffold.drop_label(format!("松开以导入到\"{}\"", self.title));
+        }
+
         div()
             .id("explorer-main")
             .bg(cx.theme().muted)
@@ -879,9 +886,6 @@ impl Render for GenericView {
             .v_flex()
             .size_full()
             .gap_3()
-            .on_drop(cx.listener(|this, e: &ExternalPaths, w, cx| {
-                this.handle_drag(w, e.paths().to_vec(), cx);
-            }))
             .when_some(configuring_editor.as_ref(), |this, editor| {
                 this.child(
                     div()

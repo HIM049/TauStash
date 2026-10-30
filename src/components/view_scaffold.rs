@@ -21,6 +21,7 @@ pub struct ViewScaffold {
     on_click: Option<ClickHandler>,
     on_sub_click: Option<SubClickHandler>,
     on_drop: Option<DropHandler>,
+    drop_label: Option<SharedString>,
 }
 
 impl Styled for ViewScaffold {
@@ -42,6 +43,7 @@ impl ViewScaffold {
             on_click: None,
             on_sub_click: None,
             on_drop: None,
+            drop_label: None,
         }
     }
 
@@ -93,6 +95,42 @@ impl ViewScaffold {
         self.on_drop = Some(Box::new(handler));
         self
     }
+
+    /// Show a full-size hint with this label while files are dragged over.
+    pub fn drop_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.drop_label = Some(label.into());
+        self
+    }
+
+    fn render_drop_overlay(label: SharedString, theme: &Theme) -> impl IntoElement {
+        div()
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .opacity(0.)
+            .p_8()
+            .bg(theme.primary.opacity(0.5))
+            .drag_over::<ExternalPaths>(|style, _, _, _| style.opacity(1.))
+            .child(
+                div()
+                    .flex()
+                    .justify_center()
+                    .items_center()
+                    .size_full()
+                    .border_8()
+                    .border_dashed()
+                    .border_color(theme.muted)
+                    .rounded_3xl()
+                    .opacity(0.8)
+                    .text_color(theme.muted)
+                    .text_2xl()
+                    .font_extrabold()
+                    .font_medium()
+                    .child(label),
+            )
+    }
 }
 
 impl RenderOnce for ViewScaffold {
@@ -101,6 +139,7 @@ impl RenderOnce for ViewScaffold {
 
         div()
             .id(self.id.clone())
+            .relative()
             .size_full()
             .bg(theme.background)
             .v_flex()
@@ -173,6 +212,9 @@ impl RenderOnce for ViewScaffold {
                     .min_h_0()
                     .when_some(self.content, |this, content| this.child(content)),
             )
+            .when_some(self.drop_label, |this, label| {
+                this.child(Self::render_drop_overlay(label, theme))
+            })
             .refine_style(&self.style)
     }
 }
