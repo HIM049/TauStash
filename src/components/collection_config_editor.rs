@@ -1,9 +1,15 @@
+use std::cell::Cell;
+use std::rc::Rc;
+use std::time::{Duration, Instant};
+
 use gpui_kit::assets::IconName;
+use gpui_kit::base::ElementExt;
 use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonGroup, ButtonVariants};
 use gpui_kit::component::form::{field, h_form};
 use gpui_kit::component::input::{Enter, Escape, Input, InputEvent, InputState};
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::popover::Popover;
+use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder;
@@ -17,6 +23,8 @@ use crate::database::storage::query::FileSortField;
 use crate::services::collection::{CollectionConfig, GroupMode, TimeGroup, ViewOption};
 use crate::services::macrotag::MacroTag;
 use crate::services::store::TagStore;
+
+const EXPAND_TRANSITION: Duration = Duration::from_millis(300);
 
 pub const ALL_SORT_FIELDS: &[FileSortField] = &[
     FileSortField::ContentCreatedAt,
@@ -90,6 +98,7 @@ pub enum ConfigEditorEvent {
     CancelRequested,
     SaveRequested,
     DeleteRequested,
+    ExpandToggled,
 }
 
 pub struct CollectionConfigEditor {
@@ -101,6 +110,10 @@ pub struct CollectionConfigEditor {
     tag_search_results: Vec<MacroTag>,
     tag_store: Option<Entity<TagStore>>,
     confirm_delete: bool,
+    expanded: bool,
+    expand_toggled_at: Option<Instant>,
+    extend_section_height: Rc<Cell<Pixels>>,
+    scroll_handle: ScrollHandle,
 }
 
 impl EventEmitter<ConfigEditorEvent> for CollectionConfigEditor {}
@@ -144,6 +157,10 @@ impl CollectionConfigEditor {
             tag_search_results: Vec::new(),
             tag_store: None,
             confirm_delete: false,
+            expanded: false,
+            expand_toggled_at: None,
+            extend_section_height: Rc::new(Cell::new(px(0.))),
+            scroll_handle: ScrollHandle::new(),
         };
 
         editor.load_search_tags("", cx);
@@ -264,6 +281,23 @@ impl CollectionConfigEditor {
         .detach();
     }
 
+    pub fn is_expanded(&self) -> bool {
+        self.expanded
+    }
+
+    /// Whether the current expanded state came from a toggle, rather than the initial open.
+    pub fn expand_toggled(&self) -> bool {
+        self.expand_toggled_at.is_some()
+    }
+
+    fn toggle_expanded(&mut self, cx: &mut Context<Self>) {
+        self.expanded = !self.expanded;
+        self.expand_toggled_at = Some(Instant::now());
+        self.confirm_delete = false;
+        cx.emit(ConfigEditorEvent::ExpandToggled);
+        cx.notify();
+    }
+
     pub fn add_pinned_tag(&mut self, tag: MacroTag, cx: &mut Context<Self>) {
         if !self.draft_config.pinned_tags.iter().any(|t| t == &tag) {
             self.draft_config.pinned_tags.push(tag);
@@ -351,8 +385,6 @@ impl CollectionConfigEditor {
     }
 
     fn render_config_form(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-
         h_form()
             .small()
             .columns(2)
@@ -421,22 +453,6 @@ impl CollectionConfigEditor {
                 ),
             )
             .child(
-                field().label("侧边视图:").items_center().child(
-                    Switch::new("cfg-collection-type-switch")
-                        .small()
-                        .checked(self.collection_type == CollectionType::View)
-                        .on_click(cx.listener(|this, checked: &bool, _window, cx| {
-                            this.collection_type = if *checked {
-                                CollectionType::View
-                            } else {
-                                CollectionType::Folder
-                            };
-                            cx.emit(ConfigEditorEvent::DraftChanged);
-                            cx.notify();
-                        })),
-                ),
-            )
-            .child(
                 field().label("视图:").items_center().child(
                     ButtonGroup::new("cfg-view-group")
                         .small()
@@ -464,30 +480,6 @@ impl CollectionConfigEditor {
                                 return;
                             };
                             this.draft_config.view = view;
-                            cx.emit(ConfigEditorEvent::DraftChanged);
-                            cx.notify();
-                        })),
-                ),
-            )
-            .child(
-                field().label("隐藏标签栏:").items_center().child(
-                    Switch::new("cfg-hide-tagbar-switch")
-                        .small()
-                        .checked(self.draft_config.is_hide_tagbar)
-                        .on_click(cx.listener(|this, checked: &bool, _window, cx| {
-                            this.draft_config.is_hide_tagbar = *checked;
-                            cx.emit(ConfigEditorEvent::DraftChanged);
-                            cx.notify();
-                        })),
-                ),
-            )
-            .child(
-                field().label("拖拽导入:").items_center().child(
-                    Switch::new("cfg-enable-drag-switch")
-                        .small()
-                        .checked(self.draft_config.enable_drag)
-                        .on_click(cx.listener(|this, checked: &bool, _window, cx| {
-                            this.draft_config.enable_drag = *checked;
                             cx.emit(ConfigEditorEvent::DraftChanged);
                             cx.notify();
                         })),
@@ -590,6 +582,57 @@ impl CollectionConfigEditor {
                                 })
                             }
                         }),
+                ),
+            )
+    }
+
+    fn render_extend_form(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+
+        h_form()
+            .small()
+            .columns(2)
+            .label_width(px(88.0))
+            .gap_x_8()
+            .gap_y_3()
+            .child(
+                field().label("侧边视图:").items_center().child(
+                    Switch::new("cfg-collection-type-switch")
+                        .small()
+                        .checked(self.collection_type == CollectionType::View)
+                        .on_click(cx.listener(|this, checked: &bool, _window, cx| {
+                            this.collection_type = if *checked {
+                                CollectionType::View
+                            } else {
+                                CollectionType::Folder
+                            };
+                            cx.emit(ConfigEditorEvent::DraftChanged);
+                            cx.notify();
+                        })),
+                ),
+            )
+            .child(
+                field().label("隐藏标签栏:").items_center().child(
+                    Switch::new("cfg-hide-tagbar-switch")
+                        .small()
+                        .checked(self.draft_config.is_hide_tagbar)
+                        .on_click(cx.listener(|this, checked: &bool, _window, cx| {
+                            this.draft_config.is_hide_tagbar = *checked;
+                            cx.emit(ConfigEditorEvent::DraftChanged);
+                            cx.notify();
+                        })),
+                ),
+            )
+            .child(
+                field().label("拖拽导入:").items_center().child(
+                    Switch::new("cfg-enable-drag-switch")
+                        .small()
+                        .checked(self.draft_config.enable_drag)
+                        .on_click(cx.listener(|this, checked: &bool, _window, cx| {
+                            this.draft_config.enable_drag = *checked;
+                            cx.emit(ConfigEditorEvent::DraftChanged);
+                            cx.notify();
+                        })),
                 ),
             )
             .child(
@@ -884,6 +927,14 @@ impl CollectionConfigEditor {
 
 impl Render for CollectionConfigEditor {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let expanded = self.expanded;
+        // Keep the section mounted until its collapse animation has played out.
+        let collapsing = !expanded
+            && self
+                .expand_toggled_at
+                .is_some_and(|at| at.elapsed() < EXPAND_TRANSITION);
+        let section_height = self.extend_section_height.clone();
+
         let btn_variant = ButtonCustomVariant::new(cx)
             .color(cx.theme().transparent)
             .foreground(cx.theme().muted_foreground)
@@ -895,15 +946,21 @@ impl Render for CollectionConfigEditor {
             .v_flex()
             .gap_2()
             .py_3()
-            .on_action(cx.listener(|_this, _: &Escape, _window, cx| {
+            .min_h_0()
+            .on_action(cx.listener(|this, _: &Escape, _window, cx| {
                 cx.stop_propagation();
-                cx.emit(ConfigEditorEvent::CancelRequested);
+                if this.expanded {
+                    this.toggle_expanded(cx);
+                } else {
+                    cx.emit(ConfigEditorEvent::CancelRequested);
+                }
             }))
             .child(
                 div()
                     .h_flex()
+                    .flex_shrink_0()
                     .items_center()
-                    .px_3()
+                    .px_6()
                     .gap_2()
                     .child(
                         Button::new("scope-back")
@@ -913,22 +970,107 @@ impl Render for CollectionConfigEditor {
                                 cx.emit(ConfigEditorEvent::CancelRequested);
                             })),
                     )
-                    .child(div().text_xl().font_bold().child("视图属性编辑")),
+                    .child(div().text_xl().font_bold().child("视图属性编辑"))
+                    .child(
+                        Button::new("cfg-expand-toggle")
+                            .ml_auto()
+                            .small()
+                            .icon(if self.expanded {
+                                IconName::ChevronUp
+                            } else {
+                                IconName::ChevronDown
+                            })
+                            .label(if self.expanded {
+                                "收起更多"
+                            } else {
+                                "更多设置"
+                            })
+                            .on_click(cx.listener(|this, _, _window, cx| {
+                                this.toggle_expanded(cx);
+                            })),
+                    ),
             )
             .child(
                 div()
-                    .px_6()
+                    .relative()
                     .v_flex()
-                    .gap_3()
-                    .child(self.render_config_form(cx))
+                    .min_h_0()
+                    .overflow_hidden()
                     .child(
                         div()
-                            .w_full()
-                            .h(px(1.))
-                            .my_1()
-                            .bg(cx.theme().border.opacity(0.4)),
+                            .id("cfg-editor-scroll")
+                            .v_flex()
+                            .min_h_0()
+                            .track_scroll(&self.scroll_handle)
+                            .overflow_y_scroll()
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .px_6()
+                                    .v_flex()
+                                    .child(
+                                        div()
+                                            .v_flex()
+                                            .gap_3()
+                                            .child(self.render_config_form(cx))
+                                            .child(
+                                                div()
+                                                    .w_full()
+                                                    .h(px(1.))
+                                                    .my_1()
+                                                    .bg(cx.theme().border.opacity(0.4)),
+                                            )
+                                            .child(self.render_filter_editor(cx)),
+                                    )
+                                    .when(expanded || collapsing, |this| {
+                                        this.child(
+                                            div()
+                                                .overflow_hidden()
+                                                .child(
+                                                    div()
+                                                        .flex_none()
+                                                        .pt_3()
+                                                        .v_flex()
+                                                        .gap_3()
+                                                        .child(
+                                                            div()
+                                                                .w_full()
+                                                                .h(px(1.))
+                                                                .my_1()
+                                                                .bg(cx.theme().border.opacity(0.4)),
+                                                        )
+                                                        .child(self.render_extend_form(cx))
+                                                        .on_prepaint({
+                                                            let section_height =
+                                                                section_height.clone();
+                                                            move |bounds, _, _| {
+                                                                section_height
+                                                                    .set(bounds.size.height);
+                                                            }
+                                                        }),
+                                                )
+                                                .with_animation(
+                                                    ("cfg-more-section", expanded as usize),
+                                                    Animation::new(EXPAND_TRANSITION)
+                                                        .with_easing(ease_out_quint()),
+                                                    move |this, delta| {
+                                                        if expanded && delta >= 1.0 {
+                                                            return this;
+                                                        }
+                                                        let progress = if expanded {
+                                                            delta
+                                                        } else {
+                                                            1.0 - delta
+                                                        };
+                                                        this.max_h(section_height.get() * progress)
+                                                            .opacity(progress)
+                                                    },
+                                                ),
+                                        )
+                                    }),
+                            ),
                     )
-                    .child(self.render_filter_editor(cx)),
+                    .vertical_scrollbar(&self.scroll_handle),
             )
     }
 }

@@ -1,8 +1,10 @@
+use std::cell::Cell;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
 use gpui_kit::assets::IconName;
+use gpui_kit::base::ElementExt;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::*;
@@ -45,6 +47,8 @@ pub struct GenericView {
     filter_bar: TagFilterBar,
     batch_editor: Entity<TagBatchEditor>,
     bar_mode: BarMode,
+    main_height: Rc<Cell<Pixels>>,
+    editor_panel_height: Rc<Cell<Pixels>>,
     current_filter_tags: Vec<MacroTag>,
     preview_filter_tags: Option<Vec<MacroTag>>,
     candidate_tags: Vec<MacroTag>,
@@ -144,6 +148,8 @@ impl GenericView {
             filter_bar,
             batch_editor,
             bar_mode: BarMode::Normal,
+            main_height: Rc::new(Cell::new(px(0.))),
+            editor_panel_height: Rc::new(Cell::new(px(0.))),
             current_filter_tags: Vec::new(),
             preview_filter_tags: None,
             candidate_tags,
@@ -532,6 +538,9 @@ impl GenericView {
                 ConfigEditorEvent::DeleteRequested => {
                     this.delete_current_collection(cx);
                 }
+                ConfigEditorEvent::ExpandToggled => {
+                    cx.notify();
+                }
             },
         )
         .detach();
@@ -887,27 +896,60 @@ impl Render for GenericView {
             .size_full()
             .gap_3()
             .when_some(configuring_editor.as_ref(), |this, editor| {
+                let expanded = editor.read(cx).is_expanded();
+                let toggled = editor.read(cx).expand_toggled();
+                let (from, to) = if expanded { (0.5, 0.8) } else { (0.8, 0.5) };
+                let animation_id: ElementId = if toggled {
+                    ("config-editor-expand", expanded as usize).into()
+                } else {
+                    "config-editor-slide".into()
+                };
+                let panel_height = self.editor_panel_height.clone();
+                let opened_cap = self.main_height.get() * 0.5;
+
                 this.child(
                     div()
                         .w_full()
-                        .max_h(relative(0.5))
+                        .v_flex()
+                        .max_h(relative(to))
                         .flex_shrink_0()
                         .overflow_hidden()
                         .with_animation(
-                            "config-editor-slide",
+                            animation_id,
                             Animation::new(Duration::from_millis(300))
                                 .with_easing(ease_out_quint()),
-                            |this, delta| {
-                                if delta < 1.0 {
-                                    this.max_h(px(delta * 400.0)).opacity(delta)
-                                } else {
-                                    this.opacity(1.0)
+                            {
+                                let panel_height = panel_height.clone();
+                                move |this, delta| {
+                                    if delta >= 1.0 {
+                                        this.opacity(1.0)
+                                    } else if toggled {
+                                        this.max_h(relative(from + (to - from) * delta))
+                                    } else {
+                                        this.max_h(panel_height.get() * delta).opacity(delta)
+                                    }
                                 }
                             },
                         )
-                        .child(editor.clone().into_any_element()),
+                        .child(
+                            div()
+                                .v_flex()
+                                .min_h_0()
+                                .child(editor.clone().into_any_element())
+                                .when(!toggled, |this| {
+                                    this.flex_none().max_h(opened_cap).on_prepaint(
+                                        move |bounds, _, _| {
+                                            panel_height.set(bounds.size.height);
+                                        },
+                                    )
+                                }),
+                        ),
                 )
             })
             .child(scaffold)
+            .on_prepaint({
+                let main_height = self.main_height.clone();
+                move |bounds, _, _| main_height.set(bounds.size.height)
+            })
     }
 }

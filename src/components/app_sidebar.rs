@@ -87,7 +87,8 @@ impl RenderOnce for AppSidebar {
         Sidebar::new("app-sidebar")
             .collapsible(SidebarCollapsible::Icon)
             .collapsed(self.collapsed)
-            .w(px(220.0))
+            // WARN: (HACK) use rems to disable animation. Because animation doesn't work on non pixel unit.
+            .w(rems(13.75))
             .child(SidebarGroup::new("导航").child({
                 let mut menu = SidebarMenu::new();
 
