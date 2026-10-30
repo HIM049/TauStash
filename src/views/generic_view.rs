@@ -102,6 +102,7 @@ impl GenericView {
                 config.view,
                 config.sort_field,
                 config.group_mode,
+                config.context_states.clone(),
                 window,
                 cx,
             )
@@ -112,8 +113,8 @@ impl GenericView {
                 FileContentEvent::SelectionChanged => {
                     this.sync_batch_editor(cx);
                 }
-                FileContentEvent::DeleteRequested(ids) => {
-                    this.delete_files(ids, cx);
+                FileContentEvent::SetStateRequested(state) => {
+                    this.commit_tag_changes(vec![MacroTag::State(*state)], vec![], cx);
                 }
                 FileContentEvent::RefreshRequested => {
                     let file = cx.global::<AppState>().file.clone();
@@ -612,6 +613,7 @@ impl GenericView {
         self.content_view.update(cx, |view, cx| {
             view.set_view_mode(self.config.view, cx);
             view.set_grouping(self.config.sort_field, self.config.group_mode, cx);
+            view.set_context_states(self.config.context_states.clone());
         });
         if let Some(id) = self.collection_id {
             let views = cx.global::<AppState>().views.clone();
@@ -718,17 +720,6 @@ impl GenericView {
         });
 
         cx.notify();
-    }
-
-    pub fn delete_files(&mut self, ids: &[Uuid], cx: &mut Context<Self>) {
-        if ids.is_empty() {
-            return;
-        }
-
-        let ensure = vec![MacroTag::State(FileState::Deleted)];
-        let remove = vec![];
-
-        self.commit_tag_changes(ensure, remove, cx);
     }
 
     fn commit_tag_changes(

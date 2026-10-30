@@ -13,14 +13,23 @@ use crate::components::item_grid_view::ItemGridView;
 use crate::components::item_list_view::ItemListView;
 use crate::components::utils;
 use crate::database::storage::query::FileSortField;
-use crate::services::collection::{GroupMode, ViewOption};
+use crate::services::collection::{CONTEXT_MENU_STATES, GroupMode, ViewOption};
 use crate::services::file::FileInfo;
+use crate::services::macrotag::FileState;
 
 #[derive(Clone, Debug)]
 pub enum FileContentEvent {
     SelectionChanged,
-    DeleteRequested(Vec<Uuid>),
+    SetStateRequested(FileState),
     RefreshRequested,
+}
+
+fn context_state_icon(state: FileState) -> IconName {
+    match state {
+        FileState::Deleted => IconName::Delete,
+        FileState::Ignored => IconName::EyeOff,
+        _ => IconName::Check,
+    }
 }
 
 pub struct GenericFileView {
@@ -28,6 +37,7 @@ pub struct GenericFileView {
     view_mode: ViewOption,
     sort_field: FileSortField,
     group_mode: GroupMode,
+    context_states: Vec<FileState>,
     selected_files: HashSet<Uuid>,
     last_select: Option<Uuid>,
     cursor_id: Option<Uuid>,
@@ -45,6 +55,7 @@ impl GenericFileView {
         view_mode: ViewOption,
         sort_field: FileSortField,
         group_mode: GroupMode,
+        context_states: Vec<FileState>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -56,6 +67,7 @@ impl GenericFileView {
             view_mode,
             sort_field,
             group_mode,
+            context_states,
             selected_files: HashSet::new(),
             last_select: None,
             cursor_id: None,
@@ -103,6 +115,10 @@ impl GenericFileView {
         self.sort_field = sort_field;
         self.group_mode = group_mode;
         cx.notify();
+    }
+
+    pub fn set_context_states(&mut self, states: Vec<FileState>) {
+        self.context_states = states;
     }
 
     pub fn selected_ids(&self) -> Vec<Uuid> {
@@ -287,20 +303,11 @@ impl GenericFileView {
     fn build_context_menu(&self, mut menu: PopupMenu, cx: &mut Context<Self>) -> PopupMenu {
         if let Some(file_id) = self.last_select {
             if self.selected_files.len() > 1 && self.selected_files.contains(&file_id) {
-                let count = self.selected_files.len();
-                let ids = self.selected_ids();
-                menu = menu.item(
-                    PopupMenuItem::new(format!("删除内容 ({count})"))
-                        .icon(IconName::Delete)
-                        .on_click(cx.listener(move |_this, _, _window, cx| {
-                            cx.emit(FileContentEvent::DeleteRequested(ids.clone()));
-                        })),
-                );
+                menu = self.add_state_items(menu, Some(self.selected_files.len()), cx);
             } else if let Some(file) = self.file_list.iter().find(|f| f.file_id == file_id) {
                 let open_p = file.path.clone();
                 let reveal_p = file.path.clone();
                 let copy_p = file.path.clone();
-                let ids = vec![file_id];
                 let rename_id = file_id;
                 let raw_name = file.file_name.clone();
 
@@ -333,15 +340,11 @@ impl GenericFileView {
                             .on_click(move |_, _, cx| {
                                 cx.write_to_clipboard(ClipboardItem::new_string(copy_p.clone()));
                             }),
-                    )
-                    .separator()
-                    .item(
-                        PopupMenuItem::new("删除内容")
-                            .icon(IconName::Delete)
-                            .on_click(cx.listener(move |_this, _, _w, cx| {
-                                cx.emit(FileContentEvent::DeleteRequested(ids.clone()));
-                            })),
                     );
+                if !self.context_states.is_empty() {
+                    menu = menu.separator();
+                }
+                menu = self.add_state_items(menu, None, cx);
             }
         } else {
             menu = menu.item(
@@ -353,6 +356,31 @@ impl GenericFileView {
             );
         }
 
+        menu
+    }
+
+    fn add_state_items(
+        &self,
+        mut menu: PopupMenu,
+        count: Option<usize>,
+        cx: &mut Context<Self>,
+    ) -> PopupMenu {
+        for &state in CONTEXT_MENU_STATES {
+            if !self.context_states.contains(&state) {
+                continue;
+            }
+            let label = match count {
+                Some(count) => format!("{} ({count})", state.display_name()),
+                None => state.display_name().to_string(),
+            };
+            menu = menu.item(
+                PopupMenuItem::new(label)
+                    .icon(context_state_icon(state))
+                    .on_click(cx.listener(move |_this, _, _window, cx| {
+                        cx.emit(FileContentEvent::SetStateRequested(state));
+                    })),
+            );
+        }
         menu
     }
 }

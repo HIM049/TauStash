@@ -8,7 +8,7 @@ use crate::database::{
 };
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set, UpdateResult,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set,
     prelude::DateTimeUtc, sea_query::Expr,
 };
 use uuid::Uuid;
@@ -114,41 +114,6 @@ pub async fn create_file(
     Ok(inserted)
 }
 
-pub async fn block_file(db: &DatabaseConnection, file_id: &[Uuid]) -> anyhow::Result<UpdateResult> {
-    let st = file::ActiveModel {
-        state: Set(FileState::Deleted),
-        updated_at: Set(Utc::now()),
-        deleted_at: Set(Some(Utc::now())),
-        ..Default::default()
-    };
-    let res = file::Entity::update_many()
-        .filter(file::Column::Id.is_in(file_id.iter().copied()))
-        .set(st)
-        .exec(db)
-        .await?;
-
-    Ok(res)
-}
-
-pub async fn unblock_file(
-    db: &DatabaseConnection,
-    file_id: &[Uuid],
-) -> anyhow::Result<UpdateResult> {
-    let st = file::ActiveModel {
-        // TODO: pending is a default behavior.
-        state: Set(FileState::Pending),
-        updated_at: Set(Utc::now()),
-        deleted_at: Set(None),
-        ..Default::default()
-    };
-    let res = file::Entity::update_many()
-        .filter(file::Column::Id.is_in(file_id.iter().copied()))
-        .set(st)
-        .exec(db)
-        .await?;
-    Ok(res)
-}
-
 /// Find a replica by device_id and URI
 pub async fn find_replica(
     db: &DatabaseConnection,
@@ -235,25 +200,36 @@ pub async fn mark_replica_missing(
     Ok(())
 }
 
-pub async fn set_file_state(
+pub async fn update_state(
     db: &DatabaseConnection,
-    file_id: Uuid,
+    file_ids: &[Uuid],
     state: FileState,
 ) -> anyhow::Result<()> {
-    let Some(file) = file::Entity::find_by_id(file_id).one(db).await? else {
-        anyhow::bail!("file not found");
-    };
-    let mut file: file::ActiveModel = file.into();
+    if file_ids.is_empty() {
+        return Ok(());
+    }
 
-    file.state = Set(state);
-    file.updated_at = Set(Utc::now());
-    file.update(db).await?;
+    let now = Utc::now();
+    let mut update = file::Entity::update_many()
+        .col_expr(file::Column::State, Expr::value(state))
+        .col_expr(file::Column::UpdatedAt, Expr::value(now))
+        .filter(file::Column::Id.is_in(file_ids.iter().copied()));
+
+    update = if state == FileState::Deleted {
+        update
+            // Skip files already deleted
+            .filter(file::Column::State.ne(FileState::Deleted))
+            .col_expr(file::Column::DeletedAt, Expr::value(now))
+    } else {
+        update.col_expr(file::Column::DeletedAt, Expr::value(None::<DateTimeUtc>))
+    };
+    update.exec(db).await?;
 
     Ok(())
 }
 
-/// Set the review state of many files in one statement.
-pub async fn set_file_states(
+/// Reset target `state` on the files filter by id and current state, returning them to pending.
+pub async fn clear_state(
     db: &DatabaseConnection,
     file_ids: &[Uuid],
     state: FileState,
@@ -263,49 +239,11 @@ pub async fn set_file_states(
     }
 
     file::Entity::update_many()
-        .col_expr(file::Column::State, Expr::value(state))
-        .col_expr(file::Column::UpdatedAt, Expr::value(Utc::now()))
         .filter(file::Column::Id.is_in(file_ids.iter().copied()))
-        .exec(db)
-        .await?;
-
-    Ok(())
-}
-
-/// Soft delete files and mark replicas as deleted at the given timestamp.
-pub async fn mark_files_deleted(db: &DatabaseConnection, file_ids: &[Uuid]) -> anyhow::Result<()> {
-    if file_ids.is_empty() {
-        return Ok(());
-    }
-
-    block_file(db, file_ids).await?;
-
-    file_replica::Entity::update_many()
-        .col_expr(file_replica::Column::DeletedAt, Expr::value(Utc::now()))
-        .filter(file_replica::Column::FileId.is_in(file_ids.iter().copied()))
-        .exec(db)
-        .await?;
-
-    Ok(())
-}
-
-/// Restore soft-deleted files and clear replica deleted_at timestamp.
-pub async fn unmark_files_deleted(
-    db: &DatabaseConnection,
-    file_ids: &[Uuid],
-) -> anyhow::Result<()> {
-    if file_ids.is_empty() {
-        return Ok(());
-    }
-
-    unblock_file(db, file_ids).await?;
-
-    file_replica::Entity::update_many()
-        .col_expr(
-            file_replica::Column::DeletedAt,
-            Expr::value(None::<DateTimeUtc>),
-        )
-        .filter(file_replica::Column::FileId.is_in(file_ids.iter().copied()))
+        .filter(file::Column::State.eq(state))
+        .col_expr(file::Column::State, Expr::value(FileState::Pending))
+        .col_expr(file::Column::UpdatedAt, Expr::value(Utc::now()))
+        .col_expr(file::Column::DeletedAt, Expr::value(None::<DateTimeUtc>))
         .exec(db)
         .await?;
 

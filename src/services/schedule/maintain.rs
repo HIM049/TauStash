@@ -1,5 +1,8 @@
 use sea_orm::DatabaseConnection;
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationTrait,
+    Set,
+};
 use std::path::Path;
 use uuid::Uuid;
 
@@ -63,8 +66,10 @@ pub async fn maintain_storage(
     let mut report = MaintenanceReport::default();
 
     let replicas = file_replica::Entity::find()
+        .join(JoinType::InnerJoin, file_replica::Relation::File.def())
         .filter(file_replica::Column::DeviceId.eq(device_id))
         .filter(file_replica::Column::DeletedAt.is_null())
+        .filter(file::Column::DeletedAt.is_null())
         .all(db)
         .await?;
 

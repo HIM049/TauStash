@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use gpui_kit::assets::IconName;
 use gpui_kit::base::ElementExt;
 use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonGroup, ButtonVariants};
+use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::form::{field, h_form};
 use gpui_kit::component::input::{Enter, Escape, Input, InputEvent, InputState};
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
@@ -20,7 +21,9 @@ use crate::components::tag_chip::{TagChip, TagChipState};
 use crate::database::entities::collection::CollectionType;
 use crate::database::entities::{FileState, TagNamespace};
 use crate::database::storage::query::FileSortField;
-use crate::services::collection::{CollectionConfig, GroupMode, TimeGroup, ViewOption};
+use crate::services::collection::{
+    CONTEXT_MENU_STATES, CollectionConfig, GroupMode, TimeGroup, ViewOption,
+};
 use crate::services::macrotag::MacroTag;
 use crate::services::store::TagStore;
 
@@ -687,6 +690,27 @@ impl CollectionConfigEditor {
                                     }
                                 }),
                         ),
+                ),
+            )
+            .child(
+                field().label("右键操作:").items_center().child(
+                    div().h_flex().items_center().gap_3().children(
+                        CONTEXT_MENU_STATES.iter().map(|&state| {
+                            Checkbox::new(("cfg-context-state", state as usize))
+                                .small()
+                                .label(state.display_name())
+                                .checked(self.draft_config.context_states.contains(&state))
+                                .on_click(cx.listener(move |this, checked: &bool, _window, cx| {
+                                    let states = &mut this.draft_config.context_states;
+                                    states.retain(|s| *s != state);
+                                    if *checked {
+                                        states.push(state);
+                                    }
+                                    cx.emit(ConfigEditorEvent::DraftChanged);
+                                    cx.notify();
+                                }))
+                        }),
+                    ),
                 ),
             )
             .child(

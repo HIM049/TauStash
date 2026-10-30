@@ -2,10 +2,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::database::entities::TagNamespace;
 use crate::database::storage::query::FileSortField;
-use crate::services::macrotag::MacroTag;
+use crate::services::macrotag::{FileState, MacroTag};
+
+/// States a view can offer in its context menu, in display order.
+pub const CONTEXT_MENU_STATES: &[FileState] =
+    &[FileState::Managed, FileState::Ignored, FileState::Deleted];
 
 fn default_true() -> bool {
     true
+}
+
+fn default_context_states() -> Vec<FileState> {
+    vec![FileState::Deleted]
 }
 
 fn default_candidate_limit() -> usize {
@@ -76,6 +84,8 @@ pub struct CollectionConfig {
     pub candidate_filter: Option<CandidateTagRule>,
     #[serde(default)]
     pub enable_drag: bool,
+    #[serde(default = "default_context_states")]
+    pub context_states: Vec<FileState>,
 }
 
 impl Default for CollectionConfig {
@@ -91,6 +101,7 @@ impl Default for CollectionConfig {
             include_view_tags: true,
             candidate_filter: None,
             enable_drag: false,
+            context_states: default_context_states(),
         }
     }
 }
