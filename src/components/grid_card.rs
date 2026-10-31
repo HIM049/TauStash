@@ -115,7 +115,7 @@ impl From<&FileInfo> for GridCard {
             .unwrap_or({
                 let ext = file.ext.as_deref().unwrap_or("FILE");
                 CardImage::Icon {
-                    name: IconName::File.path(),
+                    name: file.type_icon().path(),
                     label: Some(ext.into()),
                 }
             });

@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use gpui_kit::assets::IconName;
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
@@ -133,6 +134,53 @@ impl FileInfo {
             state: record.state,
             thumb: record.thumbnail,
             meta,
+        }
+    }
+
+    /// match icon by mime types
+    pub fn type_icon(&self) -> IconName {
+        let Some((kind, subtype)) = self.mime.split_once('/') else {
+            return IconName::File;
+        };
+        match kind {
+            "image" => IconName::FileImage,
+            "video" => IconName::FileVideoCamera,
+            "audio" => IconName::FileMusic,
+            "font" => IconName::FileType,
+            "model" => IconName::FileAxis3d,
+            "text" => match subtype {
+                "plain" | "markdown" => IconName::FileText,
+                "csv" => IconName::FileSpreadsheet,
+                "x-shellscript" => IconName::FileTerminal,
+                _ => IconName::FileCode,
+            },
+            "application" => match subtype {
+                "json" => IconName::FileBraces,
+                "x-sh" => IconName::FileTerminal,
+                "pdf" | "msword" | "rtf" | "epub+zip" => IconName::FileText,
+                "zip" | "gzip" | "x-tar" | "x-rar-compressed" | "vnd.rar" | "x-7z-compressed"
+                | "x-bzip2" | "x-xz" => IconName::FileArchive,
+                "vnd.microsoft.portable-executable" | "x-executable" | "x-mach-binary" => {
+                    IconName::FileCog
+                }
+                "vnd.sqlite3" => IconName::Database,
+                "vnd.debian.binary-package"
+                | "x-rpm"
+                | "x-ole-storage"
+                | "vnd.android.package-archive" => IconName::FileBox,
+                s if s.starts_with("font-") => IconName::FileType,
+                s if s.contains("wordprocessingml") || s.contains("opendocument.text") => {
+                    IconName::FileText
+                }
+                s if s.contains("spreadsheet") || s.contains("ms-excel") => {
+                    IconName::FileSpreadsheet
+                }
+                s if s.contains("presentation") || s.contains("ms-powerpoint") => {
+                    IconName::FileChartPie
+                }
+                _ => IconName::File,
+            },
+            _ => IconName::File,
         }
     }
 

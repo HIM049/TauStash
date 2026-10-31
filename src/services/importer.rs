@@ -12,6 +12,7 @@ use crate::database::entities::{FileState, ReplicaState};
 use crate::database::storage::file::{ContentTimes, CreateFileParams, UpsertReplicaParams};
 use crate::database::storage::{self};
 use crate::services::macrotag::MacroTag;
+use crate::services::mime;
 use crate::services::tags_queryer::MtagService;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,15 +47,14 @@ pub fn compute_file_metadata(path: &Path) -> Result<FileMetadata> {
     let ctime = metadata.created().ok().and_then(to_utc);
     let utime = metadata.modified().ok().and_then(to_utc);
 
-    let mime = mime_guess::from_path(path)
-        .first()
-        .map(|m| m.to_string())
-        .unwrap_or_else(|| "application/octet-stream".to_string());
-
     let mut file =
         StdFile::open(path).with_context(|| format!("Failed to open file: {}", path.display()))?;
     let mut hasher = blake3::Hasher::new();
     let mut buffer = [0u8; 65536];
+
+    let head_len = file.read(&mut buffer)?;
+    let mime = mime::detect(path, &buffer[..head_len]);
+    hasher.update(&buffer[..head_len]);
 
     loop {
         let count = file.read(&mut buffer)?;

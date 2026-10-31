@@ -290,7 +290,7 @@ impl RenderOnce for ItemListView {
                                     .gap_2()
                                     .overflow_hidden()
                                     .child(
-                                        Icon::new(IconName::File)
+                                        Icon::new(item.type_icon())
                                             .size_4()
                                             .text_color(cx.theme().primary),
                                     )
