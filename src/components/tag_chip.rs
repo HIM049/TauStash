@@ -10,6 +10,7 @@ pub enum TagChipState {
     #[default]
     Default,
     Active,
+    Muted,
 
     // for editor mode
     Selected,
@@ -96,6 +97,12 @@ impl TagChip {
         match self.state {
             TagChipState::Default => (theme.secondary, theme.foreground, None, false),
             TagChipState::Active => (theme.primary, theme.primary_foreground, None, false),
+            TagChipState::Muted => (
+                theme.secondary.opacity(0.3),
+                theme.muted_foreground,
+                None,
+                true,
+            ),
             TagChipState::NoneSelected => (
                 theme.secondary.opacity(0.3),
                 theme.muted_foreground,
@@ -167,7 +174,9 @@ impl RenderOnce for TagChip {
                         style
                     }
                 }
-                TagChipState::NoneSelected => style.opacity(0.8).bg(theme.accent),
+                TagChipState::Muted | TagChipState::NoneSelected => {
+                    style.opacity(0.8).bg(theme.accent)
+                }
                 _ => style.bg(theme.accent),
             })
             .when_some(on_click, |this, handler| {

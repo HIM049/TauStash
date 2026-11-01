@@ -6,6 +6,7 @@ pub mod grid_card;
 pub mod item_grid_view;
 pub mod item_list_view;
 pub mod lru_image_cache;
+pub mod motion_slot;
 pub mod tag_bar_editor;
 pub mod tag_bar_filter;
 pub mod tag_chip;

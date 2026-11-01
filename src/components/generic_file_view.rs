@@ -148,6 +148,10 @@ impl GenericFileView {
         &self.scroll_handle
     }
 
+    pub fn focus_handle(&self) -> &FocusHandle {
+        &self.focus_handle
+    }
+
     pub fn is_renaming(&self) -> bool {
         self.editing_id.is_some()
     }

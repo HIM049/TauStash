@@ -45,6 +45,8 @@ pub struct GenericView {
 
     content_view: Entity<GenericFileView>,
     filter_bar: TagFilterBar,
+    filter_bar_hovered: bool,
+    show_intersection: bool,
     batch_editor: Entity<TagBatchEditor>,
     bar_mode: BarMode,
     main_height: Rc<Cell<Pixels>>,
@@ -137,6 +139,14 @@ impl GenericView {
         .detach();
         let candidate_tags = tags_entity.read(cx).cached_tags.clone();
 
+        // Ctrl released in another window never reaches this one
+        cx.observe_window_activation(window, |this, window, cx| {
+            if !window.is_window_active() {
+                this.leave_filter_bar(cx);
+            }
+        })
+        .detach();
+
         let mut view = Self {
             collection_id: None,
             collection_type: CollectionType::View,
@@ -147,6 +157,8 @@ impl GenericView {
 
             content_view,
             filter_bar,
+            filter_bar_hovered: false,
+            show_intersection: false,
             batch_editor,
             bar_mode: BarMode::Normal,
             main_height: Rc::new(Cell::new(px(0.))),
@@ -307,6 +319,41 @@ impl GenericView {
         cx.notify();
     }
 
+    fn handle_filter_bar_pointer(
+        &mut self,
+        hovered: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.filter_bar_hovered = hovered;
+        // Modifier events follow the focus path: without focus, pressing Ctrl goes unseen
+        if hovered && window.focused(cx).is_none() {
+            let focus_handle = self.content_view.read(cx).focus_handle().clone();
+            focus_handle.focus(window, cx);
+        }
+        self.sync_intersection(window, cx);
+    }
+
+    /// Intersection counts only predict a Ctrl click. Requires the pointer on the bar
+    /// because Ctrl alone also means file multi-select and shortcuts.
+    fn sync_intersection(&mut self, window: &Window, cx: &mut Context<Self>) {
+        let show = self.filter_bar_hovered
+            && matches!(self.bar_mode, BarMode::Normal)
+            && window.modifiers().secondary();
+        if show != self.show_intersection {
+            self.show_intersection = show;
+            self.filter_stats(cx);
+        }
+    }
+
+    fn leave_filter_bar(&mut self, cx: &mut Context<Self>) {
+        self.filter_bar_hovered = false;
+        if self.show_intersection {
+            self.show_intersection = false;
+            self.filter_stats(cx);
+        }
+    }
+
     pub fn filter_stats(&mut self, cx: &mut Context<Self>) {
         let config_filters = self
             .preview_filter_tags
@@ -317,7 +364,7 @@ impl GenericView {
             return;
         }
 
-        if self.preview_filter_tags.is_some() {
+        if self.preview_filter_tags.is_some() || !self.show_intersection {
             self.filter_bar.reset_to_base();
             cx.notify();
             return;
@@ -351,11 +398,12 @@ impl GenericView {
                 .await;
 
             this.update(cx, |this, cx| {
-                if this.current_filter_tags != expected_tags {
+                if this.current_filter_tags != expected_tags || !this.show_intersection {
                     return;
                 }
                 if let Ok(stats) = stats_res {
-                    this.filter_bar.update_intersect_stats(stats.tags_summary);
+                    this.filter_bar
+                        .update_intersect_stats(stats.tags_summary, stats.untagged_files);
                     cx.notify();
                 }
             })
@@ -547,6 +595,7 @@ impl GenericView {
         .detach();
 
         self.bar_mode = BarMode::Configuring(editor);
+        self.leave_filter_bar(cx);
         cx.notify();
     }
 
@@ -698,11 +747,12 @@ impl GenericView {
         }
 
         self.bar_mode = BarMode::BatchEditing;
+        self.leave_filter_bar(cx);
 
         let mut candidate_tags: Vec<MacroTag> = Vec::new();
 
         if self.config.include_view_tags {
-            for s in self.filter_bar.tags_summary().iter().take(8) {
+            for s in self.filter_bar.tags_summary().take(8) {
                 candidate_tags.push(MacroTag::standard(s.tag_id, s.name.clone()));
             }
         }
@@ -771,8 +821,8 @@ impl Render for GenericView {
                     None
                 } else {
                     Some(
-                        self.filter_bar
-                            .render(cx.processor(|this, event, _window, cx| {
+                        self.filter_bar.render(
+                            cx.processor(|this, event, _window, cx| {
                                 match event {
                                     TagFilterEvent::All => this.filter_bar.select_all(),
                                     TagFilterEvent::Untagged => this.filter_bar.toggle_untagged(),
@@ -782,7 +832,11 @@ impl Render for GenericView {
                                 }
                                 let current_tags = this.filter_bar.current_tags();
                                 this.apply_filter(current_tags, cx);
-                            })),
+                            }),
+                            cx.processor(|this, hovered, window, cx| {
+                                this.handle_filter_bar_pointer(hovered, window, cx);
+                            }),
+                        ),
                     )
                 }
             }
@@ -881,6 +935,9 @@ impl Render for GenericView {
 
         div()
             .id("explorer-main")
+            .on_modifiers_changed(cx.listener(|this, _: &ModifiersChangedEvent, window, cx| {
+                this.sync_intersection(window, cx);
+            }))
             .bg(cx.theme().muted)
             .overflow_hidden()
             .v_flex()

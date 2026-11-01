@@ -1,10 +1,13 @@
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
+use gpui_kit::base::ElementExt;
 use gpui_kit::component::*;
 use gpui_kit::*;
 use uuid::Uuid;
 
+use crate::components::motion_slot::MotionSlot;
 use crate::components::tag_chip::{TagChip, TagChipState};
 use crate::database::storage::query::{FileQueryer, TagFacetItem};
 use crate::services::MacroTag;
@@ -16,13 +19,35 @@ pub enum TagFilterEvent {
     Tag { tag: MacroTag, is_multi: bool },
 }
 
+#[derive(Clone, Debug)]
+enum FilterEntry {
+    Untagged { count: usize },
+    Tag(TagFacetItem),
+}
+
+impl FilterEntry {
+    fn count(&self) -> usize {
+        match self {
+            Self::Untagged { count } => *count,
+            Self::Tag(item) => item.count,
+        }
+    }
+}
+
+fn chip_state(is_active: bool, count: usize) -> TagChipState {
+    match (is_active, count) {
+        (true, _) => TagChipState::Active,
+        (false, 0) => TagChipState::Muted,
+        (false, _) => TagChipState::Default,
+    }
+}
+
 pub struct TagFilterBar {
     base_query: FileQueryer,
     excluded_tags: HashSet<MacroTag>,
-    base_summary: Vec<TagFacetItem>,
-    tags_summary: Vec<TagFacetItem>,
+    base_entries: Vec<FilterEntry>,
+    entries: Vec<FilterEntry>,
     total_files_count: usize,
-    untagged_files_count: usize,
     loading: bool,
 
     active_tags: HashSet<MacroTag>,
@@ -40,10 +65,9 @@ impl TagFilterBar {
         Self {
             base_query,
             excluded_tags: excluded_tags.into_iter().collect(),
-            base_summary: Vec::new(),
-            tags_summary: Vec::new(),
+            base_entries: Vec::new(),
+            entries: Vec::new(),
             total_files_count: 0,
-            untagged_files_count: 0,
             loading: false,
             active_tags: HashSet::new(),
         }
@@ -67,35 +91,54 @@ impl TagFilterBar {
         untagged_files_count: usize,
         total_files_count: usize,
     ) {
-        self.base_summary = tags_summary.clone();
-        self.tags_summary = tags_summary;
-        self.untagged_files_count = untagged_files_count;
+        let mut entries: Vec<_> = tags_summary.into_iter().map(FilterEntry::Tag).collect();
+        if !self.excluded_tags.contains(&MacroTag::Untagged) {
+            let index = entries.partition_point(|entry| entry.count() > untagged_files_count);
+            entries.insert(
+                index,
+                FilterEntry::Untagged {
+                    count: untagged_files_count,
+                },
+            );
+        }
+
+        self.base_entries = entries.clone();
+        self.entries = entries;
         self.total_files_count = total_files_count;
     }
 
-    pub fn update_intersect_stats(&mut self, intersect_summary: Vec<TagFacetItem>) {
+    pub fn update_intersect_stats(
+        &mut self,
+        intersect_summary: Vec<TagFacetItem>,
+        untagged_files_count: usize,
+    ) {
         let counts: HashMap<Uuid, usize> = intersect_summary
             .into_iter()
             .map(|item| (item.tag_id, item.count))
             .collect();
 
-        let mut merged = self.base_summary.clone();
-        for item in &mut merged {
-            item.count = counts.get(&item.tag_id).copied().unwrap_or(0);
+        let mut entries = self.base_entries.clone();
+        for entry in &mut entries {
+            match entry {
+                FilterEntry::Untagged { count } => *count = untagged_files_count,
+                FilterEntry::Tag(item) => {
+                    item.count = counts.get(&item.tag_id).copied().unwrap_or(0);
+                }
+            }
         }
 
-        merged.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.name.cmp(&b.name)));
-        self.tags_summary = merged;
+        // Stable: valid entries move to the front but keep their base order
+        entries.sort_by_key(|entry| entry.count() == 0);
+        self.entries = entries;
     }
 
     pub fn reset_to_base(&mut self) {
-        self.tags_summary = self.base_summary.clone();
+        self.entries = self.base_entries.clone();
     }
 
     pub fn clear_stats(&mut self) {
-        self.base_summary.clear();
-        self.tags_summary.clear();
-        self.untagged_files_count = 0;
+        self.base_entries.clear();
+        self.entries.clear();
         self.total_files_count = 0;
         self.loading = false;
     }
@@ -104,8 +147,11 @@ impl TagFilterBar {
         self.active_tags.iter().cloned().collect()
     }
 
-    pub fn tags_summary(&self) -> &[TagFacetItem] {
-        &self.tags_summary
+    pub fn tags_summary(&self) -> impl Iterator<Item = &TagFacetItem> {
+        self.entries.iter().filter_map(|entry| match entry {
+            FilterEntry::Tag(item) => Some(item),
+            FilterEntry::Untagged { .. } => None,
+        })
     }
 
     pub fn select_all(&mut self) {
@@ -140,16 +186,19 @@ impl TagFilterBar {
         }
     }
 
-    /// Renders the filter bar with a decoupled toggle callback.
+    /// Renders the filter bar with decoupled toggle and pointer callbacks.
     pub fn render(
         &self,
         on_toggle: impl Fn(TagFilterEvent, &mut Window, &mut App) + 'static,
+        on_pointer: impl Fn(bool, &mut Window, &mut App) + 'static,
     ) -> AnyElement {
         let is_all = self.active_tags.is_empty();
         let is_untagged = self.active_tags.contains(&MacroTag::Untagged);
 
         let on_toggle = Rc::new(on_toggle);
-        let mut chips = Vec::with_capacity(self.tags_summary.len() + 2);
+        let on_pointer = Rc::new(on_pointer);
+        let viewport_origin = Rc::new(Cell::new(Point::default()));
+        let mut chips = Vec::with_capacity(self.entries.len() + 1);
 
         let chip = TagChip::new("tag-filter-all", "全部")
             .count(self.total_files_count)
@@ -165,27 +214,32 @@ impl TagFilterBar {
                     on_toggle(TagFilterEvent::All, window, cx);
                 }
             });
-        chips.push(chip.into_any_element());
+        chips.push(
+            MotionSlot::new("tag-slot-all", viewport_origin.clone(), chip).into_any_element(),
+        );
 
-        if !self.excluded_tags.contains(&MacroTag::Untagged) {
-            let chip = TagChip::new("tag-filter-untagged", "未标记")
-                .count(self.untagged_files_count)
-                .state(if is_untagged {
-                    TagChipState::Active
-                } else {
-                    TagChipState::Default
-                })
-                .on_click({
-                    let on_toggle = on_toggle.clone();
-                    move |_, window, cx| {
-                        cx.stop_propagation();
-                        on_toggle(TagFilterEvent::Untagged, window, cx);
-                    }
-                });
-            chips.push(chip.into_any_element());
-        }
+        for entry in &self.entries {
+            let item = match entry {
+                FilterEntry::Untagged { count } => {
+                    let chip = TagChip::new("tag-filter-untagged", "未标记")
+                        .count(*count)
+                        .state(chip_state(is_untagged, *count))
+                        .on_click({
+                            let on_toggle = on_toggle.clone();
+                            move |_, window, cx| {
+                                cx.stop_propagation();
+                                on_toggle(TagFilterEvent::Untagged, window, cx);
+                            }
+                        });
+                    chips.push(
+                        MotionSlot::new("tag-slot-untagged", viewport_origin.clone(), chip)
+                            .into_any_element(),
+                    );
+                    continue;
+                }
+                FilterEntry::Tag(item) => item,
+            };
 
-        for item in &self.tags_summary {
             let tag_id = item.tag_id;
             let tag_name = item.name.clone();
             let macro_tag = MacroTag::standard(tag_id, &tag_name);
@@ -197,11 +251,7 @@ impl TagFilterBar {
 
             let chip = TagChip::new(format!("tag-filter-{}", tag_id), item.name.clone())
                 .count(item.count)
-                .state(if is_active {
-                    TagChipState::Active
-                } else {
-                    TagChipState::Default
-                })
+                .state(chip_state(is_active, item.count))
                 .on_click({
                     let on_toggle = on_toggle.clone();
                     let macro_tag = macro_tag.clone();
@@ -220,20 +270,42 @@ impl TagFilterBar {
                     }
                 });
 
-            chips.push(chip.into_any_element());
+            chips.push(
+                MotionSlot::new(
+                    format!("tag-slot-{}", tag_id),
+                    viewport_origin.clone(),
+                    chip,
+                )
+                .into_any_element(),
+            );
         }
 
+        // The canvas from on_prepaint must stay before the scroller: it prepaints first,
+        // so the slots read this frame's origin, and sits outside the scroll offset.
         div()
-            .id("filter-bar")
-            .h_flex()
-            .items_center()
-            .gap_2()
+            .id("filter-bar-area")
+            .relative()
             .w_full()
-            .min_h(px(34.0))
-            .overflow_x_scroll()
-            .pl_6()
-            .py_1()
-            .children(chips)
+            .min_w_0()
+            .on_hover({
+                let on_pointer = on_pointer.clone();
+                move |hovered, window, cx| on_pointer(*hovered, window, cx)
+            })
+            .on_mouse_move(move |_, window, cx| on_pointer(true, window, cx))
+            .on_prepaint(move |bounds, _, _| viewport_origin.set(bounds.origin))
+            .child(
+                div()
+                    .id("filter-bar")
+                    .h_flex()
+                    .items_center()
+                    .gap_2()
+                    .w_full()
+                    .min_h(px(34.0))
+                    .overflow_x_scroll()
+                    .pl_6()
+                    .py_1()
+                    .children(chips),
+            )
             .into_any_element()
     }
 }
