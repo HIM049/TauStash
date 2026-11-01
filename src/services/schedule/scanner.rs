@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chrono::DateTime;
+use chrono::{DateTime, Utc};
 use sea_orm::DatabaseConnection;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -121,6 +121,7 @@ pub async fn scan_task(
     dir_path: impl AsRef<Path>,
     device_id: &str,
     rules: &[ScanTask],
+    imported_at: DateTime<Utc>,
 ) -> Result<BatchReport> {
     let dir_path = dir_path.as_ref();
     if !dir_path.exists() || !dir_path.is_dir() {
@@ -198,7 +199,7 @@ pub async fn scan_task(
         }
 
         let initial_tags = resolve_tags_by_path(rules, p);
-        if importer::import_file(db, p, device_id, &initial_tags)
+        if importer::import_file(db, p, device_id, &initial_tags, imported_at)
             .await
             .is_ok()
         {
@@ -228,7 +229,7 @@ pub async fn scan_directory(
             initial_tags: vec![MacroTag::State(default_state)],
         });
     }
-    scan_task(db, dir_path, device_id, &rules).await
+    scan_task(db, dir_path, device_id, &rules, Utc::now()).await
 }
 
 pub async fn scan_all_sources(db: &DatabaseConnection, device_id: &str) -> Result<BatchReport> {
@@ -239,10 +240,11 @@ pub async fn scan_all_sources(db: &DatabaseConnection, device_id: &str) -> Resul
 
     let rules = build_scan_rules(&sources);
     let root_sources = filter_root_sources(sources);
+    let imported_at = Utc::now();
 
     let mut report = BatchReport::default();
     for source in root_sources {
-        match scan_task(db, &source.path, device_id, &rules).await {
+        match scan_task(db, &source.path, device_id, &rules, imported_at).await {
             Ok(rep) => {
                 report.merge(rep);
             }

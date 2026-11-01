@@ -53,6 +53,7 @@ pub enum GroupMode {
     None,
     Time(TimeGroup),
     Size,
+    Batch,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]

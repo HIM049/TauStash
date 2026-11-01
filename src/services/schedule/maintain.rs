@@ -1,3 +1,4 @@
+use chrono::Utc;
 use sea_orm::DatabaseConnection;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationTrait,
@@ -64,6 +65,7 @@ pub async fn maintain_storage(
     device_id: &str,
 ) -> anyhow::Result<MaintenanceReport> {
     let mut report = MaintenanceReport::default();
+    let imported_at = Utc::now();
 
     let replicas = file_replica::Entity::find()
         .join(JoinType::InnerJoin, file_replica::Relation::File.def())
@@ -167,6 +169,7 @@ pub async fn maintain_storage(
                         ext: new_file_meta.ext.clone(),
                         state: FileState::Managed,
                         content_times: initial_times,
+                        imported_at,
                     },
                 )
                 .await?;

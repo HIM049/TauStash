@@ -75,6 +75,8 @@ pub struct CreateFileParams<'a> {
     pub state: FileState,
     /// Seeded from the first replica; the maintenance job keeps it current
     pub content_times: ContentTimes,
+    /// shared time for batch
+    pub imported_at: DateTimeUtc,
 }
 
 /// Insert a new file record
@@ -91,9 +93,9 @@ pub async fn create_file(
         ext,
         state,
         content_times,
+        imported_at,
     } = params;
 
-    let now = Utc::now();
     let new_file = file::ActiveModel {
         id: Set(id),
         file_name: Set(file_name.to_string()),
@@ -106,8 +108,8 @@ pub async fn create_file(
         content_created_at: Set(content_times.created_at),
         content_modified_at: Set(content_times.modified_at),
         exif_taken_at: Set(None),
-        created_at: Set(now),
-        updated_at: Set(now),
+        created_at: Set(imported_at),
+        updated_at: Set(Utc::now()),
         deleted_at: Set(None),
     };
     let inserted = new_file.insert(db).await?;

@@ -534,9 +534,12 @@ fn build_file_select(spec: &FileQueryer) -> sea_orm::Select<file::Entity> {
         FileSortField::UpdatedAt => file::Column::UpdatedAt,
         FileSortField::Size => file::Column::Size,
     };
+
     query = match spec.sort_direction {
-        SortDirection::Asc => query.order_by_asc(sort_col),
-        SortDirection::Desc => query.order_by_desc(sort_col),
+        SortDirection::Asc => query.order_by_asc(sort_col).order_by_asc(file::Column::Id),
+        SortDirection::Desc => query
+            .order_by_desc(sort_col)
+            .order_by_desc(file::Column::Id),
     };
 
     // Pagination

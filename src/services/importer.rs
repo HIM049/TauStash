@@ -80,6 +80,7 @@ pub async fn import_file(
     path: impl AsRef<Path>,
     device_id: &str,
     initial_tags: &[MacroTag],
+    imported_at: DateTime<Utc>,
 ) -> Result<(Uuid, bool)> {
     let path = path.as_ref();
     if !path.exists() || !path.is_file() {
@@ -143,6 +144,7 @@ pub async fn import_file(
                     created_at: ctime,
                     modified_at: utime,
                 },
+                imported_at,
             },
         )
         .await?;
@@ -180,9 +182,10 @@ pub async fn import_from_paths(
 ) -> Result<BatchReport> {
     let mut report = BatchReport::default();
     let paths = flat_paths(paths.to_vec());
+    let imported_at = Utc::now();
 
     for path in paths {
-        match import_file(db, &path, device_id, &[]).await {
+        match import_file(db, &path, device_id, &[], imported_at).await {
             Ok((id, is_duplicate)) => {
                 if let Err(e) = MtagService::apply_changes(db, &[id], tags, &[]).await {
                     tracing::warn!("failed to tag {}: {}", path.display(), e);

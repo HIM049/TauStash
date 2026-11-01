@@ -31,6 +31,7 @@ impl OrderMeta {
         match group_mode {
             GroupMode::None => None,
             GroupMode::Size => Some(format_size_group(self.size)),
+            GroupMode::Batch => Some(format_batch_group(self.created_at)),
             GroupMode::Time(group) => match sort_field {
                 FileSortField::ContentCreatedAt => {
                     Some(format_date_group(self.content_created_at, group))
@@ -82,6 +83,14 @@ fn format_date_group(dt: Option<DateTime<Utc>>, group: TimeGroup) -> (String, St
         }
         None => ("other".to_string(), "其他分组".to_string()),
     }
+}
+
+fn format_batch_group(dt: DateTime<Utc>) -> (String, String) {
+    let title = dt
+        .with_timezone(&chrono::Local)
+        .format("%Y年%m月%d日 %H:%M:%S")
+        .to_string();
+    (dt.to_rfc3339(), title)
 }
 
 fn format_size_group(size: i64) -> (String, String) {

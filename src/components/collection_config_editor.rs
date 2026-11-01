@@ -39,12 +39,13 @@ pub const ALL_SORT_FIELDS: &[FileSortField] = &[
 
 pub const TIME_GROUP_MODES: &[GroupMode] = &[
     GroupMode::None,
+    GroupMode::Batch,
     GroupMode::Time(TimeGroup::Day),
     GroupMode::Time(TimeGroup::Month),
     GroupMode::Time(TimeGroup::Year),
 ];
 
-pub const SIZE_GROUP_MODES: &[GroupMode] = &[GroupMode::None, GroupMode::Size];
+pub const SIZE_GROUP_MODES: &[GroupMode] = &[GroupMode::None, GroupMode::Batch, GroupMode::Size];
 
 pub const PRESET_ICONS: &[IconName] = &[
     IconName::File,
@@ -82,6 +83,7 @@ pub fn group_mode_label(mode: GroupMode) -> &'static str {
         GroupMode::Time(TimeGroup::Month) => "每月",
         GroupMode::Time(TimeGroup::Year) => "每年",
         GroupMode::Size => "按大小区间",
+        GroupMode::Batch => "导入批次",
     }
 }
 
@@ -516,12 +518,17 @@ impl CollectionConfigEditor {
                                                                 if matches!(
                                                                     this.draft_config.group_mode,
                                                                     GroupMode::Time(_)
+                                                                        | GroupMode::Batch
                                                                 ) {
                                                                     this.draft_config.group_mode =
                                                                         GroupMode::Size;
                                                                 }
                                                             } else if this.draft_config.group_mode
                                                                 == GroupMode::Size
+                                                                || (this.draft_config.group_mode
+                                                                    == GroupMode::Batch
+                                                                    && field
+                                                                        != FileSortField::CreatedAt)
                                                             {
                                                                 this.draft_config.group_mode =
                                                                     GroupMode::Time(TimeGroup::Day);
@@ -577,6 +584,11 @@ impl CollectionConfigEditor {
                                             .on_click(move |_, _, cx| {
                                                 editor.update(cx, |this, cx| {
                                                     this.draft_config.group_mode = mode;
+                                                    // A batch is only contiguous when sorted by import time
+                                                    if mode == GroupMode::Batch {
+                                                        this.draft_config.sort_field =
+                                                            FileSortField::CreatedAt;
+                                                    }
                                                     cx.emit(ConfigEditorEvent::DraftChanged);
                                                     cx.notify();
                                                 });
