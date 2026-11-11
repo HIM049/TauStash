@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-const APP_DIR: &str = "picargo";
+const APP_DIR: &str = "taustash";
 
 /// Platform data directory, fallback to `./app_data`
 pub fn config_dir() -> PathBuf {
@@ -21,7 +21,7 @@ pub fn schedule_state_path() -> PathBuf {
 }
 
 pub fn log_path() -> PathBuf {
-    data_dir().join("logs").join("picargo.log")
+    data_dir().join("logs").join("taustash.log")
 }
 
 fn app_dir(base: Option<PathBuf>) -> PathBuf {

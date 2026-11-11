@@ -5619,32 +5619,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "picargo"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "blake3",
- "chrono",
- "dirs 6.0.0",
- "gpui-fps",
- "gpui-kit",
- "image",
- "infer",
- "log",
- "migration",
- "mime_guess",
- "rust-i18n",
- "sea-orm",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "walkdir",
-]
-
-[[package]]
 name = "pico-args"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7824,6 +7798,32 @@ dependencies = [
  "thiserror 2.0.20",
  "windows 0.61.3",
  "windows-version",
+]
+
+[[package]]
+name = "taustash"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "chrono",
+ "dirs 6.0.0",
+ "gpui-fps",
+ "gpui-kit",
+ "image",
+ "infer",
+ "log",
+ "migration",
+ "mime_guess",
+ "rust-i18n",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "walkdir",
 ]
 
 [[package]]

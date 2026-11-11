@@ -160,7 +160,7 @@ fn main() {
                 WindowOptions {
                     window_bounds: Some(window_bounds),
                     titlebar: Some(TitlebarOptions {
-                        title: Some("PiCargo".into()),
+                        title: Some("TauStash".into()),
                         appears_transparent: true,
                         traffic_light_position: None,
                     }),

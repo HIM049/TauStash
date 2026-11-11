@@ -42,7 +42,7 @@ impl Render for SettingsView {
             )
             .child(
                 div().flex_1().min_h_0().child(
-                    Settings::new("picargo-settings")
+                    Settings::new("taustash-settings")
                         .with_size(Size::Medium)
                         // .with_group_variant(GroupBoxVariant::Outline)
                         .sidebar_width(px(160.))

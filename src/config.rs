@@ -26,7 +26,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             device_id: Uuid::new_v4().to_string(),
-            db_path: paths::data_dir().join("picargo.db"),
+            db_path: paths::data_dir().join("taustash.db"),
             schedule_enable: true,
             schedule_scan_min: 30,
             schedule_maintain_min: 60,

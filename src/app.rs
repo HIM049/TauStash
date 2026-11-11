@@ -138,7 +138,7 @@ impl Render for MyApp {
         div()
             .v_flex()
             .size_full()
-            .child(TitleBar::new().text_xs().font_semibold().child("PiCargo"))
+            .child(TitleBar::new().text_xs().font_semibold().child("TauStash"))
             .child(
                 div()
                     .h_flex()

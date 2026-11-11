@@ -44,7 +44,7 @@ pub fn set_debug(debug: bool) {
 fn filter(debug: bool) -> EnvFilter {
     EnvFilter::try_from_default_env().unwrap_or_else(|_| {
         EnvFilter::new(if debug {
-            "info,picargo=debug,sqlx=warn"
+            "info,taustash=debug,sqlx=warn"
         } else {
             "info,sqlx=warn"
         })
