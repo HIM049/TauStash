@@ -15,7 +15,6 @@ use crate::database::entities::collection;
 use crate::views::generic_view::GenericView;
 use rust_i18n::t;
 
-
 pub struct CollectionExplorerView {
     folders: Vec<collection::Model>,
     scroll_handle: UniformListScrollHandle,

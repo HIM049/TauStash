@@ -18,7 +18,7 @@ pub struct AppConfig {
     pub fps_monitor: bool,
     pub debug_log: bool,
     pub store_enable: bool,
-    pub store_path: PathBuf, 
+    pub store_path: PathBuf,
     pub locale: String,
 }
 

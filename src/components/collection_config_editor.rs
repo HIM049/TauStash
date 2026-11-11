@@ -141,7 +141,8 @@ impl CollectionConfigEditor {
             state
         });
 
-        let tag_search_input = cx.new(|cx| InputState::new(window, cx).placeholder(t!("config_editor.search_tags")));
+        let tag_search_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("config_editor.search_tags")));
 
         cx.subscribe(
             &tag_search_input,
@@ -398,124 +399,139 @@ impl CollectionConfigEditor {
             .gap_x_8()
             .gap_y_3()
             .child(
-                field().label(SharedString::from(t!("config_editor.name"))).items_center().child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .h_flex()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            Popover::new("icon-picker-popover")
-                                .trigger(
-                                    Button::new("btn-icon-trigger")
-                                        .small()
-                                        .icon(Icon::default().path(self.current_icon.clone())),
-                                )
-                                .content({
-                                    let editor = cx.entity().clone();
-                                    let current = self.current_icon.clone();
-                                    move |_state, _window, cx| {
-                                        div().p_2().v_flex().gap_1p5().child(
-                                            div().grid().grid_cols(4).gap_1().children(
-                                                PRESET_ICONS.iter().enumerate().map(
-                                                    |(idx, &icon)| {
-                                                        let path = icon.path();
-                                                        let is_selected = current == path.as_ref();
-                                                        let path_str = path.to_string();
-                                                        let editor = editor.clone();
-                                                        Button::new(("preset-icon", idx))
-                                                            .icon(icon)
-                                                            .small()
-                                                            .when(is_selected, |b| b.secondary())
-                                                            .when(!is_selected, |b| b.ghost())
-                                                            .on_click(cx.listener({
-                                                                let editor = editor.clone();
-                                                                move |state, _, window, cx| {
-                                                                    editor.update(
-                                                                        cx,
-                                                                        |this, cx| {
-                                                                            this.set_icon(
-                                                                                &path_str, cx,
-                                                                            );
-                                                                        },
-                                                                    );
-                                                                    state.dismiss(window, cx);
-                                                                }
-                                                            }))
-                                                    },
+                field()
+                    .label(SharedString::from(t!("config_editor.name")))
+                    .items_center()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .h_flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                Popover::new("icon-picker-popover")
+                                    .trigger(
+                                        Button::new("btn-icon-trigger")
+                                            .small()
+                                            .icon(Icon::default().path(self.current_icon.clone())),
+                                    )
+                                    .content({
+                                        let editor = cx.entity().clone();
+                                        let current = self.current_icon.clone();
+                                        move |_state, _window, cx| {
+                                            div().p_2().v_flex().gap_1p5().child(
+                                                div().grid().grid_cols(4).gap_1().children(
+                                                    PRESET_ICONS.iter().enumerate().map(
+                                                        |(idx, &icon)| {
+                                                            let path = icon.path();
+                                                            let is_selected =
+                                                                current == path.as_ref();
+                                                            let path_str = path.to_string();
+                                                            let editor = editor.clone();
+                                                            Button::new(("preset-icon", idx))
+                                                                .icon(icon)
+                                                                .small()
+                                                                .when(is_selected, |b| {
+                                                                    b.secondary()
+                                                                })
+                                                                .when(!is_selected, |b| b.ghost())
+                                                                .on_click(cx.listener({
+                                                                    let editor = editor.clone();
+                                                                    move |state, _, window, cx| {
+                                                                        editor.update(
+                                                                            cx,
+                                                                            |this, cx| {
+                                                                                this.set_icon(
+                                                                                    &path_str, cx,
+                                                                                );
+                                                                            },
+                                                                        );
+                                                                        state.dismiss(window, cx);
+                                                                    }
+                                                                }))
+                                                        },
+                                                    ),
                                                 ),
-                                            ),
-                                        )
-                                    }
-                                }),
-                        )
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .child(Input::new(&self.name_input).small()),
-                        ),
-                ),
+                                            )
+                                        }
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .child(Input::new(&self.name_input).small()),
+                            ),
+                    ),
             )
             .child(
-                field().label(SharedString::from(t!("config_editor.view"))).items_center().child(
-                    ButtonGroup::new("cfg-view-group")
-                        .small()
-                        .child(
-                            Button::new("cfg-view-grid")
-                                .icon(IconName::LayoutGrid)
-                                .label(t!("config_editor.grid"))
-                                .selected(self.draft_config.view == ViewOption::Grid),
-                        )
-                        .child(
-                            Button::new("cfg-view-list")
-                                .icon(IconName::List)
-                                .label(t!("config_editor.list"))
-                                .selected(self.draft_config.view == ViewOption::List),
-                        )
-                        .child(
-                            Button::new("cfg-view-gallery")
-                                .icon(IconName::Image)
-                                .label(t!("config_editor.gallery"))
-                                .selected(self.draft_config.view == ViewOption::Gallery),
-                        )
-                        .on_click(cx.listener(|this, clicks: &Vec<usize>, _window, cx| {
-                            let views = [ViewOption::Grid, ViewOption::List, ViewOption::Gallery];
-                            let Some(&view) = clicks.first().and_then(|&ix| views.get(ix)) else {
-                                return;
-                            };
-                            this.draft_config.view = view;
-                            cx.emit(ConfigEditorEvent::DraftChanged);
-                            cx.notify();
-                        })),
-                ),
+                field()
+                    .label(SharedString::from(t!("config_editor.view")))
+                    .items_center()
+                    .child(
+                        ButtonGroup::new("cfg-view-group")
+                            .small()
+                            .child(
+                                Button::new("cfg-view-grid")
+                                    .icon(IconName::LayoutGrid)
+                                    .label(t!("config_editor.grid"))
+                                    .selected(self.draft_config.view == ViewOption::Grid),
+                            )
+                            .child(
+                                Button::new("cfg-view-list")
+                                    .icon(IconName::List)
+                                    .label(t!("config_editor.list"))
+                                    .selected(self.draft_config.view == ViewOption::List),
+                            )
+                            .child(
+                                Button::new("cfg-view-gallery")
+                                    .icon(IconName::Image)
+                                    .label(t!("config_editor.gallery"))
+                                    .selected(self.draft_config.view == ViewOption::Gallery),
+                            )
+                            .on_click(cx.listener(|this, clicks: &Vec<usize>, _window, cx| {
+                                let views =
+                                    [ViewOption::Grid, ViewOption::List, ViewOption::Gallery];
+                                let Some(&view) = clicks.first().and_then(|&ix| views.get(ix))
+                                else {
+                                    return;
+                                };
+                                this.draft_config.view = view;
+                                cx.emit(ConfigEditorEvent::DraftChanged);
+                                cx.notify();
+                            })),
+                    ),
             )
             .child(
-                field().label(SharedString::from(t!("config_editor.sort"))).items_center().child(
-                    div()
-                        .h_flex()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            Button::new("cfg-sort-dropdown")
-                                .small()
-                                .w(px(130.0))
-                                .label(sort_field_label(self.draft_config.sort_field))
-                                .dropdown_caret(true)
-                                .dropdown_menu({
-                                    let editor = cx.entity().clone();
-                                    let current_sort = self.draft_config.sort_field;
-                                    move |menu, _, _| {
-                                        ALL_SORT_FIELDS.iter().fold(menu, |menu, &field| {
-                                            let editor = editor.clone();
-                                            menu.item(
-                                                PopupMenuItem::new(sort_field_label(field))
-                                                    .checked(current_sort == field)
-                                                    .on_click(move |_, _, cx| {
-                                                        editor.update(cx, |this, cx| {
-                                                            this.draft_config.sort_field = field;
-                                                            if field == FileSortField::Size {
+                field()
+                    .label(SharedString::from(t!("config_editor.sort")))
+                    .items_center()
+                    .child(
+                        div()
+                            .h_flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                Button::new("cfg-sort-dropdown")
+                                    .small()
+                                    .w(px(130.0))
+                                    .label(sort_field_label(self.draft_config.sort_field))
+                                    .dropdown_caret(true)
+                                    .dropdown_menu({
+                                        let editor = cx.entity().clone();
+                                        let current_sort = self.draft_config.sort_field;
+                                        move |menu, _, _| {
+                                            ALL_SORT_FIELDS.iter().fold(menu, |menu, &field| {
+                                                let editor = editor.clone();
+                                                menu.item(
+                                                    PopupMenuItem::new(sort_field_label(field))
+                                                        .checked(current_sort == field)
+                                                        .on_click(move |_, _, cx| {
+                                                            editor.update(cx, |this, cx| {
+                                                                this.draft_config.sort_field =
+                                                                    field;
+                                                                if field == FileSortField::Size {
                                                                 if matches!(
                                                                     this.draft_config.group_mode,
                                                                     GroupMode::Time(_)
@@ -534,71 +550,75 @@ impl CollectionConfigEditor {
                                                                 this.draft_config.group_mode =
                                                                     GroupMode::Time(TimeGroup::Day);
                                                             }
-                                                            cx.emit(
-                                                                ConfigEditorEvent::DraftChanged,
-                                                            );
-                                                            cx.notify();
-                                                        });
-                                                    }),
-                                            )
-                                        })
-                                    }
-                                }),
-                        )
-                        .child(
-                            Button::new("cfg-sort-direction")
-                                .small()
-                                .label(if self.draft_config.is_desc {
-                                    t!("config_editor.desc")
-                                } else {
-                                    t!("config_editor.asc")
-                                })
-                                .on_click(cx.listener(|this, _, _window, cx| {
-                                    this.draft_config.is_desc = !this.draft_config.is_desc;
-                                    cx.emit(ConfigEditorEvent::DraftChanged);
-                                    cx.notify();
-                                })),
-                        ),
-                ),
+                                                                cx.emit(
+                                                                    ConfigEditorEvent::DraftChanged,
+                                                                );
+                                                                cx.notify();
+                                                            });
+                                                        }),
+                                                )
+                                            })
+                                        }
+                                    }),
+                            )
+                            .child(
+                                Button::new("cfg-sort-direction")
+                                    .small()
+                                    .label(if self.draft_config.is_desc {
+                                        t!("config_editor.desc")
+                                    } else {
+                                        t!("config_editor.asc")
+                                    })
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.draft_config.is_desc = !this.draft_config.is_desc;
+                                        cx.emit(ConfigEditorEvent::DraftChanged);
+                                        cx.notify();
+                                    })),
+                            ),
+                    ),
             )
             .child(
-                field().label(SharedString::from(t!("config_editor.group"))).items_center().child(
-                    Button::new("cfg-group-dropdown")
-                        .small()
-                        .w(px(130.0))
-                        .label(group_mode_label(self.draft_config.group_mode))
-                        .dropdown_caret(true)
-                        .dropdown_menu({
-                            let editor = cx.entity().clone();
-                            let current_mode = self.draft_config.group_mode;
-                            let options = if self.draft_config.sort_field == FileSortField::Size {
-                                SIZE_GROUP_MODES
-                            } else {
-                                TIME_GROUP_MODES
-                            };
-                            move |menu, _, _| {
-                                options.iter().fold(menu, |menu, &mode| {
-                                    let editor = editor.clone();
-                                    menu.item(
-                                        PopupMenuItem::new(group_mode_label(mode))
-                                            .checked(current_mode == mode)
-                                            .on_click(move |_, _, cx| {
-                                                editor.update(cx, |this, cx| {
-                                                    this.draft_config.group_mode = mode;
-                                                    // A batch is only contiguous when sorted by import time
-                                                    if mode == GroupMode::Batch {
-                                                        this.draft_config.sort_field =
-                                                            FileSortField::CreatedAt;
-                                                    }
-                                                    cx.emit(ConfigEditorEvent::DraftChanged);
-                                                    cx.notify();
-                                                });
-                                            }),
-                                    )
-                                })
-                            }
-                        }),
-                ),
+                field()
+                    .label(SharedString::from(t!("config_editor.group")))
+                    .items_center()
+                    .child(
+                        Button::new("cfg-group-dropdown")
+                            .small()
+                            .w(px(130.0))
+                            .label(group_mode_label(self.draft_config.group_mode))
+                            .dropdown_caret(true)
+                            .dropdown_menu({
+                                let editor = cx.entity().clone();
+                                let current_mode = self.draft_config.group_mode;
+                                let options = if self.draft_config.sort_field == FileSortField::Size
+                                {
+                                    SIZE_GROUP_MODES
+                                } else {
+                                    TIME_GROUP_MODES
+                                };
+                                move |menu, _, _| {
+                                    options.iter().fold(menu, |menu, &mode| {
+                                        let editor = editor.clone();
+                                        menu.item(
+                                            PopupMenuItem::new(group_mode_label(mode))
+                                                .checked(current_mode == mode)
+                                                .on_click(move |_, _, cx| {
+                                                    editor.update(cx, |this, cx| {
+                                                        this.draft_config.group_mode = mode;
+                                                        // A batch is only contiguous when sorted by import time
+                                                        if mode == GroupMode::Batch {
+                                                            this.draft_config.sort_field =
+                                                                FileSortField::CreatedAt;
+                                                        }
+                                                        cx.emit(ConfigEditorEvent::DraftChanged);
+                                                        cx.notify();
+                                                    });
+                                                }),
+                                        )
+                                    })
+                                }
+                            }),
+                    ),
             )
     }
 
@@ -612,102 +632,116 @@ impl CollectionConfigEditor {
             .gap_x_8()
             .gap_y_3()
             .child(
-                field().label(SharedString::from(t!("config_editor.side_view"))).items_center().child(
-                    Switch::new("cfg-collection-type-switch")
-                        .small()
-                        .checked(self.collection_type == CollectionType::View)
-                        .on_click(cx.listener(|this, checked: &bool, _window, cx| {
-                            this.collection_type = if *checked {
-                                CollectionType::View
-                            } else {
-                                CollectionType::Folder
-                            };
-                            cx.emit(ConfigEditorEvent::DraftChanged);
-                            cx.notify();
-                        })),
-                ),
+                field()
+                    .label(SharedString::from(t!("config_editor.side_view")))
+                    .items_center()
+                    .child(
+                        Switch::new("cfg-collection-type-switch")
+                            .small()
+                            .checked(self.collection_type == CollectionType::View)
+                            .on_click(cx.listener(|this, checked: &bool, _window, cx| {
+                                this.collection_type = if *checked {
+                                    CollectionType::View
+                                } else {
+                                    CollectionType::Folder
+                                };
+                                cx.emit(ConfigEditorEvent::DraftChanged);
+                                cx.notify();
+                            })),
+                    ),
             )
             .child(
-                field().label(SharedString::from(t!("config_editor.hide_tagbar"))).items_center().child(
-                    Switch::new("cfg-hide-tagbar-switch")
-                        .small()
-                        .checked(self.draft_config.is_hide_tagbar)
-                        .on_click(cx.listener(|this, checked: &bool, _window, cx| {
-                            this.draft_config.is_hide_tagbar = *checked;
-                            cx.emit(ConfigEditorEvent::DraftChanged);
-                            cx.notify();
-                        })),
-                ),
+                field()
+                    .label(SharedString::from(t!("config_editor.hide_tagbar")))
+                    .items_center()
+                    .child(
+                        Switch::new("cfg-hide-tagbar-switch")
+                            .small()
+                            .checked(self.draft_config.is_hide_tagbar)
+                            .on_click(cx.listener(|this, checked: &bool, _window, cx| {
+                                this.draft_config.is_hide_tagbar = *checked;
+                                cx.emit(ConfigEditorEvent::DraftChanged);
+                                cx.notify();
+                            })),
+                    ),
             )
             .child(
-                field().label(SharedString::from(t!("config_editor.drag_import"))).items_center().child(
-                    Switch::new("cfg-enable-drag-switch")
-                        .small()
-                        .checked(self.draft_config.enable_drag)
-                        .on_click(cx.listener(|this, checked: &bool, _window, cx| {
-                            this.draft_config.enable_drag = *checked;
-                            cx.emit(ConfigEditorEvent::DraftChanged);
-                            cx.notify();
-                        })),
-                ),
+                field()
+                    .label(SharedString::from(t!("config_editor.drag_import")))
+                    .items_center()
+                    .child(
+                        Switch::new("cfg-enable-drag-switch")
+                            .small()
+                            .checked(self.draft_config.enable_drag)
+                            .on_click(cx.listener(|this, checked: &bool, _window, cx| {
+                                this.draft_config.enable_drag = *checked;
+                                cx.emit(ConfigEditorEvent::DraftChanged);
+                                cx.notify();
+                            })),
+                    ),
             )
             .child(
-                field().label(SharedString::from(t!("config_editor.pinned_tags"))).items_center().child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .h_flex()
-                        .items_center()
-                        .gap_1p5()
-                        .children(self.draft_config.pinned_tags.iter().enumerate().map(
-                            |(idx, tag)| {
-                                let tag_clone = tag.clone();
-                                TagChip::new(("pinned-chip", idx), tag.display_name())
+                field()
+                    .label(SharedString::from(t!("config_editor.pinned_tags")))
+                    .items_center()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .h_flex()
+                            .items_center()
+                            .gap_1p5()
+                            .children(self.draft_config.pinned_tags.iter().enumerate().map(
+                                |(idx, tag)| {
+                                    let tag_clone = tag.clone();
+                                    TagChip::new(("pinned-chip", idx), tag.display_name())
+                                        .small()
+                                        .trailing_icon(
+                                            Icon::new(IconName::Close)
+                                                .size_3()
+                                                .text_color(theme.muted_foreground),
+                                        )
+                                        .on_click(cx.listener(move |this, _, _window, cx| {
+                                            this.remove_pinned_tag(&tag_clone, cx);
+                                        }))
+                                },
+                            ))
+                            .child(
+                                Button::new("btn-add-pinned-tag")
                                     .small()
-                                    .trailing_icon(
-                                        Icon::new(IconName::Close)
-                                            .size_3()
-                                            .text_color(theme.muted_foreground),
-                                    )
-                                    .on_click(cx.listener(move |this, _, _window, cx| {
-                                        this.remove_pinned_tag(&tag_clone, cx);
-                                    }))
-                            },
-                        ))
-                        .child(
-                            Button::new("btn-add-pinned-tag")
-                                .small()
-                                .ghost()
-                                .icon(IconName::Plus)
-                                .dropdown_menu({
-                                    let editor = cx.entity().clone();
-                                    let current_pinned = self.draft_config.pinned_tags.clone();
-                                    move |menu, _, _| {
-                                        preset_macro_tags()
-                                            .into_iter()
-                                            .filter(|t| !current_pinned.contains(t))
-                                            .fold(menu, |menu, tag| {
-                                                let editor = editor.clone();
-                                                menu.item(
-                                                    PopupMenuItem::new(tag.display_name())
-                                                        .on_click(move |_, _, cx| {
-                                                            editor.update(cx, |this, cx| {
-                                                                this.add_pinned_tag(
-                                                                    tag.clone(),
-                                                                    cx,
-                                                                );
-                                                            });
-                                                        }),
-                                                )
-                                            })
-                                    }
-                                }),
-                        ),
-                ),
+                                    .ghost()
+                                    .icon(IconName::Plus)
+                                    .dropdown_menu({
+                                        let editor = cx.entity().clone();
+                                        let current_pinned = self.draft_config.pinned_tags.clone();
+                                        move |menu, _, _| {
+                                            preset_macro_tags()
+                                                .into_iter()
+                                                .filter(|t| !current_pinned.contains(t))
+                                                .fold(menu, |menu, tag| {
+                                                    let editor = editor.clone();
+                                                    menu.item(
+                                                        PopupMenuItem::new(tag.display_name())
+                                                            .on_click(move |_, _, cx| {
+                                                                editor.update(cx, |this, cx| {
+                                                                    this.add_pinned_tag(
+                                                                        tag.clone(),
+                                                                        cx,
+                                                                    );
+                                                                });
+                                                            }),
+                                                    )
+                                                })
+                                        }
+                                    }),
+                            ),
+                    ),
             )
             .child(
-                field().label(SharedString::from(t!("config_editor.context_actions"))).items_center().child(
-                    div().h_flex().items_center().gap_3().children(
+                field()
+                    .label(SharedString::from(t!("config_editor.context_actions")))
+                    .items_center()
+                    .child(div().h_flex().items_center().gap_3().children(
                         CONTEXT_MENU_STATES.iter().map(|&state| {
                             Checkbox::new(("cfg-context-state", state as usize))
                                 .small()
@@ -723,8 +757,7 @@ impl CollectionConfigEditor {
                                     cx.notify();
                                 }))
                         }),
-                    ),
-                ),
+                    )),
             )
             .child(
                 field()

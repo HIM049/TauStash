@@ -1,6 +1,6 @@
+use rust_i18n::t;
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
-use rust_i18n::t;
 
 #[derive(
     Debug,

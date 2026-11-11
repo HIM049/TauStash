@@ -36,7 +36,14 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
-        create_index(manager, "idx-file-state", File::Table, &[File::State], false).await?;
+        create_index(
+            manager,
+            "idx-file-state",
+            File::Table,
+            &[File::State],
+            false,
+        )
+        .await?;
         create_index(
             manager,
             "idx-file-content_created_at",
@@ -53,8 +60,14 @@ impl MigrationTrait for Migration {
             false,
         )
         .await?;
-        create_index(manager, "idx-file-created_at", File::Table, &[File::CreatedAt], false)
-            .await?;
+        create_index(
+            manager,
+            "idx-file-created_at",
+            File::Table,
+            &[File::CreatedAt],
+            false,
+        )
+        .await?;
 
         manager
             .create_table(
@@ -212,7 +225,12 @@ impl MigrationTrait for Migration {
             .create_table(
                 Table::create()
                     .table(Collection::Table)
-                    .col(ColumnDef::new(Collection::Id).uuid().not_null().primary_key())
+                    .col(
+                        ColumnDef::new(Collection::Id)
+                            .uuid()
+                            .not_null()
+                            .primary_key(),
+                    )
                     .col(ColumnDef::new(Collection::Name).string().not_null())
                     .col(ColumnDef::new(Collection::Icon).string().not_null())
                     .col(ColumnDef::new(Collection::Cover).string().not_null())
@@ -281,7 +299,9 @@ impl MigrationTrait for Migration {
             FileReplica::Table.into_iden(),
             File::Table.into_iden(),
         ] {
-            manager.drop_table(Table::drop().table(table).to_owned()).await?;
+            manager
+                .drop_table(Table::drop().table(table).to_owned())
+                .await?;
         }
         Ok(())
     }

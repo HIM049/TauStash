@@ -46,7 +46,8 @@ pub struct TagBatchEditor {
 
 impl TagBatchEditor {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let input_state = cx.new(|cx| InputState::new(window, cx).placeholder(t!("tag_editor.placeholder")));
+        let input_state =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("tag_editor.placeholder")));
 
         Self {
             focus_handle: cx.focus_handle(),

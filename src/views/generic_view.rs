@@ -741,7 +741,10 @@ impl GenericView {
         }
 
         if let Some(window) = window {
-            window.push_notification(Notification::new().message(t!("generic_view.config_saved")), cx);
+            window.push_notification(
+                Notification::new().message(t!("generic_view.config_saved")),
+                cx,
+            );
         }
         cx.notify();
     }

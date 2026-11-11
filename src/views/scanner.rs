@@ -105,7 +105,11 @@ impl ScannerView {
                     if failed == 0 {
                         SharedString::from(t!("scanner.added", count = added))
                     } else {
-                        SharedString::from(t!("scanner.added_partial", added = added, failed = failed))
+                        SharedString::from(t!(
+                            "scanner.added_partial",
+                            added = added,
+                            failed = failed
+                        ))
                     }
                 })
                 .ok();
@@ -203,7 +207,11 @@ impl ScannerView {
                     if succeeded {
                         SharedString::from(t!("scanner.add_ok"))
                     } else if added > 0 {
-                        SharedString::from(t!("scanner.added_partial", added = added, failed = failed))
+                        SharedString::from(t!(
+                            "scanner.added_partial",
+                            added = added,
+                            failed = failed
+                        ))
                     } else {
                         SharedString::from(t!("scanner.add_failed"))
                     }
@@ -287,7 +295,9 @@ impl ScannerView {
                         .schedule
                         .trigger_now("maintain_thumbnails");
                     match res {
-                        Ok(report) if report.failed.is_empty() => SharedString::from(t!("scanner.scan_done")),
+                        Ok(report) if report.failed.is_empty() => {
+                            SharedString::from(t!("scanner.scan_done"))
+                        }
                         Ok(report) => SharedString::from(t!(
                             "scanner.sources_failed",
                             sources = report.failed.join(&t!("scanner.list_separator"))
@@ -631,7 +641,10 @@ impl Render for ScannerView {
                         .py_1()
                         .text_xs()
                         .font_medium()
-                        .child(SharedString::from(t!("scanner.source_count", count = self.sources.len()))),
+                        .child(SharedString::from(t!(
+                            "scanner.source_count",
+                            count = self.sources.len()
+                        ))),
                 )
                 .into_any_element()
         };

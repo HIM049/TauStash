@@ -108,7 +108,10 @@ fn format_size_group(size: i64) -> (String, String) {
             t!("group.size_medium").into_owned(),
         )
     } else if size >= 1024 * 1024 {
-        ("3_1mb_10mb".to_string(), t!("group.size_small").into_owned())
+        (
+            "3_1mb_10mb".to_string(),
+            t!("group.size_small").into_owned(),
+        )
     } else {
         ("4_lt_1mb".to_string(), t!("group.size_tiny").into_owned())
     }

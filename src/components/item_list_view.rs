@@ -270,9 +270,7 @@ impl RenderOnce for ItemListView {
                             .gap_2()
                             .border_1()
                             .when(is_selected, |this| this.bg(cx.theme().accent.opacity(0.9)))
-                            .when(is_cursor, |this| {
-                                this.border_color(cx.theme().border)
-                            })
+                            .when(is_cursor, |this| this.border_color(cx.theme().border))
                             .hover(|s| {
                                 if is_selected {
                                     s.border_color(cx.theme().border)
