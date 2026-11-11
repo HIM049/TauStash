@@ -1,8 +1,11 @@
 pub mod entities;
+#[cfg(test)]
+mod migration_test;
 pub mod schema;
 pub mod storage;
 pub mod utils;
 
+use migration::{Migrator, MigratorTrait};
 use sea_orm::{Database, DatabaseConnection};
 use std::path::Path;
 
@@ -20,7 +23,7 @@ pub async fn init_db(db_path: impl AsRef<Path>) -> anyhow::Result<DatabaseConnec
     let db =
         Database::connect(format!("sqlite://{}?mode=rwc", path_str.replace('\\', "/"))).await?;
 
-    schema::create_tables(&db).await?;
+    Migrator::up(&db, None).await?;
 
     if is_new {
         schema::seed_default_views(&db).await?;

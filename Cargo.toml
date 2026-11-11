@@ -3,6 +3,9 @@ name = "picargo"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = ["migration"]
+
 [dependencies]
 anyhow = "1.0"
 gpui-kit = "0.7.0"
@@ -23,3 +26,4 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 infer = "0.22"
 rust-i18n = "4.2"
 dirs = "6"
+migration = { path = "migration", default-features = false }
