@@ -20,6 +20,10 @@ pub fn schedule_state_path() -> PathBuf {
     config_dir().join("schedule_state.json")
 }
 
+pub fn log_path() -> PathBuf {
+    data_dir().join("logs").join("picargo.log")
+}
+
 fn app_dir(base: Option<PathBuf>) -> PathBuf {
     base.map(|dir| dir.join(APP_DIR))
         .unwrap_or_else(|| PathBuf::from("app_data"))

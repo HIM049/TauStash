@@ -1,12 +1,34 @@
+use std::fs::{self, File, OpenOptions};
 use std::sync::OnceLock;
 use tracing_subscriber::{EnvFilter, Registry, fmt, prelude::*, registry, reload};
+
+use crate::paths;
 
 static FILTER: OnceLock<reload::Handle<EnvFilter, Registry>> = OnceLock::new();
 
 pub fn init() {
     let (filter, handle) = reload::Layer::new(filter(false));
-    registry().with(filter).with(fmt::layer()).init();
+    let file_layer = open_log_file().map(|file| fmt::layer().with_ansi(false).with_writer(file));
+    registry()
+        .with(filter)
+        .with(fmt::layer())
+        .with(file_layer)
+        .init();
     let _ = FILTER.set(handle);
+}
+
+fn open_log_file() -> Option<File> {
+    let path = paths::log_path();
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    match OpenOptions::new().create(true).append(true).open(&path) {
+        Ok(file) => Some(file),
+        Err(err) => {
+            eprintln!("Failed to open log file {}: {err}", path.display());
+            None
+        }
+    }
 }
 
 /// Switch this crate between debug and info logs.

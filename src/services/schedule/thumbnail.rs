@@ -1,3 +1,4 @@
+use image::ImageFormat;
 use sea_orm::{
     ColumnTrait, DatabaseConnection, EntityTrait, JoinType, QueryFilter, QuerySelect,
     RelationTrait, sea_query::Condition,
@@ -14,17 +15,11 @@ pub const SUPPORTED_IMAGE_EXTS: &[&str] = &[
     "jpg", "jpeg", "png", "webp", "gif", "bmp", "ico", "tiff", "tif",
 ];
 
+/// Whether the format can be read by embedded decoder
 pub fn is_format_support(mime: Option<&str>, ext: Option<&str>) -> bool {
-    if let Some(m) = mime {
-        if m.starts_with("image/") {
-            return true;
-        }
-    }
-    if let Some(e) = ext {
-        let e = e.to_lowercase();
-        return SUPPORTED_IMAGE_EXTS.contains(&e.as_str());
-    }
-    false
+    mime.and_then(ImageFormat::from_mime_type)
+        .or_else(|| ext.and_then(ImageFormat::from_extension))
+        .is_some_and(|format| format.reading_enabled())
 }
 
 #[derive(Debug, Clone, Default)]
@@ -81,6 +76,9 @@ pub async fn maintain_thumbnails(
         .collect();
 
     for file_record in candidate_files {
+        if !is_format_support(file_record.mime.as_deref(), file_record.ext.as_deref()) {
+            continue;
+        }
         report.total_candidates += 1;
 
         let Some(source_path) = replica_paths.get(&file_record.id) else {
