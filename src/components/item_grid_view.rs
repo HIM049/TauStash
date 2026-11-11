@@ -8,6 +8,7 @@ use gpui_kit::*;
 use crate::components;
 use crate::database::storage::query::FileSortField;
 use crate::services::collection::GroupMode;
+use rust_i18n::t;
 
 pub trait GroupCalc {
     fn group_calc(
@@ -49,7 +50,7 @@ impl<T: GroupCalc + IntoElement + Clone + 'static> ItemGridView<T> {
             row_height: 154.0,
             gap: px(2.0),
             scroll_handle: UniformListScrollHandle::new(),
-            empty_placeholder: "暂无内容".into(),
+            empty_placeholder: t!("common.empty").into(),
             sort_field: FileSortField::default(),
             group_mode: GroupMode::default(),
         }

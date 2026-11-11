@@ -12,6 +12,7 @@ use crate::database::storage::query::FileSortField;
 use crate::database::storage::{self, query::FileQueryer};
 use crate::services::collection::{GroupMode, TimeGroup};
 use crate::services::macrotag::MacroTag;
+use rust_i18n::t;
 
 #[derive(Clone, Debug, Default)]
 pub struct OrderMeta {
@@ -66,50 +67,50 @@ fn format_date_group(dt: Option<DateTime<Utc>>, group: TimeGroup) -> (String, St
             match group {
                 TimeGroup::Day => {
                     let key = local.format("%Y-%m-%d").to_string();
-                    let title = local.format("%Y年%m月%d日").to_string();
+                    let title = local.format(&t!("group.day")).to_string();
                     (key, title)
                 }
                 TimeGroup::Month => {
                     let key = local.format("%Y-%m").to_string();
-                    let title = local.format("%Y年%m月").to_string();
+                    let title = local.format(&t!("group.month")).to_string();
                     (key, title)
                 }
                 TimeGroup::Year => {
                     let key = local.format("%Y").to_string();
-                    let title = local.format("%Y年").to_string();
+                    let title = local.format(&t!("group.year")).to_string();
                     (key, title)
                 }
             }
         }
-        None => ("other".to_string(), "其他分组".to_string()),
+        None => ("other".to_string(), t!("group.other").into_owned()),
     }
 }
 
 fn format_batch_group(dt: DateTime<Utc>) -> (String, String) {
     let title = dt
         .with_timezone(&chrono::Local)
-        .format("%Y年%m月%d日 %H:%M:%S")
+        .format(&t!("group.batch"))
         .to_string();
     (dt.to_rfc3339(), title)
 }
 
 fn format_size_group(size: i64) -> (String, String) {
     if size >= 1024 * 1024 * 1024 {
-        ("0_gt_1gb".to_string(), "超大文件 (> 1GB)".to_string())
+        ("0_gt_1gb".to_string(), t!("group.size_huge").into_owned())
     } else if size >= 100 * 1024 * 1024 {
         (
             "1_100mb_1gb".to_string(),
-            "大文件 (100MB - 1GB)".to_string(),
+            t!("group.size_large").into_owned(),
         )
     } else if size >= 10 * 1024 * 1024 {
         (
             "2_10mb_100mb".to_string(),
-            "中等文件 (10MB - 100MB)".to_string(),
+            t!("group.size_medium").into_owned(),
         )
     } else if size >= 1024 * 1024 {
-        ("3_1mb_10mb".to_string(), "小文件 (1MB - 10MB)".to_string())
+        ("3_1mb_10mb".to_string(), t!("group.size_small").into_owned())
     } else {
-        ("4_lt_1mb".to_string(), "微型文件 (< 1MB)".to_string())
+        ("4_lt_1mb".to_string(), t!("group.size_tiny").into_owned())
     }
 }
 

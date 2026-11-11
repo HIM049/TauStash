@@ -1,5 +1,6 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
+use rust_i18n::t;
 
 #[derive(
     Debug,
@@ -29,12 +30,12 @@ pub enum FileState {
 }
 
 impl FileState {
-    pub fn display_name(&self) -> &'static str {
+    pub fn display_name(&self) -> String {
         match self {
-            Self::Pending => "待处理",
-            Self::Managed => "归档",
-            Self::Ignored => "忽略",
-            Self::Deleted => "删除",
+            Self::Pending => t!("file_state.pending").into_owned(),
+            Self::Managed => t!("file_state.managed").into_owned(),
+            Self::Ignored => t!("file_state.ignored").into_owned(),
+            Self::Deleted => t!("file_state.deleted").into_owned(),
         }
     }
 }

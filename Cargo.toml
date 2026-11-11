@@ -21,3 +21,4 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "reg
 gpui-fps = "0.7.0"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp", "ico", "tiff"] }
 infer = "0.22"
+rust-i18n = "4.2"

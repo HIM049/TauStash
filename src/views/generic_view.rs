@@ -28,6 +28,7 @@ use crate::services::importer;
 use crate::services::macrotag::{FileState, MacroTag};
 use crate::services::storage;
 use crate::services::tags_queryer::MtagService;
+use rust_i18n::t;
 
 #[derive(Clone, Default)]
 pub enum BarMode {
@@ -231,7 +232,7 @@ impl GenericView {
         let rt = cx.global::<AppState>().rt.clone();
 
         self.working = true;
-        window.push_notification(Notification::new().message("正在导入文件"), cx);
+        window.push_notification(Notification::new().message(t!("import.in_progress")), cx);
         cx.notify();
 
         let filters = &self.config.filters;
@@ -268,14 +269,14 @@ impl GenericView {
                     this.working = false;
                     let message: SharedString = if let Ok(report) = res {
                         if report.failed.is_empty() && is_move {
-                            format!("{} 个内容已移入存储库", report.newly_imported).into()
+                            t!("import.moved", count = report.newly_imported).into()
                         } else if report.failed.is_empty() {
-                            format!("{} 个内容导入成功", report.newly_imported).into()
+                            t!("import.done", count = report.newly_imported).into()
                         } else {
-                            format!("{} 个内容导入失败", report.failed.len()).into()
+                            t!("import.failed_count", count = report.failed.len()).into()
                         }
                     } else {
-                        "导入失败".into()
+                        t!("import.failed").into()
                     };
 
                     let file = cx.global::<AppState>().file.clone();
@@ -417,7 +418,7 @@ impl GenericView {
         let query = match mts.build() {
             Ok(q) => q,
             Err(err) => {
-                tracing::error!("二次统计查询失败: {err:#}");
+                tracing::error!("Failed to query secondary stats: {err:#}");
                 return;
             }
         };
@@ -656,9 +657,9 @@ impl GenericView {
 
         let is_view = self.collection_type == CollectionType::View;
         let msg = if is_view {
-            "已删除视图"
+            t!("generic_view.view_deleted")
         } else {
-            "已删除合集"
+            t!("generic_view.collection_deleted")
         };
         let on_back = self.on_back.clone();
         if let Some(handle) = cx.windows().first().copied() {
@@ -740,7 +741,7 @@ impl GenericView {
         }
 
         if let Some(window) = window {
-            window.push_notification(Notification::new().message("合集配置已保存"), cx);
+            window.push_notification(Notification::new().message(t!("generic_view.config_saved")), cx);
         }
         cx.notify();
     }
@@ -829,7 +830,7 @@ impl GenericView {
 
             this.update(cx, |_, cx| {
                 if let Err(e) = res {
-                    tracing::error!("批量应用标签失败: {:#}", e);
+                    tracing::error!("Failed to apply tags in batch: {:#}", e);
                 }
                 let file = cx.global::<AppState>().file.clone();
                 let tags = cx.global::<AppState>().tags.clone();
@@ -966,9 +967,9 @@ impl Render for GenericView {
         ));
         if self.config.enable_drag && !self.working {
             scaffold = scaffold.drop_label(if self.drop_move {
-                format!("松开以移动到\"{}\"", self.title)
+                t!("generic_view.drop_move", title = self.title)
             } else {
-                format!("松开以导入到\"{}\"", self.title)
+                t!("generic_view.drop_import", title = self.title)
             });
         }
 

@@ -19,6 +19,7 @@ use crate::database::entities::{FileState, ScanMode, scan_source};
 use crate::database::storage;
 use crate::services::macrotag::MacroTag;
 use crate::services::scanner;
+use rust_i18n::t;
 
 pub struct ScannerView {
     sources: Vec<scan_source::Model>,
@@ -89,7 +90,7 @@ impl ScannerView {
         let paths: Vec<PathBuf> = e.paths().iter().filter(|p| p.is_dir()).cloned().collect();
 
         if paths.is_empty() {
-            window.push_notification(Notification::new().message("没有可用的目录"), cx);
+            window.push_notification(Notification::new().message(t!("scanner.no_dirs")), cx);
             return;
         }
 
@@ -102,9 +103,9 @@ impl ScannerView {
                 .update(cx, |this, cx| {
                     this.reload_sources(cx);
                     if failed == 0 {
-                        SharedString::new(format!("已添加 {added} 个扫描源"))
+                        SharedString::from(t!("scanner.added", count = added))
                     } else {
-                        SharedString::new(format!("已添加 {added} 个，{failed} 个添加失败"))
+                        SharedString::from(t!("scanner.added_partial", added = added, failed = failed))
                     }
                 })
                 .ok();
@@ -186,7 +187,7 @@ impl ScannerView {
         let raw_path = input.read(cx).text().to_string();
         let target = raw_path.trim().trim_matches('"').to_string();
         if target.is_empty() {
-            window.push_notification(Notification::new().message("请填写目录"), cx);
+            window.push_notification(Notification::new().message(t!("scanner.path_required")), cx);
             return;
         }
 
@@ -200,11 +201,11 @@ impl ScannerView {
                 .update(cx, |this, cx| {
                     this.reload_sources(cx);
                     if succeeded {
-                        SharedString::new("添加扫描源成功")
+                        SharedString::from(t!("scanner.add_ok"))
                     } else if added > 0 {
-                        SharedString::new(format!("已添加 {added} 个，{failed} 个添加失败"))
+                        SharedString::from(t!("scanner.added_partial", added = added, failed = failed))
                     } else {
-                        SharedString::new("添加扫描源失败")
+                        SharedString::from(t!("scanner.add_failed"))
                     }
                 })
                 .ok();
@@ -236,11 +237,11 @@ impl ScannerView {
                 .update(cx, |this, cx| match res {
                     Ok(()) => {
                         this.reload_sources(cx);
-                        SharedString::new("移除扫描源成功")
+                        SharedString::from(t!("scanner.remove_ok"))
                     }
                     Err(e) => {
                         tracing::error!("failed to delete scan source: {}", e);
-                        SharedString::new("移除扫描源失败")
+                        SharedString::from(t!("scanner.remove_failed"))
                     }
                 })
                 .ok();
@@ -286,14 +287,14 @@ impl ScannerView {
                         .schedule
                         .trigger_now("maintain_thumbnails");
                     match res {
-                        Ok(report) if report.failed.is_empty() => SharedString::new("扫描完成"),
-                        Ok(report) => SharedString::from(format!(
-                            "以下源扫描失败: {}",
-                            report.failed.join("、")
+                        Ok(report) if report.failed.is_empty() => SharedString::from(t!("scanner.scan_done")),
+                        Ok(report) => SharedString::from(t!(
+                            "scanner.sources_failed",
+                            sources = report.failed.join(&t!("scanner.list_separator"))
                         )),
                         Err(e) => {
                             tracing::error!("failed to scan sources: {}", e);
-                            SharedString::new("扫描失败")
+                            SharedString::from(t!("scanner.scan_failed"))
                         }
                     }
                 })
@@ -441,11 +442,11 @@ impl ScannerView {
                 .update(cx, |this, cx| match res {
                     Ok(()) => {
                         this.reload_sources(cx);
-                        SharedString::new("已更新初始标签")
+                        SharedString::from(t!("scanner.tags_updated"))
                     }
                     Err(e) => {
                         tracing::error!("failed to update scan initial tags: {}", e);
-                        SharedString::new("更新初始标签失败")
+                        SharedString::from(t!("scanner.tags_update_failed"))
                     }
                 })
                 .ok();
@@ -479,7 +480,7 @@ impl ScannerView {
                 div()
                     .text_xs()
                     .text_color(muted)
-                    .child("无初始标签")
+                    .child(SharedString::from(t!("scanner.no_initial_tags")))
                     .into_any_element(),
             );
         } else {
@@ -586,7 +587,7 @@ impl ScannerView {
                     .justify_center()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
-                    .child("点击按钮或拖入文件夹登记扫描源")
+                    .child(SharedString::from(t!("scanner.empty_hint")))
                     .into_any_element(),
             ];
         }
@@ -630,14 +631,14 @@ impl Render for ScannerView {
                         .py_1()
                         .text_xs()
                         .font_medium()
-                        .child(format!("{} 条来源", self.sources.len())),
+                        .child(SharedString::from(t!("scanner.source_count", count = self.sources.len()))),
                 )
                 .into_any_element()
         };
 
-        ViewScaffold::new("scanner-scaffold", "扫描管理")
+        ViewScaffold::new("scanner-scaffold", t!("common.scan_sources"))
             .on_drop(cx.listener(Self::handle_drag))
-            .drop_label("松开以添加为扫描源")
+            .drop_label(t!("scanner.drop_label"))
             .on_click(cx.listener(|this, _, _, cx| {
                 this.clear_selection(cx);
             }))
@@ -647,7 +648,7 @@ impl Render for ScannerView {
                     .disabled(busy)
                     .on_click(cx.listener(Self::start_create_sourse)),
                 Button::new("scan-source-scan-all")
-                    .label("立即扫描")
+                    .label(t!("scanner.scan_now"))
                     .icon(IconName::Search)
                     .loading(busy)
                     .on_click(cx.listener(Self::on_scan_all)),

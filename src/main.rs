@@ -14,6 +14,9 @@ mod views;
 use app::MyApp;
 
 use crate::{config::AppConfig, services::ScheduleService};
+use rust_i18n::t;
+
+rust_i18n::i18n!("locales", fallback = "en");
 
 actions!([OpenSettings]);
 
@@ -60,7 +63,7 @@ impl AppState {
             WindowOptions {
                 window_bounds: Some(window_bounds),
                 titlebar: Some(TitlebarOptions {
-                    title: Some("Settings".into()),
+                    title: Some(t!("settings.title").into()),
                     appears_transparent: true,
                     traffic_light_position: None,
                 }),
@@ -89,6 +92,7 @@ fn main() {
     let _guard = rt.enter();
 
     let config = config::AppConfig::load_or_default(config::DEFAULT_CONFIG_PATH);
+    rust_i18n::set_locale(&config.locale);
 
     let db = rt.block_on(async {
         database::init_db(&config.db_path)

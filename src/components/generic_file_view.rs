@@ -16,6 +16,7 @@ use crate::database::storage::query::FileSortField;
 use crate::services::collection::{CONTEXT_MENU_STATES, GroupMode, ViewOption};
 use crate::services::file::FileInfo;
 use crate::services::macrotag::FileState;
+use rust_i18n::t;
 
 #[derive(Clone, Debug)]
 pub enum FileContentEvent {
@@ -75,7 +76,7 @@ impl GenericFileView {
             focus_handle,
             editing_id: None,
             scroll_handle: UniformListScrollHandle::new(),
-            empty_placeholder: "当前筛选下暂无匹配文件".into(),
+            empty_placeholder: t!("common.empty_filtered").into(),
         }
     }
 
@@ -224,7 +225,7 @@ impl GenericFileView {
 
             this.update(cx, |_, cx| {
                 if let Err(err) = res {
-                    tracing::error!("重命名文件失败: {err:#}");
+                    tracing::error!("Failed to rename file: {err:#}");
                 }
                 cx.emit(FileContentEvent::RefreshRequested);
             })
@@ -317,14 +318,14 @@ impl GenericFileView {
 
                 menu = menu
                     .item(
-                        PopupMenuItem::new("打开")
+                        PopupMenuItem::new(t!("file_menu.open"))
                             .icon(IconName::ExternalLink)
                             .on_click(move |_, _, _| {
                                 utils::open_path(&open_p);
                             }),
                     )
                     .item(
-                        PopupMenuItem::new("在文件管理器中显示")
+                        PopupMenuItem::new(t!("file_menu.reveal"))
                             .icon(IconName::Folder)
                             .on_click(move |_, _, _| {
                                 utils::reveal_in_file_manager(&reveal_p);
@@ -332,14 +333,14 @@ impl GenericFileView {
                     )
                     .separator()
                     .item(
-                        PopupMenuItem::new("重命名")
+                        PopupMenuItem::new(t!("common.rename"))
                             .icon(IconName::Replace)
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.start_rename(rename_id, &raw_name, window, cx);
                             })),
                     )
                     .item(
-                        PopupMenuItem::new("复制路径")
+                        PopupMenuItem::new(t!("file_menu.copy_path"))
                             .icon(IconName::Copy)
                             .on_click(move |_, _, cx| {
                                 cx.write_to_clipboard(ClipboardItem::new_string(copy_p.clone()));
@@ -352,7 +353,7 @@ impl GenericFileView {
             }
         } else {
             menu = menu.item(
-                PopupMenuItem::new("刷新")
+                PopupMenuItem::new(t!("common.refresh"))
                     .icon(IconName::RefreshCw)
                     .on_click(cx.listener(|_this, _, _, cx| {
                         cx.emit(FileContentEvent::RefreshRequested);

@@ -8,6 +8,7 @@ use uuid::Uuid;
 use super::entities::*;
 use crate::services::collection::{CandidateTagRule, CollectionConfig, ViewOption};
 use crate::services::{FileState, MacroTag};
+use rust_i18n::t;
 
 /// Initialize all database tables and their indexes derived directly from Entity models
 pub async fn create_tables(db: &DatabaseConnection) -> Result<(), DbErr> {
@@ -36,7 +37,7 @@ pub async fn seed_default_views(db: &DatabaseConnection) -> anyhow::Result<()> {
 
     collection::ActiveModel {
         id: Set(Uuid::now_v7()),
-        name: Set("文件总览".to_string()),
+        name: Set(t!("default_view.explorer").into_owned()),
         icon: Set(IconName::File.path().to_string()),
         cover: Set(String::new()),
         color: Set(String::new()),
@@ -69,7 +70,7 @@ pub async fn seed_default_views(db: &DatabaseConnection) -> anyhow::Result<()> {
 
     collection::ActiveModel {
         id: Set(Uuid::now_v7()),
-        name: Set("审核队列".to_string()),
+        name: Set(t!("default_view.review").into_owned()),
         icon: Set(IconName::Check.path().to_string()),
         cover: Set(String::new()),
         color: Set(String::new()),

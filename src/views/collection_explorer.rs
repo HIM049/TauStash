@@ -13,8 +13,8 @@ use crate::components::item_grid_view::ItemGridView;
 use crate::components::view_scaffold::ViewScaffold;
 use crate::database::entities::collection;
 use crate::views::generic_view::GenericView;
+use rust_i18n::t;
 
-const DEFAULT_FOLDER_NAME: &str = "未命名合集";
 
 pub struct CollectionExplorerView {
     folders: Vec<collection::Model>,
@@ -163,7 +163,7 @@ impl CollectionExplorerView {
         let now = chrono::Utc::now();
         let dummy = collection::Model {
             id: dummy_id,
-            name: DEFAULT_FOLDER_NAME.to_string(),
+            name: t!("collection_explorer.untitled").into_owned(),
             icon: IconName::Folder.path().into(),
             cover: String::new(),
             color: String::new(),
@@ -177,7 +177,7 @@ impl CollectionExplorerView {
         };
 
         self.folders.insert(0, dummy);
-        self.start_rename(dummy_id, DEFAULT_FOLDER_NAME, window, cx);
+        self.start_rename(dummy_id, &t!("collection_explorer.untitled"), window, cx);
     }
 
     /// Enter inline renaming mode for an existing (or dummy) collection.
@@ -289,7 +289,7 @@ impl CollectionExplorerView {
             if is_multi {
                 let count = self.selected.len();
                 menu = menu.item(
-                    PopupMenuItem::new(format!("删除内容 ({count})"))
+                    PopupMenuItem::new(t!("collection_explorer.delete_count", count = count))
                         .icon(IconName::Delete)
                         .on_click(cx.listener(|this, _, w, cx| {
                             this.delete_selected(w, cx);
@@ -304,7 +304,7 @@ impl CollectionExplorerView {
                     .unwrap_or_default();
                 menu = menu
                     .item(
-                        PopupMenuItem::new("重命名")
+                        PopupMenuItem::new(t!("common.rename"))
                             .icon(IconName::Replace)
                             .on_click(cx.listener(move |this, _, w, cx| {
                                 this.start_rename(id, &folder_name, w, cx);
@@ -312,7 +312,7 @@ impl CollectionExplorerView {
                     )
                     .separator()
                     .item(
-                        PopupMenuItem::new("删除内容")
+                        PopupMenuItem::new(t!("collection_explorer.delete"))
                             .icon(IconName::Delete)
                             .on_click(cx.listener(|this, _, w, cx| {
                                 this.delete_selected(w, cx);
@@ -322,7 +322,7 @@ impl CollectionExplorerView {
         } else {
             menu = menu
                 .item(
-                    PopupMenuItem::new("刷新")
+                    PopupMenuItem::new(t!("common.refresh"))
                         .icon(IconName::RefreshCw)
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.reload(cx);
@@ -330,7 +330,7 @@ impl CollectionExplorerView {
                 )
                 .separator()
                 .item(
-                    PopupMenuItem::new("新建合集")
+                    PopupMenuItem::new(t!("collection_explorer.new"))
                         .icon(IconName::Plus)
                         .on_click(cx.listener(|this, _, w, cx| {
                             this.start_create(w, cx);
@@ -367,7 +367,7 @@ impl Render for CollectionExplorerView {
                 }
             })
             .child(
-                ViewScaffold::new("collection-explorer-scaffold", "全部合集")
+                ViewScaffold::new("collection-explorer-scaffold", t!("common.all_collections"))
                     .actions(vec![
                         Button::new("collection-refresh")
                             .icon(IconName::RefreshCw)
@@ -442,7 +442,7 @@ impl Render for CollectionExplorerView {
                         div().size_full().pl_6().child(
                             ItemGridView::new("collection-grid", cards)
                                 .scroll_handle(&self.scroll_handle)
-                                .empty_placeholder("暂无合集"),
+                                .empty_placeholder(t!("collection_explorer.empty")),
                         )
                     })
                     .on_click(cx.listener(|this, _, window, cx| {

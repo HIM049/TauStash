@@ -1,0 +1,158 @@
+{
+  "_version": 1,
+  "collection_explorer": {
+    "delete": "删除内容",
+    "delete_count": "删除内容 (%{count})",
+    "empty": "暂无合集",
+    "new": "新建合集",
+    "untitled": "未命名合集"
+  },
+  "common": {
+    "all_collections": "全部合集",
+    "confirm": "确认",
+    "empty": "暂无内容",
+    "empty_filtered": "当前筛选下暂无匹配文件",
+    "refresh": "刷新",
+    "rename": "重命名",
+    "scan_sources": "扫描管理"
+  },
+  "config_editor": {
+    "actions": "操作:",
+    "asc": "升序 ↑",
+    "confirm_delete": "确认删除:",
+    "context_actions": "右键操作:",
+    "delete_collection": "删除合集",
+    "desc": "降序 ↓",
+    "drag_import": "拖拽导入:",
+    "filter_rules": "视图过滤规则:",
+    "gallery": "画廊",
+    "grid": "网格",
+    "group": "分组:",
+    "hide_tagbar": "隐藏标签栏:",
+    "less": "收起更多",
+    "list": "列表",
+    "more": "更多设置",
+    "name": "名称:",
+    "pinned_tags": "固定标签:",
+    "search_tags": "搜索标签",
+    "side_view": "侧边视图:",
+    "sort": "排序:",
+    "title": "视图属性编辑",
+    "view": "视图:"
+  },
+  "default_view": {
+    "explorer": "文件总览",
+    "review": "审核队列"
+  },
+  "file_menu": {
+    "copy_path": "复制路径",
+    "open": "打开",
+    "reveal": "在文件管理器中显示"
+  },
+  "file_state": {
+    "deleted": "删除",
+    "ignored": "忽略",
+    "managed": "归档",
+    "pending": "待处理"
+  },
+  "generic_view": {
+    "collection_deleted": "已删除合集",
+    "config_saved": "合集配置已保存",
+    "drop_import": "松开以导入到“%{title}”",
+    "drop_move": "松开以移动到“%{title}”",
+    "view_deleted": "已删除视图"
+  },
+  "group": {
+    "batch": "%Y年%m月%d日 %H:%M:%S",
+    "day": "%Y年%m月%d日",
+    "month": "%Y年%m月",
+    "other": "其他分组",
+    "size_huge": "超大文件 (> 1GB)",
+    "size_large": "大文件 (100MB - 1GB)",
+    "size_medium": "中等文件 (10MB - 100MB)",
+    "size_small": "小文件 (1MB - 10MB)",
+    "size_tiny": "微型文件 (< 1MB)",
+    "year": "%Y年"
+  },
+  "group_mode": {
+    "batch": "导入批次",
+    "day": "每日",
+    "month": "每月",
+    "none": "无分组",
+    "size": "按大小区间",
+    "year": "每年"
+  },
+  "import": {
+    "done": "%{count} 个内容导入成功",
+    "failed": "导入失败",
+    "failed_count": "%{count} 个内容导入失败",
+    "in_progress": "正在导入文件",
+    "moved": "%{count} 个内容已移入存储库"
+  },
+  "list": {
+    "name": "名称",
+    "size": "大小",
+    "type": "类型"
+  },
+  "scanner": {
+    "add_failed": "添加扫描源失败",
+    "add_ok": "添加扫描源成功",
+    "added": "已添加 %{count} 个扫描源",
+    "added_partial": "已添加 %{added} 个，%{failed} 个添加失败",
+    "drop_label": "松开以添加为扫描源",
+    "empty_hint": "点击按钮或拖入文件夹登记扫描源",
+    "list_separator": "、",
+    "no_dirs": "没有可用的目录",
+    "no_initial_tags": "无初始标签",
+    "path_required": "请填写目录",
+    "remove_failed": "移除扫描源失败",
+    "remove_ok": "移除扫描源成功",
+    "scan_done": "扫描完成",
+    "scan_failed": "扫描失败",
+    "scan_now": "立即扫描",
+    "source_count": "%{count} 条来源",
+    "sources_failed": "以下源扫描失败: %{sources}",
+    "tags_update_failed": "更新初始标签失败",
+    "tags_updated": "已更新初始标签"
+  },
+  "settings": {
+    "cleanup_interval": "超期清扫频次 (小时)",
+    "db_path": "数据库路径",
+    "device_id": "设备标识",
+    "fps_monitor": "显示 FPS 悬浮窗",
+    "group_debug": "调试与性能",
+    "group_device": "设备与存储",
+    "group_interface": "界面",
+    "group_schedule": "后台调度",
+    "group_store": "存储库",
+    "language": "语言",
+    "maintain_interval": "元数据维护间隔 (分钟)",
+    "page_general": "常规设置",
+    "retention_days": "回收站保留时间 (天)",
+    "scan_interval": "增量扫描间隔 (分钟)",
+    "schedule_enable": "启用定时任务",
+    "store_enable": "启用存储库",
+    "store_path": "存储库路径",
+    "title": "设置"
+  },
+  "sidebar": {
+    "navigation": "导航"
+  },
+  "sort": {
+    "content_created": "文件创建时间",
+    "content_modified": "文件修改时间",
+    "imported": "入库时间",
+    "size": "文件大小",
+    "updated": "更新时间"
+  },
+  "tag": {
+    "replica_count": "副本数: %{count}",
+    "untagged": "未标记"
+  },
+  "tag_editor": {
+    "placeholder": "输入标签名称"
+  },
+  "tag_filter": {
+    "all": "全部"
+  }
+}

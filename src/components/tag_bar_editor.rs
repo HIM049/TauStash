@@ -12,6 +12,7 @@ use uuid::Uuid;
 use crate::components::tag_chip::{TagChip, TagChipState};
 use crate::services::file::FileInfo;
 use crate::services::macrotag::MacroTag;
+use rust_i18n::t;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EditState {
@@ -45,7 +46,7 @@ pub struct TagBatchEditor {
 
 impl TagBatchEditor {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let input_state = cx.new(|cx| InputState::new(window, cx).placeholder("输入标签名称"));
+        let input_state = cx.new(|cx| InputState::new(window, cx).placeholder(t!("tag_editor.placeholder")));
 
         Self {
             focus_handle: cx.focus_handle(),

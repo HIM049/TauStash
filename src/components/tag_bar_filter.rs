@@ -11,6 +11,7 @@ use crate::components::motion_slot::MotionSlot;
 use crate::components::tag_chip::{TagChip, TagChipState};
 use crate::database::storage::query::{FileQueryer, TagFacetItem};
 use crate::services::MacroTag;
+use rust_i18n::t;
 
 #[derive(Clone, Debug)]
 pub enum TagFilterEvent {
@@ -200,7 +201,7 @@ impl TagFilterBar {
         let viewport_origin = Rc::new(Cell::new(Point::default()));
         let mut chips = Vec::with_capacity(self.entries.len() + 1);
 
-        let chip = TagChip::new("tag-filter-all", "全部")
+        let chip = TagChip::new("tag-filter-all", t!("tag_filter.all"))
             .count(self.total_files_count)
             .state(if is_all {
                 TagChipState::Active
@@ -221,7 +222,7 @@ impl TagFilterBar {
         for entry in &self.entries {
             let item = match entry {
                 FilterEntry::Untagged { count } => {
-                    let chip = TagChip::new("tag-filter-untagged", "未标记")
+                    let chip = TagChip::new("tag-filter-untagged", t!("tag.untagged"))
                         .count(*count)
                         .state(chip_state(is_untagged, *count))
                         .on_click({

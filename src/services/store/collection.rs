@@ -134,7 +134,7 @@ impl CollectionStore {
         let config = match serde_json::to_value(CollectionConfig::default()) {
             Ok(config) => Some(config),
             Err(err) => {
-                tracing::error!("序列化合集配置失败: {err:#}");
+                tracing::error!("Failed to serialize collection config: {err:#}");
                 None
             }
         };

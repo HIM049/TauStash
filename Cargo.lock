@@ -5512,6 +5512,7 @@ dependencies = [
  "infer",
  "log",
  "mime_guess",
+ "rust-i18n",
  "sea-orm",
  "serde",
  "serde_json",

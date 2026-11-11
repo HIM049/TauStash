@@ -18,6 +18,7 @@ pub struct AppConfig {
     pub fps_monitor: bool,
     pub store_enable: bool,
     pub store_path: PathBuf,
+    pub locale: String,
 }
 
 impl Default for AppConfig {
@@ -33,6 +34,7 @@ impl Default for AppConfig {
             fps_monitor: false,
             store_enable: false,
             store_path: PathBuf::from("./app_data/store"),
+            locale: "zh-CN".to_string(),
         }
     }
 }

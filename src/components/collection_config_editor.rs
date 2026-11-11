@@ -26,6 +26,7 @@ use crate::services::collection::{
 };
 use crate::services::macrotag::MacroTag;
 use crate::services::store::TagStore;
+use rust_i18n::t;
 
 const EXPAND_TRANSITION: Duration = Duration::from_millis(300);
 
@@ -66,24 +67,24 @@ pub const PRESET_ICONS: &[IconName] = &[
     IconName::Palette,
 ];
 
-pub fn sort_field_label(sort: FileSortField) -> &'static str {
+pub fn sort_field_label(sort: FileSortField) -> String {
     match sort {
-        FileSortField::ContentCreatedAt => "文件创建时间",
-        FileSortField::ContentModifiedAt => "文件修改时间",
-        FileSortField::CreatedAt => "入库时间",
-        FileSortField::UpdatedAt => "更新时间",
-        FileSortField::Size => "文件大小",
+        FileSortField::ContentCreatedAt => t!("sort.content_created").into_owned(),
+        FileSortField::ContentModifiedAt => t!("sort.content_modified").into_owned(),
+        FileSortField::CreatedAt => t!("sort.imported").into_owned(),
+        FileSortField::UpdatedAt => t!("sort.updated").into_owned(),
+        FileSortField::Size => t!("sort.size").into_owned(),
     }
 }
 
-pub fn group_mode_label(mode: GroupMode) -> &'static str {
+pub fn group_mode_label(mode: GroupMode) -> String {
     match mode {
-        GroupMode::None => "无分组",
-        GroupMode::Time(TimeGroup::Day) => "每日",
-        GroupMode::Time(TimeGroup::Month) => "每月",
-        GroupMode::Time(TimeGroup::Year) => "每年",
-        GroupMode::Size => "按大小区间",
-        GroupMode::Batch => "导入批次",
+        GroupMode::None => t!("group_mode.none").into_owned(),
+        GroupMode::Time(TimeGroup::Day) => t!("group_mode.day").into_owned(),
+        GroupMode::Time(TimeGroup::Month) => t!("group_mode.month").into_owned(),
+        GroupMode::Time(TimeGroup::Year) => t!("group_mode.year").into_owned(),
+        GroupMode::Size => t!("group_mode.size").into_owned(),
+        GroupMode::Batch => t!("group_mode.batch").into_owned(),
     }
 }
 
@@ -140,7 +141,7 @@ impl CollectionConfigEditor {
             state
         });
 
-        let tag_search_input = cx.new(|cx| InputState::new(window, cx).placeholder("搜索标签"));
+        let tag_search_input = cx.new(|cx| InputState::new(window, cx).placeholder(t!("config_editor.search_tags")));
 
         cx.subscribe(
             &tag_search_input,
@@ -397,7 +398,7 @@ impl CollectionConfigEditor {
             .gap_x_8()
             .gap_y_3()
             .child(
-                field().label("名称:").items_center().child(
+                field().label(SharedString::from(t!("config_editor.name"))).items_center().child(
                     div()
                         .flex_1()
                         .min_w_0()
@@ -458,25 +459,25 @@ impl CollectionConfigEditor {
                 ),
             )
             .child(
-                field().label("视图:").items_center().child(
+                field().label(SharedString::from(t!("config_editor.view"))).items_center().child(
                     ButtonGroup::new("cfg-view-group")
                         .small()
                         .child(
                             Button::new("cfg-view-grid")
                                 .icon(IconName::LayoutGrid)
-                                .label("网格")
+                                .label(t!("config_editor.grid"))
                                 .selected(self.draft_config.view == ViewOption::Grid),
                         )
                         .child(
                             Button::new("cfg-view-list")
                                 .icon(IconName::List)
-                                .label("列表")
+                                .label(t!("config_editor.list"))
                                 .selected(self.draft_config.view == ViewOption::List),
                         )
                         .child(
                             Button::new("cfg-view-gallery")
                                 .icon(IconName::Image)
-                                .label("画廊")
+                                .label(t!("config_editor.gallery"))
                                 .selected(self.draft_config.view == ViewOption::Gallery),
                         )
                         .on_click(cx.listener(|this, clicks: &Vec<usize>, _window, cx| {
@@ -491,7 +492,7 @@ impl CollectionConfigEditor {
                 ),
             )
             .child(
-                field().label("排序:").items_center().child(
+                field().label(SharedString::from(t!("config_editor.sort"))).items_center().child(
                     div()
                         .h_flex()
                         .items_center()
@@ -548,9 +549,9 @@ impl CollectionConfigEditor {
                             Button::new("cfg-sort-direction")
                                 .small()
                                 .label(if self.draft_config.is_desc {
-                                    "降序 ↓"
+                                    t!("config_editor.desc")
                                 } else {
-                                    "升序 ↑"
+                                    t!("config_editor.asc")
                                 })
                                 .on_click(cx.listener(|this, _, _window, cx| {
                                     this.draft_config.is_desc = !this.draft_config.is_desc;
@@ -561,7 +562,7 @@ impl CollectionConfigEditor {
                 ),
             )
             .child(
-                field().label("分组:").items_center().child(
+                field().label(SharedString::from(t!("config_editor.group"))).items_center().child(
                     Button::new("cfg-group-dropdown")
                         .small()
                         .w(px(130.0))
@@ -611,7 +612,7 @@ impl CollectionConfigEditor {
             .gap_x_8()
             .gap_y_3()
             .child(
-                field().label("侧边视图:").items_center().child(
+                field().label(SharedString::from(t!("config_editor.side_view"))).items_center().child(
                     Switch::new("cfg-collection-type-switch")
                         .small()
                         .checked(self.collection_type == CollectionType::View)
@@ -627,7 +628,7 @@ impl CollectionConfigEditor {
                 ),
             )
             .child(
-                field().label("隐藏标签栏:").items_center().child(
+                field().label(SharedString::from(t!("config_editor.hide_tagbar"))).items_center().child(
                     Switch::new("cfg-hide-tagbar-switch")
                         .small()
                         .checked(self.draft_config.is_hide_tagbar)
@@ -639,7 +640,7 @@ impl CollectionConfigEditor {
                 ),
             )
             .child(
-                field().label("拖拽导入:").items_center().child(
+                field().label(SharedString::from(t!("config_editor.drag_import"))).items_center().child(
                     Switch::new("cfg-enable-drag-switch")
                         .small()
                         .checked(self.draft_config.enable_drag)
@@ -651,7 +652,7 @@ impl CollectionConfigEditor {
                 ),
             )
             .child(
-                field().label("固定标签:").items_center().child(
+                field().label(SharedString::from(t!("config_editor.pinned_tags"))).items_center().child(
                     div()
                         .flex_1()
                         .min_w_0()
@@ -705,7 +706,7 @@ impl CollectionConfigEditor {
                 ),
             )
             .child(
-                field().label("右键操作:").items_center().child(
+                field().label(SharedString::from(t!("config_editor.context_actions"))).items_center().child(
                     div().h_flex().items_center().gap_3().children(
                         CONTEXT_MENU_STATES.iter().map(|&state| {
                             Checkbox::new(("cfg-context-state", state as usize))
@@ -727,17 +728,17 @@ impl CollectionConfigEditor {
             )
             .child(
                 field()
-                    .label(if self.confirm_delete {
-                        "确认删除:"
+                    .label(SharedString::from(if self.confirm_delete {
+                        t!("config_editor.confirm_delete")
                     } else {
-                        "操作:"
-                    })
+                        t!("config_editor.actions")
+                    }))
                     .items_center()
                     .child(if !self.confirm_delete {
                         Button::new("btn-delete-collection")
                             .small()
                             .icon(IconName::Trash)
-                            .label("删除合集")
+                            .label(t!("config_editor.delete_collection"))
                             .on_click(cx.listener(|this, _, _window, cx| {
                                 this.confirm_delete = true;
                                 cx.notify();
@@ -753,7 +754,7 @@ impl CollectionConfigEditor {
                                     .danger()
                                     .small()
                                     .icon(IconName::Check)
-                                    .label("确认")
+                                    .label(t!("common.confirm"))
                                     .on_click(cx.listener(|this, _, _window, cx| {
                                         this.confirm_delete = false;
                                         cx.emit(ConfigEditorEvent::DeleteRequested);
@@ -910,7 +911,7 @@ impl CollectionConfigEditor {
                                     .text_sm()
                                     .font_medium()
                                     .text_color(theme.foreground)
-                                    .child("视图过滤规则:"),
+                                    .child(t!("config_editor.filter_rules")),
                             )
                             .child(
                                 div()
@@ -1006,7 +1007,7 @@ impl Render for CollectionConfigEditor {
                                 cx.emit(ConfigEditorEvent::CancelRequested);
                             })),
                     )
-                    .child(div().text_xl().font_bold().child("视图属性编辑"))
+                    .child(div().text_xl().font_bold().child(t!("config_editor.title")))
                     .child(
                         Button::new("cfg-expand-toggle")
                             .ml_auto()
@@ -1017,9 +1018,9 @@ impl Render for CollectionConfigEditor {
                                 IconName::ChevronDown
                             })
                             .label(if self.expanded {
-                                "收起更多"
+                                t!("config_editor.less")
                             } else {
-                                "更多设置"
+                                t!("config_editor.more")
                             })
                             .on_click(cx.listener(|this, _, _window, cx| {
                                 this.toggle_expanded(cx);

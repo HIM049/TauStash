@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::components::utils::format_file_size;
 use crate::services::file::FileInfo;
+use rust_i18n::t;
 
 const ROW_HEIGHT: f32 = 36.0;
 
@@ -50,7 +51,7 @@ impl ItemListView {
             editing_id: None,
             name_input: None,
             scroll_handle: UniformListScrollHandle::new(),
-            empty_placeholder: "当前筛选下暂无匹配文件".into(),
+            empty_placeholder: t!("common.empty_filtered").into(),
             on_select: None,
             on_secondary_select: None,
             on_open: None,
@@ -149,7 +150,7 @@ impl RenderOnce for ItemListView {
                     .border_color(border_color)
                     .flex_1()
                     .min_w(px(220.0))
-                    .child("名称"),
+                    .child(SharedString::from(t!("list.name"))),
             )
             .child(
                 div()
@@ -157,7 +158,7 @@ impl RenderOnce for ItemListView {
                     .border_color(border_color)
                     .w(px(65.0))
                     .flex_shrink_0()
-                    .child("类型"),
+                    .child(SharedString::from(t!("list.type"))),
             )
             .child(
                 div()
@@ -165,7 +166,7 @@ impl RenderOnce for ItemListView {
                     .border_color(border_color)
                     .w(px(65.0))
                     .flex_shrink_0()
-                    .child("大小"),
+                    .child(SharedString::from(t!("list.size"))),
             );
 
         let total = self.file_list.len();

@@ -6,6 +6,10 @@ use gpui_kit::component::{ActiveTheme, Sizable, Size, TitleBar};
 use gpui_kit::*;
 
 use crate::AppState;
+use rust_i18n::t;
+
+/// Locale codes with their names in that language
+const LOCALES: &[(&str, &str)] = &[("zh-CN", "简体中文"), ("en", "English")];
 
 pub struct SettingsView;
 
@@ -22,7 +26,7 @@ impl Render for SettingsView {
             .v_flex()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
-            .child(TitleBar::new().text_xs().font_semibold().child("Settings"))
+            .child(TitleBar::new().text_xs().font_semibold().child(SharedString::from(t!("settings.title"))))
             .child(
                 div().flex_1().min_h_0().child(
                     Settings::new("picargo-settings")
@@ -30,10 +34,31 @@ impl Render for SettingsView {
                         // .with_group_variant(GroupBoxVariant::Outline)
                         .sidebar_width(px(160.))
                         .pages(vec![
-                            SettingPage::new("常规设置").default_open(true).groups(vec![
-                                SettingGroup::new().title("设备与存储").items(vec![
+                            SettingPage::new(t!("settings.page_general")).default_open(true).groups(vec![
+                                SettingGroup::new().title(t!("settings.group_interface")).items(vec![
                                     SettingItem::new(
-                                        "设备标识",
+                                        t!("settings.language"),
+                                        SettingField::dropdown(
+                                            LOCALES
+                                                .iter()
+                                                .map(|(code, name)| ((*code).into(), (*name).into()))
+                                                .collect(),
+                                            |cx: &App| cx.global::<AppState>().config.locale.clone().into(),
+                                            |val: SharedString, cx: &mut App| {
+                                                rust_i18n::set_locale(&val);
+                                                cx.update_global::<AppState, _>(|state, _| {
+                                                    state.update_config(|cfg| {
+                                                        cfg.locale = val.to_string();
+                                                    });
+                                                });
+                                                cx.refresh_windows();
+                                            },
+                                        ),
+                                    ),
+                                ]),
+                                SettingGroup::new().title(t!("settings.group_device")).items(vec![
+                                    SettingItem::new(
+                                        t!("settings.device_id"),
                                         // SettingField::input(
                                         //     |cx: &App| {
                                         //         cx.global::<AppState>().config.device_id.clone().into()
@@ -61,7 +86,7 @@ impl Render for SettingsView {
                                     ),
                                     // .layout(Axis::Vertical),
                                     SettingItem::new(
-                                        "数据库路径",
+                                        t!("settings.db_path"),
                                         SettingField::input(
                                             |cx: &App| {
                                                 cx.global::<AppState>()
@@ -83,9 +108,9 @@ impl Render for SettingsView {
                                         ),
                                     ),
                                 ]),
-                                SettingGroup::new().title("存储库").items(vec![
+                                SettingGroup::new().title(t!("settings.group_store")).items(vec![
                                     SettingItem::new(
-                                        "启用存储库",
+                                        t!("settings.store_enable"),
                                         SettingField::switch(
                                             |cx: &App| cx.global::<AppState>().config.store_enable,
                                             |val: bool, cx: &mut App| {
@@ -98,7 +123,7 @@ impl Render for SettingsView {
                                         ),
                                     ),
                                     SettingItem::new(
-                                        "存储库路径",
+                                        t!("settings.store_path"),
                                         SettingField::input(
                                             |cx: &App| {
                                                 cx.global::<AppState>()
@@ -120,9 +145,9 @@ impl Render for SettingsView {
                                         ),
                                     ),
                                 ]),
-                                SettingGroup::new().title("后台调度").items(vec![
+                                SettingGroup::new().title(t!("settings.group_schedule")).items(vec![
                                     SettingItem::new(
-                                        "启用定时任务",
+                                        t!("settings.schedule_enable"),
                                         SettingField::switch(
                                             |cx: &App| {
                                                 cx.global::<AppState>().config.schedule_enable
@@ -137,7 +162,7 @@ impl Render for SettingsView {
                                         ),
                                     ),
                                     SettingItem::new(
-                                        "增量扫描间隔 (分钟)",
+                                        t!("settings.scan_interval"),
                                         SettingField::number_input(
                                             NumberFieldOptions {
                                                 min: 1.0,
@@ -158,7 +183,7 @@ impl Render for SettingsView {
                                         ),
                                     ),
                                     SettingItem::new(
-                                        "元数据维护间隔 (分钟)",
+                                        t!("settings.maintain_interval"),
                                         SettingField::number_input(
                                             NumberFieldOptions {
                                                 min: 5.0,
@@ -180,7 +205,7 @@ impl Render for SettingsView {
                                         ),
                                     ),
                                     SettingItem::new(
-                                        "回收站保留时间 (天)",
+                                        t!("settings.retention_days"),
                                         SettingField::number_input(
                                             NumberFieldOptions {
                                                 min: 1.0,
@@ -201,7 +226,7 @@ impl Render for SettingsView {
                                         ),
                                     ),
                                     SettingItem::new(
-                                        "超期清扫频次 (小时)",
+                                        t!("settings.cleanup_interval"),
                                         SettingField::number_input(
                                             NumberFieldOptions {
                                                 min: 1.0,
@@ -223,9 +248,9 @@ impl Render for SettingsView {
                                         ),
                                     ),
                                 ]),
-                                SettingGroup::new().title("调试与性能").items(vec![
+                                SettingGroup::new().title(t!("settings.group_debug")).items(vec![
                                     SettingItem::new(
-                                        "显示 FPS 悬浮窗",
+                                        t!("settings.fps_monitor"),
                                         SettingField::switch(
                                             |cx: &App| cx.global::<AppState>().config.fps_monitor,
                                             |val: bool, cx: &mut App| {

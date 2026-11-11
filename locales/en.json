@@ -1,0 +1,158 @@
+{
+  "_version": 1,
+  "collection_explorer": {
+    "delete": "Delete",
+    "delete_count": "Delete (%{count})",
+    "empty": "No collections yet",
+    "new": "New Collection",
+    "untitled": "Untitled Collection"
+  },
+  "common": {
+    "all_collections": "All Collections",
+    "confirm": "Confirm",
+    "empty": "Nothing here yet",
+    "empty_filtered": "No files match the current filters",
+    "refresh": "Refresh",
+    "rename": "Rename",
+    "scan_sources": "Scan Sources"
+  },
+  "config_editor": {
+    "actions": "Actions:",
+    "asc": "Ascending ↑",
+    "confirm_delete": "Confirm Deletion:",
+    "context_actions": "Context Menu Actions:",
+    "delete_collection": "Delete Collection",
+    "desc": "Descending ↓",
+    "drag_import": "Drag to Import:",
+    "filter_rules": "View Filter Rules:",
+    "gallery": "Gallery",
+    "grid": "Grid",
+    "group": "Group:",
+    "hide_tagbar": "Hide Tag Bar:",
+    "less": "Show Less",
+    "list": "List",
+    "more": "More Settings",
+    "name": "Name:",
+    "pinned_tags": "Pinned Tags:",
+    "search_tags": "Search tags",
+    "side_view": "Show in Sidebar:",
+    "sort": "Sort:",
+    "title": "Edit View Properties",
+    "view": "View:"
+  },
+  "default_view": {
+    "explorer": "All Files",
+    "review": "Review Queue"
+  },
+  "file_menu": {
+    "copy_path": "Copy Path",
+    "open": "Open",
+    "reveal": "Show in File Manager"
+  },
+  "file_state": {
+    "deleted": "Deleted",
+    "ignored": "Ignored",
+    "managed": "Archived",
+    "pending": "Pending"
+  },
+  "generic_view": {
+    "collection_deleted": "Collection deleted",
+    "config_saved": "Collection settings saved",
+    "drop_import": "Release to import into “%{title}”",
+    "drop_move": "Release to move into “%{title}”",
+    "view_deleted": "View deleted"
+  },
+  "group": {
+    "batch": "%b %-d, %Y %H:%M:%S",
+    "day": "%b %-d, %Y",
+    "month": "%B %Y",
+    "other": "Other",
+    "size_huge": "Huge (> 1GB)",
+    "size_large": "Large (100MB - 1GB)",
+    "size_medium": "Medium (10MB - 100MB)",
+    "size_small": "Small (1MB - 10MB)",
+    "size_tiny": "Tiny (< 1MB)",
+    "year": "%Y"
+  },
+  "group_mode": {
+    "batch": "Import Batch",
+    "day": "Daily",
+    "month": "Monthly",
+    "none": "No Grouping",
+    "size": "By Size Range",
+    "year": "Yearly"
+  },
+  "import": {
+    "done": "Imported %{count} items",
+    "failed": "Import failed",
+    "failed_count": "Failed to import %{count} items",
+    "in_progress": "Importing files",
+    "moved": "Moved %{count} items into the store"
+  },
+  "list": {
+    "name": "Name",
+    "size": "Size",
+    "type": "Type"
+  },
+  "scanner": {
+    "add_failed": "Failed to add scan source",
+    "add_ok": "Scan source added",
+    "added": "Added %{count} scan sources",
+    "added_partial": "Added %{added}, %{failed} failed",
+    "drop_label": "Release to add as scan sources",
+    "empty_hint": "Click the button or drop folders here to add scan sources",
+    "list_separator": ", ",
+    "no_dirs": "No usable folders",
+    "no_initial_tags": "No initial tags",
+    "path_required": "Please enter a folder",
+    "remove_failed": "Failed to remove scan source",
+    "remove_ok": "Scan source removed",
+    "scan_done": "Scan complete",
+    "scan_failed": "Scan failed",
+    "scan_now": "Scan Now",
+    "source_count": "%{count} sources",
+    "sources_failed": "These sources failed to scan: %{sources}",
+    "tags_update_failed": "Failed to update initial tags",
+    "tags_updated": "Initial tags updated"
+  },
+  "settings": {
+    "cleanup_interval": "Expired Cleanup Interval (hours)",
+    "db_path": "Database Path",
+    "device_id": "Device ID",
+    "fps_monitor": "Show FPS Overlay",
+    "group_debug": "Debug & Performance",
+    "group_device": "Device & Storage",
+    "group_interface": "Interface",
+    "group_schedule": "Background Tasks",
+    "group_store": "Store",
+    "language": "Language",
+    "maintain_interval": "Metadata Maintenance Interval (min)",
+    "page_general": "General",
+    "retention_days": "Trash Retention (days)",
+    "scan_interval": "Incremental Scan Interval (min)",
+    "schedule_enable": "Enable Scheduled Tasks",
+    "store_enable": "Enable Store",
+    "store_path": "Store Path",
+    "title": "Settings"
+  },
+  "sidebar": {
+    "navigation": "Navigation"
+  },
+  "sort": {
+    "content_created": "File Created",
+    "content_modified": "File Modified",
+    "imported": "Imported",
+    "size": "File Size",
+    "updated": "Updated"
+  },
+  "tag": {
+    "replica_count": "Replicas: %{count}",
+    "untagged": "Untagged"
+  },
+  "tag_editor": {
+    "placeholder": "Enter a tag name"
+  },
+  "tag_filter": {
+    "all": "All"
+  }
+}

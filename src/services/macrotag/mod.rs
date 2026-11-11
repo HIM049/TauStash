@@ -3,6 +3,7 @@ use uuid::Uuid;
 
 pub use crate::database::entities::FileState;
 use crate::database::entities::{TagNamespace, tag};
+use rust_i18n::t;
 
 pub mod tags_applier;
 pub mod tags_queryer;
@@ -93,8 +94,8 @@ impl MacroTag {
             Self::Standard(meta) => meta.name.clone(),
             Self::Ext(ext) => ext.to_uppercase(),
             Self::MediaType(mime) => mime.clone(),
-            Self::Untagged => "未标记".to_string(),
-            Self::HasReplica(n) => format!("副本数: {}", n),
+            Self::Untagged => t!("tag.untagged").into_owned(),
+            Self::HasReplica(n) => t!("tag.replica_count", count = n).into_owned(),
             Self::State(s) => s.display_name().to_string(),
         }
     }

@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::app::NavTab;
 use crate::database::entities::collection;
+use rust_i18n::t;
 
 /// Identifier for selecting an item in the sidebar navigation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,7 +90,7 @@ impl RenderOnce for AppSidebar {
             .collapsed(self.collapsed)
             // WARN: (HACK) use rems to disable animation. Because animation doesn't work on non pixel unit.
             .w(rems(13.75))
-            .child(SidebarGroup::new("导航").child({
+            .child(SidebarGroup::new(t!("sidebar.navigation")).child({
                 let mut menu = SidebarMenu::new();
 
                 for v in &self.views {
@@ -114,7 +115,7 @@ impl RenderOnce for AppSidebar {
 
                 let sel = on_select.clone();
                 menu = menu.child(
-                    SidebarMenuItem::new("全部合集")
+                    SidebarMenuItem::new(t!("common.all_collections"))
                         .icon(IconName::Folder)
                         .active(self.active == NavTarget::Fixed(NavTab::Collections))
                         .on_click(move |_, window, cx| {
@@ -126,7 +127,7 @@ impl RenderOnce for AppSidebar {
 
                 let sel = on_select.clone();
                 menu = menu.child(
-                    SidebarMenuItem::new("扫描管理")
+                    SidebarMenuItem::new(t!("common.scan_sources"))
                         .icon(IconName::Search)
                         .active(self.active == NavTarget::Fixed(NavTab::Scanner))
                         .on_click(move |_, window, cx| {
