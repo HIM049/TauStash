@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
-pub const DEFAULT_CONFIG_PATH: &str = "./app_data/config.json";
+use crate::paths;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -16,8 +16,9 @@ pub struct AppConfig {
     pub schedule_cleanup_hours: u32,
     pub retention_days: u32,
     pub fps_monitor: bool,
+    pub debug_log: bool,
     pub store_enable: bool,
-    pub store_path: PathBuf,
+    pub store_path: PathBuf, 
     pub locale: String,
 }
 
@@ -25,15 +26,16 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             device_id: Uuid::new_v4().to_string(),
-            db_path: PathBuf::from("./app_data/picargo.db"),
+            db_path: paths::data_dir().join("picargo.db"),
             schedule_enable: true,
             schedule_scan_min: 30,
             schedule_maintain_min: 60,
             schedule_cleanup_hours: 24,
             retention_days: 30,
             fps_monitor: false,
+            debug_log: false,
             store_enable: false,
-            store_path: PathBuf::from("./app_data/store"),
+            store_path: paths::data_dir().join("store"),
             locale: "zh-CN".to_string(),
         }
     }

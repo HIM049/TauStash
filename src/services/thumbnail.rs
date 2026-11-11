@@ -5,15 +5,13 @@ use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::database::storage;
+use crate::paths;
 
 /// Target resolution: 360px on the longest edge.
 const MAX_THUMBNAIL_EDGE: u32 = 360;
 
 static THUMBNAILS_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
-    let dir = std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join("app_data")
-        .join("thumbnails");
+    let dir = paths::data_dir().join("thumbnails");
     if !dir.exists() {
         let _ = std::fs::create_dir_all(&dir);
     }

@@ -5,7 +5,7 @@ use std::path::Path;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-pub const DEFAULT_SCHEDULE_STATE_PATH: &str = "./app_data/schedule_state.json";
+use crate::paths;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ScheduleState(pub HashMap<String, DateTime<Utc>>);
@@ -19,7 +19,7 @@ impl ScheduleState {
     }
 
     pub fn load_default() -> Self {
-        Self::load(DEFAULT_SCHEDULE_STATE_PATH)
+        Self::load(paths::schedule_state_path())
     }
 
     pub fn save(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
@@ -35,7 +35,7 @@ impl ScheduleState {
     }
 
     pub fn save_default(&self) -> anyhow::Result<()> {
-        self.save(DEFAULT_SCHEDULE_STATE_PATH)
+        self.save(paths::schedule_state_path())
     }
 
     pub fn record_run(&mut self, task_id: &str, path: impl AsRef<Path>) {
@@ -46,7 +46,7 @@ impl ScheduleState {
     }
 
     pub fn record_run_default(&mut self, task_id: &str) {
-        self.record_run(task_id, DEFAULT_SCHEDULE_STATE_PATH);
+        self.record_run(task_id, paths::schedule_state_path());
     }
 
     pub fn last_run(&self, task_id: &str) -> Option<DateTime<Utc>> {

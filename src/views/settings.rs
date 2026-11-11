@@ -316,21 +316,43 @@ impl Render for SettingsView {
                                     SettingGroup::new()
                                         .pr_1()
                                         .title(t!("settings.group_debug"))
-                                        .items(vec![SettingItem::new(
-                                            t!("settings.fps_monitor"),
-                                            SettingField::switch(
-                                                |cx: &App| {
-                                                    cx.global::<AppState>().config.fps_monitor
-                                                },
-                                                |val: bool, cx: &mut App| {
-                                                    cx.update_global::<AppState, _>(|state, _| {
-                                                        state.update_config(|cfg| {
-                                                            cfg.fps_monitor = val;
-                                                        });
-                                                    });
-                                                },
+                                        .items(vec![
+                                            SettingItem::new(
+                                                t!("settings.fps_monitor"),
+                                                SettingField::switch(
+                                                    |cx: &App| {
+                                                        cx.global::<AppState>().config.fps_monitor
+                                                    },
+                                                    |val: bool, cx: &mut App| {
+                                                        cx.update_global::<AppState, _>(
+                                                            |state, _| {
+                                                                state.update_config(|cfg| {
+                                                                    cfg.fps_monitor = val;
+                                                                });
+                                                            },
+                                                        );
+                                                    },
+                                                ),
                                             ),
-                                        )]),
+                                            SettingItem::new(
+                                                t!("settings.debug_log"),
+                                                SettingField::switch(
+                                                    |cx: &App| {
+                                                        cx.global::<AppState>().config.debug_log
+                                                    },
+                                                    |val: bool, cx: &mut App| {
+                                                        crate::logging::set_debug(val);
+                                                        cx.update_global::<AppState, _>(
+                                                            |state, _| {
+                                                                state.update_config(|cfg| {
+                                                                    cfg.debug_log = val;
+                                                                });
+                                                            },
+                                                        );
+                                                    },
+                                                ),
+                                            ),
+                                        ]),
                                 ]),
                         ]),
                 ),

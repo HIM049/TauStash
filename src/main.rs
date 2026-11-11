@@ -5,11 +5,12 @@ use gpui_kit::component::*;
 use gpui_kit::*;
 use services::store::{CollectionStore, FileStore, TagStore, ViewStore};
 use std::sync::Arc;
-use tracing_subscriber::{EnvFilter, fmt, prelude::*, registry};
 
 mod app;
 mod components;
 mod config;
+mod logging;
+mod paths;
 mod views;
 use app::MyApp;
 
@@ -37,7 +38,7 @@ impl Global for AppState {}
 impl AppState {
     pub fn update_config(&mut self, updater: impl FnOnce(&mut AppConfig)) {
         updater(&mut self.config);
-        if let Err(e) = self.config.save(config::DEFAULT_CONFIG_PATH) {
+        if let Err(e) = self.config.save(paths::config_path()) {
             tracing::error!("Failed to save config: {:#}", e);
         }
         services::schedule::run_schedule(&self.schedule, &self.config, &self.db);
@@ -81,17 +82,14 @@ impl AppState {
 }
 
 fn main() {
-    // init tracing
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,picargo=debug,sqlx=warn"));
-    registry().with(fmt::layer()).with(filter).init();
-
-    tracing::debug!("Debug log enabled");
+    logging::init();
 
     let rt = tokio::runtime::Runtime::new().expect("Failed to start Tokio runtime");
     let _guard = rt.enter();
 
-    let config = config::AppConfig::load_or_default(config::DEFAULT_CONFIG_PATH);
+    let config = config::AppConfig::load_or_default(paths::config_path());
+    logging::set_debug(config.debug_log);
+    tracing::debug!("Debug log enabled");
     rust_i18n::set_locale(&config.locale);
 
     let db = rt.block_on(async {

@@ -120,6 +120,7 @@
     "db_path": "数据库路径",
     "device_id": "设备标识",
     "fps_monitor": "显示 FPS 悬浮窗",
+    "debug_log": "调试日志",
     "group_debug": "调试与性能",
     "group_device": "设备与存储",
     "group_interface": "界面",

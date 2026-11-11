@@ -5506,6 +5506,7 @@ dependencies = [
  "anyhow",
  "blake3",
  "chrono",
+ "dirs 6.0.0",
  "gpui-fps",
  "gpui-kit",
  "image",

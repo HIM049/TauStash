@@ -120,6 +120,7 @@
     "db_path": "Database Path",
     "device_id": "Device ID",
     "fps_monitor": "Show FPS Overlay",
+    "debug_log": "Debug Logging",
     "group_debug": "Debug & Performance",
     "group_device": "Device & Storage",
     "group_interface": "Interface",
