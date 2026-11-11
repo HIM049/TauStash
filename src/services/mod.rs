@@ -4,6 +4,7 @@ pub mod importer;
 pub mod macrotag;
 pub mod mime;
 pub mod schedule;
+pub mod storage;
 pub mod store;
 pub mod thumbnail;
 

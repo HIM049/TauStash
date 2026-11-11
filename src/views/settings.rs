@@ -83,6 +83,43 @@ impl Render for SettingsView {
                                         ),
                                     ),
                                 ]),
+                                SettingGroup::new().title("存储库").items(vec![
+                                    SettingItem::new(
+                                        "启用存储库",
+                                        SettingField::switch(
+                                            |cx: &App| cx.global::<AppState>().config.store_enable,
+                                            |val: bool, cx: &mut App| {
+                                                cx.update_global::<AppState, _>(|state, _| {
+                                                    state.update_config(|cfg| {
+                                                        cfg.store_enable = val;
+                                                    });
+                                                });
+                                            },
+                                        ),
+                                    ),
+                                    SettingItem::new(
+                                        "存储库路径",
+                                        SettingField::input(
+                                            |cx: &App| {
+                                                cx.global::<AppState>()
+                                                    .config
+                                                    .store_path
+                                                    .to_string_lossy()
+                                                    .to_string()
+                                                    .into()
+                                            },
+                                            |val: SharedString, cx: &mut App| {
+                                                cx.update_global::<AppState, _>(|state, _| {
+                                                    state.update_config(|cfg| {
+                                                        cfg.store_path = std::path::PathBuf::from(
+                                                            val.to_string(),
+                                                        );
+                                                    });
+                                                });
+                                            },
+                                        ),
+                                    ),
+                                ]),
                                 SettingGroup::new().title("后台调度").items(vec![
                                     SettingItem::new(
                                         "启用定时任务",

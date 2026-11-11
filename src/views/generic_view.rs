@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::components::collection_config_editor::{CollectionConfigEditor, ConfigEditorEvent};
 use crate::components::generic_file_view::{FileContentEvent, GenericFileView};
+use crate::components::platform;
 use crate::components::tag_bar_editor::TagBatchEditor;
 use crate::components::tag_bar_filter::{TagFilterBar, TagFilterEvent};
 use crate::components::view_scaffold::ViewScaffold;
@@ -25,6 +26,7 @@ use crate::services::collection::{CollectionConfig, ViewOption};
 use crate::services::file;
 use crate::services::importer;
 use crate::services::macrotag::{FileState, MacroTag};
+use crate::services::storage;
 use crate::services::tags_queryer::MtagService;
 
 #[derive(Clone, Default)]
@@ -56,6 +58,8 @@ pub struct GenericView {
     candidate_tags: Vec<MacroTag>,
     // for any working state
     working: bool,
+    /// Dropping now moves files into the store
+    drop_move: bool,
 }
 
 impl GenericView {
@@ -167,6 +171,7 @@ impl GenericView {
             preview_filter_tags: None,
             candidate_tags,
             working: false,
+            drop_move: false,
         };
 
         view.reload_files(cx);
@@ -219,13 +224,15 @@ impl GenericView {
             return;
         }
 
+        let config = &cx.global::<AppState>().config;
+        let store_root = Self::drop_moves(window, cx).then(|| config.store_path.clone());
+        let device_id = config.device_id.clone();
+        let db = cx.global::<AppState>().db.clone();
+        let rt = cx.global::<AppState>().rt.clone();
+
         self.working = true;
         window.push_notification(Notification::new().message("正在导入文件"), cx);
         cx.notify();
-
-        let db = cx.global::<AppState>().db.clone();
-        let rt = cx.global::<AppState>().rt.clone();
-        let device_id = cx.global::<AppState>().config.device_id.clone();
 
         let filters = &self.config.filters;
         let mut tags: Vec<MacroTag> = filters
@@ -238,10 +245,21 @@ impl GenericView {
             tags.push(MacroTag::State(FileState::Managed));
         }
 
+        let is_move = store_root.is_some();
         cx.spawn_in(window, async move |this, cx: &mut AsyncWindowContext| {
             let res = cx
                 .background_spawn(async move {
-                    rt.block_on(importer::import_from_paths(&db, &paths, &device_id, &tags))
+                    rt.block_on(async {
+                        match store_root {
+                            Some(root) => {
+                                storage::move_from_paths(&db, &root, &paths, &device_id, &tags)
+                                    .await
+                            }
+                            None => {
+                                importer::import_from_paths(&db, &paths, &device_id, &tags).await
+                            }
+                        }
+                    })
                 })
                 .await;
 
@@ -249,7 +267,9 @@ impl GenericView {
                 .update(cx, |this, cx| {
                     this.working = false;
                     let message: SharedString = if let Ok(report) = res {
-                        if report.failed.is_empty() {
+                        if report.failed.is_empty() && is_move {
+                            format!("{} 个内容已移入存储库", report.newly_imported).into()
+                        } else if report.failed.is_empty() {
                             format!("{} 个内容导入成功", report.newly_imported).into()
                         } else {
                             format!("{} 个内容导入失败", report.failed.len()).into()
@@ -275,6 +295,20 @@ impl GenericView {
             }
         })
         .detach();
+    }
+
+    /// Shift moves dropped files into the store when it is enabled.
+    fn drop_moves(window: &Window, cx: &App) -> bool {
+        cx.global::<AppState>().config.store_enable
+            && platform::shift_pressed().unwrap_or(window.modifiers().shift)
+    }
+
+    fn sync_drop_move(&mut self, window: &Window, cx: &mut Context<Self>) {
+        let drop_move = Self::drop_moves(window, cx);
+        if self.drop_move != drop_move {
+            self.drop_move = drop_move;
+            cx.notify();
+        }
     }
 
     pub fn toggle_view(&mut self, cx: &mut Context<Self>) {
@@ -820,24 +854,22 @@ impl Render for GenericView {
                 if self.config.is_hide_tagbar {
                     None
                 } else {
-                    Some(
-                        self.filter_bar.render(
-                            cx.processor(|this, event, _window, cx| {
-                                match event {
-                                    TagFilterEvent::All => this.filter_bar.select_all(),
-                                    TagFilterEvent::Untagged => this.filter_bar.toggle_untagged(),
-                                    TagFilterEvent::Tag { tag, is_multi } => {
-                                        this.filter_bar.toggle_tag(&tag, is_multi)
-                                    }
+                    Some(self.filter_bar.render(
+                        cx.processor(|this, event, _window, cx| {
+                            match event {
+                                TagFilterEvent::All => this.filter_bar.select_all(),
+                                TagFilterEvent::Untagged => this.filter_bar.toggle_untagged(),
+                                TagFilterEvent::Tag { tag, is_multi } => {
+                                    this.filter_bar.toggle_tag(&tag, is_multi)
                                 }
-                                let current_tags = this.filter_bar.current_tags();
-                                this.apply_filter(current_tags, cx);
-                            }),
-                            cx.processor(|this, hovered, window, cx| {
-                                this.handle_filter_bar_pointer(hovered, window, cx);
-                            }),
-                        ),
-                    )
+                            }
+                            let current_tags = this.filter_bar.current_tags();
+                            this.apply_filter(current_tags, cx);
+                        }),
+                        cx.processor(|this, hovered, window, cx| {
+                            this.handle_filter_bar_pointer(hovered, window, cx);
+                        }),
+                    ))
                 }
             }
             BarMode::BatchEditing => Some(self.batch_editor.clone().into_any_element()),
@@ -929,8 +961,15 @@ impl Render for GenericView {
         scaffold = scaffold.on_drop(cx.listener(|this, e: &ExternalPaths, w, cx| {
             this.handle_drag(w, e.paths().to_vec(), cx);
         }));
+        scaffold = scaffold.on_dragging(cx.listener(
+            |this, _: &DragMoveEvent<ExternalPaths>, window, cx| this.sync_drop_move(window, cx),
+        ));
         if self.config.enable_drag && !self.working {
-            scaffold = scaffold.drop_label(format!("松开以导入到\"{}\"", self.title));
+            scaffold = scaffold.drop_label(if self.drop_move {
+                format!("松开以移动到\"{}\"", self.title)
+            } else {
+                format!("松开以导入到\"{}\"", self.title)
+            });
         }
 
         div()

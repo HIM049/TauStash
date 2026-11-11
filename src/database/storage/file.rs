@@ -191,6 +191,40 @@ pub async fn find_replicas_by_prefix(
     Ok(replicas)
 }
 
+/// Find available replicas located under directory
+pub async fn find_replicas_by_path(
+    db: &DatabaseConnection,
+    file_id: Uuid,
+    device_id: &str,
+    path: &str,
+) -> anyhow::Result<Vec<file_replica::Model>> {
+    let anchored = Path::new(path).join("").to_string_lossy().into_owned();
+
+    let replicas = file_replica::Entity::find()
+        .filter(file_replica::Column::FileId.eq(file_id))
+        .filter(file_replica::Column::DeviceId.eq(device_id))
+        .filter(file_replica::Column::State.eq(ReplicaState::Available))
+        .filter(file_replica::Column::Uri.starts_with(&anchored))
+        .all(db)
+        .await?;
+    Ok(replicas)
+}
+
+/// Delete a replica by uri
+pub async fn delete_replica_by_uri(
+    db: &DatabaseConnection,
+    device_id: &str,
+    uri: &str,
+) -> anyhow::Result<()> {
+    let uri = utils::standardize_path(uri.to_string());
+    file_replica::Entity::delete_many()
+        .filter(file_replica::Column::DeviceId.eq(device_id))
+        .filter(file_replica::Column::Uri.eq(uri))
+        .exec(db)
+        .await?;
+    Ok(())
+}
+
 /// Update replica state to Missing
 pub async fn mark_replica_missing(
     db: &DatabaseConnection,

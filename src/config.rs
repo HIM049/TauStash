@@ -16,6 +16,8 @@ pub struct AppConfig {
     pub schedule_cleanup_hours: u32,
     pub retention_days: u32,
     pub fps_monitor: bool,
+    pub store_enable: bool,
+    pub store_path: PathBuf,
 }
 
 impl Default for AppConfig {
@@ -29,6 +31,8 @@ impl Default for AppConfig {
             schedule_cleanup_hours: 24,
             retention_days: 30,
             fps_monitor: false,
+            store_enable: false,
+            store_path: PathBuf::from("./app_data/store"),
         }
     }
 }

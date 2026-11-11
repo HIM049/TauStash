@@ -6,6 +6,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 use uuid::Uuid;
+use walkdir::WalkDir;
 
 pub use super::scanner::BatchReport;
 use crate::database::entities::{FileState, ReplicaState};
@@ -87,6 +88,20 @@ pub async fn import_file(
         anyhow::bail!("Path does not exist or is not a file: {}", path.display());
     }
 
+    let metadata = compute_file_metadata(path)?;
+    import_with_metadata(db, path, metadata, device_id, initial_tags, imported_at).await
+}
+
+/// Import a file whose metadata was computed beforehand, e.g. before moving it.
+pub async fn import_with_metadata(
+    db: &DatabaseConnection,
+    path: impl AsRef<Path>,
+    metadata: FileMetadata,
+    device_id: &str,
+    initial_tags: &[MacroTag],
+    imported_at: DateTime<Utc>,
+) -> Result<(Uuid, bool)> {
+    let path = path.as_ref();
     let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let uri = canonical_path.to_string_lossy().to_string();
     let file_name = path
@@ -102,7 +117,7 @@ pub async fn import_file(
         ext,
         ctime,
         utime,
-    } = compute_file_metadata(path)?;
+    } = metadata;
 
     // Deduplication check
     let existing_file = storage::file::find_file_by_hash(db, &hash).await?;
@@ -209,26 +224,16 @@ pub async fn import_from_paths(
     Ok(report)
 }
 
-fn flat_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+/// Expand dirs into the files under them. Symlinked dirs are not entered.
+pub fn flat_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
     let mut list = vec![];
     for path in paths {
-        if path.is_dir() {
-            match std::fs::read_dir(path) {
-                Ok(d) => {
-                    let paths = d
-                        .into_iter()
-                        .filter_map(|c| c.ok())
-                        .map(|d| d.path())
-                        .collect::<Vec<_>>();
-                    list.extend(flat_paths(paths));
-                }
-                Err(e) => {
-                    tracing::error!("failed to read dir, skipped: {}", e);
-                    continue;
-                }
+        for entry in WalkDir::new(path) {
+            match entry {
+                Ok(e) if !e.path().is_dir() => list.push(e.into_path()),
+                Ok(_) => {}
+                Err(e) => tracing::error!("failed to read dir, skipped: {}", e),
             }
-        } else {
-            list.push(path);
         }
     }
     list

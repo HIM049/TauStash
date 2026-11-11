@@ -8,6 +8,8 @@ pub type BackHandler = Box<dyn Fn(&mut Window, &mut App) + 'static>;
 pub type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 pub type SubClickHandler = Box<dyn Fn(&MouseDownEvent, &mut Window, &mut App) + 'static>;
 pub type DropHandler = Box<dyn Fn(&ExternalPaths, &mut Window, &mut App) + 'static>;
+pub type DragMoveHandler =
+    Box<dyn Fn(&DragMoveEvent<ExternalPaths>, &mut Window, &mut App) + 'static>;
 
 #[derive(IntoElement)]
 pub struct ViewScaffold {
@@ -21,6 +23,7 @@ pub struct ViewScaffold {
     on_click: Option<ClickHandler>,
     on_sub_click: Option<SubClickHandler>,
     on_drop: Option<DropHandler>,
+    on_drag_move: Option<DragMoveHandler>,
     drop_label: Option<SharedString>,
 }
 
@@ -43,6 +46,7 @@ impl ViewScaffold {
             on_click: None,
             on_sub_click: None,
             on_drop: None,
+            on_drag_move: None,
             drop_label: None,
         }
     }
@@ -93,6 +97,14 @@ impl ViewScaffold {
         handler: impl Fn(&ExternalPaths, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_drop = Some(Box::new(handler));
+        self
+    }
+
+    pub fn on_dragging(
+        mut self,
+        handler: impl Fn(&DragMoveEvent<ExternalPaths>, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_drag_move = Some(Box::new(handler));
         self
     }
 
@@ -152,6 +164,9 @@ impl RenderOnce for ViewScaffold {
             })
             .when_some(self.on_drop, |this, on_drop| {
                 this.on_drop(move |paths, window, cx| on_drop(paths, window, cx))
+            })
+            .when_some(self.on_drag_move, |this, on_move| {
+                this.on_drag_move::<ExternalPaths>(move |e, window, cx| on_move(e, window, cx))
             })
             .child(
                 div()

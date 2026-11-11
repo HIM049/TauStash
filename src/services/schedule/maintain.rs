@@ -34,25 +34,23 @@ pub async fn update_content_times(db: &DatabaseConnection) -> anyhow::Result<usi
     let sql = r#"
         UPDATE file
         SET
-            content_created_at = (
-                SELECT MIN(ctime) FROM file_replica
-                WHERE file_replica.file_id = file.id
-                  AND file_replica.deleted_at IS NULL
-                  AND file_replica.state = 'available'
+            content_created_at = MIN(
+                COALESCE(content_created_at, replica_times.min_ctime),
+                COALESCE(replica_times.min_ctime, content_created_at)
             ),
-            content_modified_at = (
-                SELECT MAX(utime) FROM file_replica
-                WHERE file_replica.file_id = file.id
-                  AND file_replica.deleted_at IS NULL
-                  AND file_replica.state = 'available'
+            content_modified_at = MAX(
+                COALESCE(content_modified_at, replica_times.max_utime),
+                COALESCE(replica_times.max_utime, content_modified_at)
             )
-        WHERE file.deleted_at IS NULL
-          AND EXISTS (
-              SELECT 1 FROM file_replica
-              WHERE file_replica.file_id = file.id
-                AND file_replica.deleted_at IS NULL
-                AND file_replica.state = 'available'
-          );
+        FROM (
+            SELECT file_id, MIN(ctime) AS min_ctime, MAX(utime) AS max_utime
+            FROM file_replica
+            WHERE deleted_at IS NULL
+              AND state = 'available'
+            GROUP BY file_id
+        ) AS replica_times
+        WHERE replica_times.file_id = file.id
+          AND file.deleted_at IS NULL;
     "#;
 
     let res = db.execute_unprepared(sql).await?;
