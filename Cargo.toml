@@ -27,3 +27,6 @@ infer = "0.22"
 rust-i18n = "4.2"
 dirs = "6"
 migration = { path = "migration", default-features = false }
+
+[build-dependencies]
+winres = "0.1.12"
