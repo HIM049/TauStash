@@ -1,5 +1,9 @@
 {
   "_version": 1,
+  "app_menu": {
+    "settings": "Settings",
+    "quit": "Quit"
+  },
   "collection_explorer": {
     "delete": "Delete",
     "delete_count": "Delete (%{count})",

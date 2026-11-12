@@ -12,16 +12,19 @@ mod app;
 mod components;
 mod config;
 mod logging;
+mod menu;
 mod paths;
 mod views;
 use app::MyApp;
 
-use crate::{config::AppConfig, services::ScheduleService};
+use crate::{
+    config::AppConfig,
+    menu::{OpenSettings, QuitApp},
+    services::ScheduleService,
+};
 use rust_i18n::t;
 
 rust_i18n::i18n!("locales", fallback = "en");
-
-actions!([OpenSettings]);
 
 pub struct AppState {
     pub db: Arc<sea_orm::DatabaseConnection>,
@@ -68,7 +71,10 @@ impl AppState {
                 titlebar: Some(TitlebarOptions {
                     title: Some(t!("settings.title").into()),
                     appears_transparent: true,
-                    traffic_light_position: None,
+                    traffic_light_position: Some(Point {
+                        x: px(9.),
+                        y: px(9.),
+                    }),
                 }),
                 ..Default::default()
             },
@@ -112,6 +118,7 @@ fn main() {
     let app = gpui_kit::application().with_assets(gpui_kit::assets::AllAssets);
     app.run(move |cx| {
         gpui_kit::init(cx);
+        menu::update_menu(cx);
         Theme::global_mut(cx).notification.placement = Anchor::BottomLeft;
 
         let views = cx.new(|_| ViewStore::new(&db, &rt));
@@ -153,6 +160,10 @@ fn main() {
 
         cx.on_action(|_: &OpenSettings, cx| {
             AppState::open_settings_window(cx);
+        });
+
+        cx.on_action(|_: &QuitApp, cx| {
+            cx.quit();
         });
 
         cx.spawn(async move |cx| {

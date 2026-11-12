@@ -1,4 +1,5 @@
 use gpui_fps::fps_monitor;
+use gpui_kit::component::menu::AppMenuBar;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
@@ -23,6 +24,7 @@ pub enum NavTab {
 }
 
 pub struct MyApp {
+    app_bar: Entity<AppMenuBar>,
     current_nav: CurrentNav,
     sidebar_collapsed: bool,
     current_view: Option<Entity<GenericView>>,
@@ -38,7 +40,11 @@ impl MyApp {
         })
         .detach();
 
-        cx.observe_global::<AppState>(|_, cx| {
+        cx.observe_global::<AppState>(|this, cx| {
+            crate::menu::update_menu(cx);
+            this.app_bar.update(cx, |this, cx| {
+                this.reload(cx);
+            });
             cx.notify();
         })
         .detach();
@@ -55,7 +61,10 @@ impl MyApp {
             None => CurrentNav::Tab(NavTab::Collections),
         };
 
+        let app_bar = AppMenuBar::new(cx);
+
         Self {
+            app_bar,
             current_nav,
             sidebar_collapsed: false,
             current_view,
@@ -138,7 +147,21 @@ impl Render for MyApp {
         div()
             .v_flex()
             .size_full()
-            .child(TitleBar::new().text_xs().font_semibold().child("TauStash"))
+            .child(TitleBar::new().when_else(
+                cfg!(target_os = "macos"),
+                |t| {
+                    t.child(
+                        div()
+                            .h_flex()
+                            .w_full()
+                            .justify_center()
+                            .text_xs()
+                            .font_semibold()
+                            .child("TauStash"),
+                    )
+                },
+                |t| t.child(self.app_bar.clone()),
+            ))
             .child(
                 div()
                     .h_flex()
