@@ -7802,7 +7802,7 @@ dependencies = [
 
 [[package]]
 name = "taustash"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -7819,6 +7819,7 @@ dependencies = [
  "sea-orm",
  "serde",
  "serde_json",
+ "sys-locale",
  "tokio",
  "tracing",
  "tracing-subscriber",

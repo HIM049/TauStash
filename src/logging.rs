@@ -15,6 +15,13 @@ pub fn init() {
         .with(file_layer)
         .init();
     let _ = FILTER.set(handle);
+
+    // Panic log hook
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        tracing::error!("{info}\n{}", std::backtrace::Backtrace::force_capture());
+        default_hook(info);
+    }));
 }
 
 fn open_log_file() -> Option<File> {

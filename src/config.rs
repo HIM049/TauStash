@@ -36,9 +36,16 @@ impl Default for AppConfig {
             debug_log: false,
             store_enable: false,
             store_path: paths::data_dir().join("store"),
-            locale: "zh-CN".to_string(),
+            locale: system_locale(),
         }
     }
+}
+
+/// System locale if it exactly matches an available one, otherwise English.
+fn system_locale() -> String {
+    sys_locale::get_locale()
+        .filter(|locale| rust_i18n::available_locales!().iter().any(|l| l == locale))
+        .unwrap_or_else(|| "en".to_string())
 }
 
 impl AppConfig {

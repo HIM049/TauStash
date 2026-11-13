@@ -1,6 +1,6 @@
 [package]
 name = "taustash"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 
 [package.metadata.bundle]
@@ -10,6 +10,11 @@ icon = ["assets/AppIcon.icns"]
 resources = ["LICENSE"]
 category = "Productivity"
 short_description = "A tag-based file collection manager."
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
 
 [workspace]
 members = ["migration"]
@@ -34,6 +39,7 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 infer = "0.22"
 rust-i18n = "4.2"
 dirs = "6"
+sys-locale = "0.3"
 migration = { path = "migration", default-features = false }
 
 [build-dependencies]
