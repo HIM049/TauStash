@@ -26,6 +26,9 @@ use rust_i18n::t;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
+/// Window app id, matching the Linux desktop file name.
+const APP_ID: &str = "com.him049.taustash";
+
 pub struct AppState {
     pub db: Arc<sea_orm::DatabaseConnection>,
     pub rt: Arc<tokio::runtime::Runtime>,
@@ -76,6 +79,7 @@ impl AppState {
                         y: px(9.),
                     }),
                 }),
+                app_id: Some(APP_ID.into()),
                 ..Default::default()
             },
             cx,
@@ -175,6 +179,7 @@ fn main() {
                         appears_transparent: true,
                         traffic_light_position: None,
                     }),
+                    app_id: Some(APP_ID.into()),
                     ..Default::default()
                 },
                 |window, cx| {

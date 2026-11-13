@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=TauStash
+Comment=A tag-based file collection manager.
+Exec=taustash
+Icon=com.him049.taustash
+Terminal=false
+Categories=Utility;FileTools;
+StartupWMClass=com.him049.taustash
