@@ -18,8 +18,38 @@ pub struct AppConfig {
     pub fps_monitor: bool,
     pub debug_log: bool,
     pub store_enable: bool,
+    pub store_auto: StoreAutoMode,
     pub store_path: PathBuf,
     pub locale: String,
+}
+
+/// How archived files are brought into the store by the schedule
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StoreAutoMode {
+    #[default]
+    Off,
+    Copy,
+    Move,
+}
+
+impl StoreAutoMode {
+    pub const ALL: [Self; 3] = [Self::Off, Self::Copy, Self::Move];
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Copy => "copy",
+            Self::Move => "move",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|mode| mode.as_str() == value)
+            .unwrap_or_default()
+    }
 }
 
 impl Default for AppConfig {
@@ -35,6 +65,7 @@ impl Default for AppConfig {
             fps_monitor: false,
             debug_log: false,
             store_enable: false,
+            store_auto: StoreAutoMode::Off,
             store_path: paths::data_dir().join("store"),
             locale: system_locale(),
         }

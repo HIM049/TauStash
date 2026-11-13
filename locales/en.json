@@ -137,6 +137,11 @@
     "scan_interval": "Incremental Scan Interval (min)",
     "schedule_enable": "Enable Scheduled Tasks",
     "store_enable": "Enable Store",
+    "store_auto": "Auto Store",
+    "store_auto_desc": "Automatically process files marked as \"Archived\"",
+    "store_auto_off": "Off",
+    "store_auto_copy": "Copy",
+    "store_auto_move": "Move",
     "store_path": "Store Path",
     "title": "Settings"
   },

@@ -3,6 +3,7 @@ pub mod maintain;
 pub mod scanner;
 pub mod schedule;
 pub mod state;
+pub mod store;
 pub mod thumbnail;
 
 use std::sync::Arc;
@@ -12,9 +13,10 @@ pub use maintain::*;
 pub use scanner::*;
 pub use schedule::*;
 pub use state::*;
+pub use store::*;
 pub use thumbnail::*;
 
-use crate::config::AppConfig;
+use crate::config::{AppConfig, StoreAutoMode};
 
 pub fn run_schedule(
     schedule: &ScheduleService,
@@ -121,10 +123,46 @@ pub fn run_schedule(
                 }
             },
         );
+
+        if config.store_enable && config.store_auto != StoreAutoMode::Off {
+            let dbc = db.clone();
+            let device_id = config.device_id.clone();
+            let store_path = config.store_path.clone();
+            let mode = config.store_auto;
+            let store_delay = state.compute_initial_delay(
+                "store_archived_files",
+                maintain_interval,
+                std::time::Duration::from_secs(45),
+            );
+            schedule.schedule(
+                "store_archived_files",
+                store_delay,
+                Some(maintain_interval),
+                move || {
+                    let db = dbc.clone();
+                    let device_id = device_id.clone();
+                    let store_path = store_path.clone();
+                    async move {
+                        let report = super::schedule::store_archived_files(
+                            &db,
+                            &device_id,
+                            &store_path,
+                            mode,
+                        )
+                        .await
+                        .unwrap_or_default();
+                        report.has_changes()
+                    }
+                },
+            );
+        } else {
+            schedule.cancel("store_archived_files");
+        }
     } else {
         schedule.cancel("scan_all_sources");
         schedule.cancel("verify_replicas");
         schedule.cancel("cleanup_expired_replicas");
         schedule.cancel("maintain_thumbnails");
+        schedule.cancel("store_archived_files");
     }
 }

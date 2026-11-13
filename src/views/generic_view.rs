@@ -281,9 +281,9 @@ impl GenericView {
 
                     let file = cx.global::<AppState>().file.clone();
                     file.update(cx, |_, cx| cx.notify());
-                    cx.global::<AppState>()
-                        .schedule
-                        .trigger_now("maintain_thumbnails");
+                    let schedule = &cx.global::<AppState>().schedule;
+                    schedule.trigger_now("maintain_thumbnails");
+                    schedule.trigger_now("store_archived_files");
                     message
                 })
                 .ok();
@@ -820,8 +820,11 @@ impl GenericView {
         let rt = cx.global::<AppState>().rt.clone();
         let file_ids: Vec<Uuid> = self.content_view.read(cx).selected_ids();
         self.clear_selection(cx);
+        let archived = ensure
+            .iter()
+            .any(|t| matches!(t, MacroTag::State(FileState::Managed)));
 
-        cx.spawn(async |this, cx| {
+        cx.spawn(async move |this, cx| {
             let res = cx
                 .background_spawn(async move {
                     rt.block_on(async {
@@ -839,6 +842,11 @@ impl GenericView {
                 let tags = cx.global::<AppState>().tags.clone();
                 file.update(cx, |_, cx| cx.notify());
                 tags.update(cx, |s, cx| s.reload(cx));
+                if archived {
+                    cx.global::<AppState>()
+                        .schedule
+                        .trigger_now("store_archived_files");
+                }
             })
             .ok();
         })

@@ -6,6 +6,7 @@ use gpui_kit::component::{ActiveTheme, Sizable, Size, TitleBar};
 use gpui_kit::*;
 
 use crate::AppState;
+use crate::config::StoreAutoMode;
 use rust_i18n::t;
 
 /// Locale codes with their names in that language
@@ -159,6 +160,46 @@ impl Render for SettingsView {
                                                     },
                                                 ),
                                             ),
+                                            SettingItem::new(
+                                                t!("settings.store_auto"),
+                                                SettingField::dropdown(
+                                                    StoreAutoMode::ALL
+                                                        .iter()
+                                                        .map(|mode| {
+                                                            (
+                                                                mode.as_str().into(),
+                                                                t!(format!(
+                                                                    "settings.store_auto_{}",
+                                                                    mode.as_str()
+                                                                ))
+                                                                .into(),
+                                                            )
+                                                        })
+                                                        .collect(),
+                                                    |cx: &App| {
+                                                        cx.global::<AppState>()
+                                                            .config
+                                                            .store_auto
+                                                            .as_str()
+                                                            .into()
+                                                    },
+                                                    |val: SharedString, cx: &mut App| {
+                                                        cx.update_global::<AppState, _>(
+                                                            |state, _| {
+                                                                state.update_config(|cfg| {
+                                                                    cfg.store_auto =
+                                                                        StoreAutoMode::from_str(
+                                                                            &val,
+                                                                        );
+                                                                });
+                                                            },
+                                                        );
+                                                    },
+                                                ),
+                                            )
+                                            .description(SharedString::from(t!(
+                                                "settings.store_auto_desc"
+                                            ))),
                                             SettingItem::new(
                                                 t!("settings.store_path"),
                                                 text_input(

@@ -26,7 +26,7 @@ fn standardized(path: &Path) -> PathBuf {
     PathBuf::from(utils::standardize_path(path.to_string_lossy().into_owned()))
 }
 
-/// Move a file into the store and import it
+/// Move a file into the store and import it, cancel if hash different
 pub async fn move_into_store(
     db: &DatabaseConnection,
     store_root: &Path,
@@ -34,6 +34,7 @@ pub async fn move_into_store(
     device_id: &str,
     tags: &[MacroTag],
     imported_at: DateTime<Utc>,
+    expected_hash: Option<&str>,
 ) -> Result<Uuid> {
     if !src.is_file() {
         anyhow::bail!("Path does not exist or is not a file: {}", src.display());
@@ -50,6 +51,11 @@ pub async fn move_into_store(
     };
 
     let metadata = importer::compute_file_metadata(&src)?;
+    if let Some(expected) = expected_hash
+        && metadata.hash != expected
+    {
+        anyhow::bail!("File content changed since import: {}", src.display());
+    }
 
     if let Some(existing) = storage::file::find_file_by_hash(db, &metadata.hash).await? {
         let stored = storage::file::find_replicas_by_path(
@@ -78,6 +84,61 @@ pub async fn move_into_store(
     Ok(file_id)
 }
 
+/// Copy a file into the store and import the copy, leaving the source untouched.
+/// Returns `None` when the content already has a replica in the store.
+pub async fn copy_into_store(
+    db: &DatabaseConnection,
+    store_root: &Path,
+    src: &Path,
+    device_id: &str,
+    expected_hash: Option<&str>,
+) -> Result<Option<Uuid>> {
+    if !src.is_file() {
+        anyhow::bail!("Path does not exist or is not a file: {}", src.display());
+    }
+
+    let root = resolve_root(store_root)?;
+    let src = standardized(&src.canonicalize()?);
+    if src.starts_with(&root) {
+        anyhow::bail!("File is already in the store: {}", src.display());
+    }
+    let Some(file_name) = src.file_name() else {
+        anyhow::bail!("File has no name: {}", src.display());
+    };
+
+    let metadata = importer::compute_file_metadata(&src)?;
+    if let Some(expected) = expected_hash
+        && metadata.hash != expected
+    {
+        anyhow::bail!("File content changed since import: {}", src.display());
+    }
+
+    if let Some(existing) = storage::file::find_file_by_hash(db, &metadata.hash).await? {
+        let stored = storage::file::find_replicas_by_path(
+            db,
+            existing.id,
+            device_id,
+            &root.to_string_lossy(),
+        )
+        .await?;
+        if stored.iter().any(|r| Path::new(&r.uri).is_file()) {
+            return Ok(None);
+        }
+    }
+
+    let target = content_dir(&root, &metadata.hash).join(file_name);
+    if !(target.is_file() && fs::metadata(&target)?.len() == metadata.size as u64) {
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        copy_verified(&src, &target)?;
+    }
+
+    let (file_id, _) =
+        importer::import_with_metadata(db, &target, metadata, device_id, &[], Utc::now()).await?;
+    Ok(Some(file_id))
+}
+
 /// Move files or dirs into the store
 pub async fn move_from_paths(
     db: &DatabaseConnection,
@@ -92,7 +153,7 @@ pub async fn move_from_paths(
 
     for path in paths {
         report.total_found += 1;
-        match move_into_store(db, store_root, &path, device_id, tags, imported_at).await {
+        match move_into_store(db, store_root, &path, device_id, tags, imported_at, None).await {
             Ok(_) => report.newly_imported += 1,
             Err(e) => {
                 tracing::warn!("failed to move {} into store: {}", path.display(), e);
@@ -123,6 +184,12 @@ fn move_file(src: &Path, target: &Path, size: u64) -> io::Result<()> {
 
 /// Copy, Check, Remove the source.
 fn copy_then_remove(src: &Path, target: &Path) -> io::Result<()> {
+    copy_verified(src, target)?;
+    fs::remove_file(src)
+}
+
+/// Copy through a temp file, keep times, check size, then rename into place.
+fn copy_verified(src: &Path, target: &Path) -> io::Result<()> {
     let mut tmp_name = target.file_name().unwrap_or_default().to_os_string();
     tmp_name.push(".tmp");
     let tmp: PathBuf = target.with_file_name(tmp_name);
@@ -144,7 +211,7 @@ fn copy_then_remove(src: &Path, target: &Path) -> io::Result<()> {
     if let Some(parent) = target.parent() {
         File::open(parent)?.sync_all()?;
     }
-    fs::remove_file(src)
+    Ok(())
 }
 
 /// Update times for copied file

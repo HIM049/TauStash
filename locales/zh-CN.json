@@ -137,6 +137,11 @@
     "scan_interval": "增量扫描间隔 (分钟)",
     "schedule_enable": "启用定时任务",
     "store_enable": "启用存储库",
+    "store_auto": "自动入库",
+    "store_auto_desc": "对标记为“归档”的文件进行自动处理",
+    "store_auto_off": "关闭",
+    "store_auto_copy": "复制",
+    "store_auto_move": "移动",
     "store_path": "存储库路径",
     "title": "设置"
   },

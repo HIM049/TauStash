@@ -291,9 +291,9 @@ impl ScannerView {
                     cx.notify();
                     let file = cx.global::<AppState>().file.clone();
                     file.update(cx, |_, cx| cx.notify());
-                    cx.global::<AppState>()
-                        .schedule
-                        .trigger_now("maintain_thumbnails");
+                    let schedule = &cx.global::<AppState>().schedule;
+                    schedule.trigger_now("maintain_thumbnails");
+                    schedule.trigger_now("store_archived_files");
                     match res {
                         Ok(report) if report.failed.is_empty() => {
                             SharedString::from(t!("scanner.scan_done"))
