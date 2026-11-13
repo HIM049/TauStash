@@ -3,6 +3,14 @@ name = "taustash"
 version = "0.1.0"
 edition = "2024"
 
+[package.metadata.bundle]
+name = "TauStash"
+identifier = "com.him049.taustash"
+icon = ["assets/AppIcon.icns"]
+resources = ["LICENSE"]
+category = "Productivity"
+short_description = "A tag-based file collection manager."
+
 [workspace]
 members = ["migration"]
 
