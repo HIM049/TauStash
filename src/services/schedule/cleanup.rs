@@ -6,6 +6,7 @@ use sea_orm::{
 use std::path::Path;
 
 use crate::database::entities::{file, file_replica};
+use crate::services::importer;
 
 #[derive(Debug, Clone, Default)]
 pub struct CleanupReport {
@@ -47,7 +48,12 @@ pub async fn cleanup_expired_replicas(
 
     for replica in replicas {
         let path = Path::new(&replica.uri);
-        if path.exists() {
+        if path.exists() && !matches_record(path, &replica) {
+            tracing::warn!(
+                "Skip deleting {}: size or modified time differs from the record",
+                path.display()
+            );
+        } else if path.exists() {
             if let Err(e) = std::fs::remove_file(path) {
                 tracing::warn!("Failed to physically delete file {}: {e}", path.display());
                 report.errors.push(format!("{}: {e}", path.display()));
@@ -75,4 +81,16 @@ pub async fn cleanup_expired_replicas(
     );
 
     Ok(report)
+}
+
+/// Whether the file on disk still has the size and modified time recorded for the replica.
+fn matches_record(path: &Path, replica: &file_replica::Model) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    let utime = metadata.modified().ok().and_then(importer::to_utc);
+    metadata.is_file()
+        && replica.file_size == Some(metadata.len() as i64)
+        && replica.utime.is_some()
+        && replica.utime == utime
 }

@@ -151,6 +151,11 @@ pub async fn maintain_storage(
             let target_file_id = if let Some(target) = target_file {
                 target.id
             } else {
+                // New content keeps the previous state, deleted content starts pending
+                let state = match current_file.as_ref().map(|f| f.state) {
+                    Some(FileState::Deleted) | None => FileState::Pending,
+                    Some(state) => state,
+                };
                 let new_id = Uuid::now_v7();
                 let initial_times = ContentTimes {
                     created_at: new_file_meta.ctime,
@@ -165,7 +170,7 @@ pub async fn maintain_storage(
                         size: new_file_meta.size,
                         mime: Some(new_file_meta.mime.clone()),
                         ext: new_file_meta.ext.clone(),
-                        state: FileState::Managed,
+                        state,
                         content_times: initial_times,
                         imported_at,
                     },
