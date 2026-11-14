@@ -1,4 +1,6 @@
+use std::cell::RefCell;
 use std::collections::HashSet;
+use std::rc::Rc;
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::input::InputState;
@@ -46,6 +48,7 @@ pub struct GenericFileView {
     focus_handle: FocusHandle,
     editing_id: Option<Uuid>,
     scroll_handle: UniformListScrollHandle,
+    grid_scroll: Rc<RefCell<Option<ListState>>>,
     empty_placeholder: SharedString,
 }
 
@@ -76,7 +79,20 @@ impl GenericFileView {
             focus_handle,
             editing_id: None,
             scroll_handle: UniformListScrollHandle::new(),
+            grid_scroll: Rc::new(RefCell::new(None)),
             empty_placeholder: t!("common.empty_filtered").into(),
+        }
+    }
+
+    /// Vertical scroll offset of the current layout, negative once scrolled down.
+    pub fn scrolled_y(&self) -> Pixels {
+        match self.view_mode {
+            ViewOption::List => self.scroll_handle.0.borrow().base_handle.offset().y,
+            ViewOption::Grid | ViewOption::Gallery => self
+                .grid_scroll
+                .borrow()
+                .as_ref()
+                .map_or(px(0.), |state| state.scroll_px_offset_for_scrollbar().y),
         }
     }
 
@@ -486,7 +502,7 @@ impl Render for GenericFileView {
                 ItemGridView::new("file-grid", cards)
                     .sort_field(self.sort_field)
                     .group_mode(self.group_mode)
-                    .scroll_handle(&self.scroll_handle)
+                    .scroll_state(&self.grid_scroll)
                     .empty_placeholder(self.empty_placeholder.clone())
                     .into_any_element()
             }
@@ -536,7 +552,7 @@ impl Render for GenericFileView {
                     .gap(px(2.0))
                     .sort_field(self.sort_field)
                     .group_mode(self.group_mode)
-                    .scroll_handle(&self.scroll_handle)
+                    .scroll_state(&self.grid_scroll)
                     .empty_placeholder(self.empty_placeholder.clone())
                     .into_any_element()
             }

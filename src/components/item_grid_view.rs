@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui::list;
@@ -36,6 +37,7 @@ pub struct ItemGridView<T: GroupCalc + IntoElement + Clone + 'static> {
     row_height: f32,
     gap: Pixels,
     scroll_handle: UniformListScrollHandle,
+    scroll_state: Option<Rc<RefCell<Option<ListState>>>>,
     empty_placeholder: SharedString,
     sort_field: FileSortField,
     group_mode: GroupMode,
@@ -50,6 +52,7 @@ impl<T: GroupCalc + IntoElement + Clone + 'static> ItemGridView<T> {
             row_height: 154.0,
             gap: px(2.0),
             scroll_handle: UniformListScrollHandle::new(),
+            scroll_state: None,
             empty_placeholder: t!("common.empty").into(),
             sort_field: FileSortField::default(),
             group_mode: GroupMode::default(),
@@ -94,6 +97,12 @@ impl<T: GroupCalc + IntoElement + Clone + 'static> ItemGridView<T> {
 
     pub fn scroll_handle(mut self, handle: &UniformListScrollHandle) -> Self {
         self.scroll_handle = handle.clone();
+        self
+    }
+
+    /// Share the internal list state into `slot` so the owner can observe scrolling.
+    pub fn scroll_state(mut self, slot: &Rc<RefCell<Option<ListState>>>) -> Self {
+        self.scroll_state = Some(slot.clone());
         self
     }
 }
@@ -166,6 +175,8 @@ impl<T: GroupCalc + IntoElement + Clone + 'static> Element for ItemGridView<T> {
         let gap = self.gap;
         let available = (bounds.size.width.as_f32() - 16.0).max(slot);
         let cols = ((available / slot) as usize).max(1);
+        let row_width = cols as f32 * slot - gap.as_f32();
+        let margin = px(((available - row_width) / 2.0).max(0.0));
         let total = self.items.len();
         let rows_count = total.div_ceil(cols);
 
@@ -248,6 +259,9 @@ impl<T: GroupCalc + IntoElement + Clone + 'static> Element for ItemGridView<T> {
             },
         );
         let list_state = state_entity.read(cx).list.clone();
+        if let Some(slot) = &self.scroll_state {
+            *slot.borrow_mut() = Some(list_state.clone());
+        }
         if state_entity.read(cx).count != rows_total {
             state_entity.update(cx, |s, _| {
                 s.list.reset(rows_total);
@@ -271,6 +285,7 @@ impl<T: GroupCalc + IntoElement + Clone + 'static> Element for ItemGridView<T> {
                             move |row_ix, _window, cx| match &v_rows[row_ix] {
                                 GridVirtualRow::Header(title) => div()
                                     .w_full()
+                                    .ml(margin)
                                     .h_flex()
                                     .items_center()
                                     .gap_2()
@@ -293,6 +308,7 @@ impl<T: GroupCalc + IntoElement + Clone + 'static> Element for ItemGridView<T> {
                                     }
 
                                     div()
+                                        .pl(margin)
                                         .pb(gap)
                                         .h_flex()
                                         .gap(gap)

@@ -25,6 +25,7 @@ pub struct ViewScaffold {
     on_drop: Option<DropHandler>,
     on_drag_move: Option<DragMoveHandler>,
     drop_label: Option<SharedString>,
+    divider: bool,
 }
 
 impl Styled for ViewScaffold {
@@ -48,7 +49,13 @@ impl ViewScaffold {
             on_drop: None,
             on_drag_move: None,
             drop_label: None,
+            divider: false,
         }
+    }
+
+    pub fn divider(mut self) -> Self {
+        self.divider = true;
+        self
     }
 
     pub fn on_back(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
@@ -224,11 +231,10 @@ impl RenderOnce for ViewScaffold {
                 div()
                     .id((self.id.clone(), "content"))
                     // .bg(theme.muted)
-                    .border_t_1()
-                    .border_color(theme.border)
                     .w_full()
                     .flex_1()
                     .min_h_0()
+                    .when(self.divider, |t| t.border_t_2().border_color(theme.border))
                     .when_some(self.content, |this, content| this.child(content)),
             )
             .when_some(self.drop_label, |this, label| {

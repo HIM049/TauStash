@@ -861,6 +861,15 @@ impl Render for GenericView {
             _ => None,
         };
 
+        let drop_label = if self.drop_move {
+            t!("generic_view.drop_move", title = self.title)
+        } else {
+            t!("generic_view.drop_import", title = self.title)
+        };
+
+        let show_divider = self.config.view != ViewOption::List
+            && self.content_view.read(cx).scrolled_y().abs() > px(0.9);
+
         let secondary_bar = match &self.bar_mode {
             BarMode::Normal => {
                 if self.config.is_hide_tagbar {
@@ -913,7 +922,7 @@ impl Render for GenericView {
                 }))
         };
 
-        let mut scaffold = ViewScaffold::new("generic-view-scaffold", self.title.clone())
+        let scaffold = ViewScaffold::new("generic-view-scaffold", self.title.clone())
             .actions(vec![
                 Button::new("refresh")
                     .icon(IconName::RefreshCw)
@@ -946,9 +955,25 @@ impl Render for GenericView {
                 });
                 this.clear_selection(cx);
             }))
+            .on_drop(cx.listener(|this, e: &ExternalPaths, w, cx| {
+                this.handle_drag(w, e.paths().to_vec(), cx);
+            }))
+            .on_dragging(
+                cx.listener(|this, _: &DragMoveEvent<ExternalPaths>, window, cx| {
+                    this.sync_drop_move(window, cx)
+                }),
+            )
             .when(configuring_editor.is_some(), |this| {
                 this.rounded_t_3xl().shadow(cx.theme().shadow_tokens().md)
             })
+            .when_some(self.on_back.clone(), |t, on_back| {
+                t.on_back(move |w, cx| on_back(w, cx))
+            })
+            .when_some(secondary_bar, |t, bar| t.sub_bar(bar))
+            .when(self.config.enable_drag && !self.working, |t| {
+                t.drop_label(drop_label)
+            })
+            .when(show_divider, |t| t.divider())
             .child(
                 div()
                     .id("explorer-content")
@@ -957,28 +982,6 @@ impl Render for GenericView {
                     .overflow_hidden()
                     .child(self.content_view.clone()),
             );
-
-        if let Some(on_back) = self.on_back.clone() {
-            scaffold = scaffold.on_back(move |w, cx| on_back(w, cx));
-        }
-
-        if let Some(bar) = secondary_bar {
-            scaffold = scaffold.sub_bar(bar);
-        }
-
-        scaffold = scaffold.on_drop(cx.listener(|this, e: &ExternalPaths, w, cx| {
-            this.handle_drag(w, e.paths().to_vec(), cx);
-        }));
-        scaffold = scaffold.on_dragging(cx.listener(
-            |this, _: &DragMoveEvent<ExternalPaths>, window, cx| this.sync_drop_move(window, cx),
-        ));
-        if self.config.enable_drag && !self.working {
-            scaffold = scaffold.drop_label(if self.drop_move {
-                t!("generic_view.drop_move", title = self.title)
-            } else {
-                t!("generic_view.drop_import", title = self.title)
-            });
-        }
 
         div()
             .id("explorer-main")
