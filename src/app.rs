@@ -6,6 +6,7 @@ use gpui_kit::*;
 
 use crate::AppState;
 use crate::components::app_sidebar::{AppSidebar, NavTarget};
+use crate::config::ThemeMode;
 use crate::views::collection_explorer::CollectionExplorerView;
 use crate::views::generic_view::GenericView;
 use crate::views::scanner::ScannerView;
@@ -37,6 +38,14 @@ impl MyApp {
         let views_entity = cx.global::<AppState>().views.clone();
         cx.observe(&views_entity, |_, _, cx| {
             cx.notify();
+        })
+        .detach();
+
+        cx.observe_window_appearance(window, |_, window, cx| {
+            let mode = cx.global::<AppState>().config.theme_mode;
+            if mode == ThemeMode::System {
+                crate::theme::apply(mode, Some(window), cx);
+            }
         })
         .detach();
 

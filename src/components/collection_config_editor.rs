@@ -786,8 +786,8 @@ impl CollectionConfigEditor {
                                 Button::new("btn-confirm-delete")
                                     .danger()
                                     .small()
-                                    .icon(IconName::Check)
-                                    .label(t!("common.confirm"))
+                                    .icon(IconName::Trash)
+                                    .label(t!("common.delete"))
                                     .on_click(cx.listener(|this, _, _window, cx| {
                                         this.confirm_delete = false;
                                         cx.emit(ConfigEditorEvent::DeleteRequested);
@@ -797,7 +797,7 @@ impl CollectionConfigEditor {
                                 Button::new("btn-cancel-delete")
                                     .ghost()
                                     .small()
-                                    .icon(IconName::Close)
+                                    .label(t!("common.cancel"))
                                     .on_click(cx.listener(|this, _, _window, cx| {
                                         this.confirm_delete = false;
                                         cx.notify();
@@ -981,14 +981,14 @@ impl CollectionConfigEditor {
                     .max_h(px(140.0))
                     .overflow_y_scroll()
                     .p_2()
-                    .bg(theme.muted.opacity(0.3))
+                    .bg(theme.muted)
                     .children(selected_chips)
                     .when(has_selected && (has_macro || has_standard), |this| {
-                        this.child(div().w(px(1.)).h_5().mx_0p5().bg(theme.border.darken(0.2)))
+                        this.child(div().w(px(1.)).h_5().mx_0p5().bg(theme.border))
                     })
                     .children(unselected_macro_chips)
                     .when(has_macro && has_standard, |this| {
-                        this.child(div().w(px(1.)).h_5().mx_0p5().bg(theme.border.darken(0.2)))
+                        this.child(div().w(px(1.)).h_5().mx_0p5().bg(theme.border))
                     })
                     .children(unselected_standard_chips),
             )

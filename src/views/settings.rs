@@ -6,7 +6,7 @@ use gpui_kit::component::{ActiveTheme, Sizable, Size, TitleBar};
 use gpui_kit::*;
 
 use crate::AppState;
-use crate::config::StoreAutoMode;
+use crate::config::{StoreAutoMode, ThemeMode};
 use rust_i18n::t;
 
 /// Locale codes with their names in that language
@@ -54,33 +54,74 @@ impl Render for SettingsView {
                                     SettingGroup::new()
                                         .pr_1()
                                         .title(t!("settings.group_interface"))
-                                        .items(vec![SettingItem::new(
-                                            t!("settings.language"),
-                                            SettingField::dropdown(
-                                                LOCALES
-                                                    .iter()
-                                                    .map(|(code, name)| {
-                                                        ((*code).into(), (*name).into())
-                                                    })
-                                                    .collect(),
-                                                |cx: &App| {
-                                                    cx.global::<AppState>()
-                                                        .config
-                                                        .locale
-                                                        .clone()
-                                                        .into()
-                                                },
-                                                |val: SharedString, cx: &mut App| {
-                                                    rust_i18n::set_locale(&val);
-                                                    cx.update_global::<AppState, _>(|state, _| {
-                                                        state.update_config(|cfg| {
-                                                            cfg.locale = val.to_string();
-                                                        });
-                                                    });
-                                                    cx.refresh_windows();
-                                                },
+                                        .items(vec![
+                                            SettingItem::new(
+                                                t!("settings.language"),
+                                                SettingField::dropdown(
+                                                    LOCALES
+                                                        .iter()
+                                                        .map(|(code, name)| {
+                                                            ((*code).into(), (*name).into())
+                                                        })
+                                                        .collect(),
+                                                    |cx: &App| {
+                                                        cx.global::<AppState>()
+                                                            .config
+                                                            .locale
+                                                            .clone()
+                                                            .into()
+                                                    },
+                                                    |val: SharedString, cx: &mut App| {
+                                                        rust_i18n::set_locale(&val);
+                                                        cx.update_global::<AppState, _>(
+                                                            |state, _| {
+                                                                state.update_config(|cfg| {
+                                                                    cfg.locale = val.to_string();
+                                                                });
+                                                            },
+                                                        );
+                                                        cx.refresh_windows();
+                                                    },
+                                                ),
                                             ),
-                                        )]),
+                                            SettingItem::new(
+                                                t!("settings.appearance"),
+                                                SettingField::dropdown(
+                                                    ThemeMode::ALL
+                                                        .iter()
+                                                        .map(|mode| {
+                                                            (
+                                                                mode.as_str().into(),
+                                                                t!(format!(
+                                                                    "settings.appearance_{}",
+                                                                    mode.as_str()
+                                                                ))
+                                                                .into(),
+                                                            )
+                                                        })
+                                                        .collect(),
+                                                    |cx: &App| {
+                                                        cx.global::<AppState>()
+                                                            .config
+                                                            .theme_mode
+                                                            .as_str()
+                                                            .into()
+                                                    },
+                                                    |val: SharedString, cx: &mut App| {
+                                                        let mode = ThemeMode::from_str(&val);
+                                                        cx.update_global::<AppState, _>(
+                                                            |state, _| {
+                                                                state.update_config(|cfg| {
+                                                                    cfg.theme_mode = mode;
+                                                                });
+                                                            },
+                                                        );
+                                                        crate::theme::apply(mode, None, cx);
+                                                        cx.refresh_windows();
+                                                    },
+                                                ),
+                                            ),
+                                        ]),
                                     SettingGroup::new()
                                         .pr_1()
                                         .title(t!("settings.group_device"))

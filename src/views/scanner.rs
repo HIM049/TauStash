@@ -522,11 +522,8 @@ impl ScannerView {
             })
             .when_else(
                 is_selected,
-                |this| this.bg(theme.accent.opacity(0.4)),
-                |this| {
-                    this.bg(theme.background)
-                        .hover(|s| s.bg(theme.secondary.opacity(0.4)))
-                },
+                |this| this.bg(theme.list_active),
+                |this| this.bg(theme.background).hover(|s| s.bg(theme.list_hover)),
             )
             .on_click(cx.listener(move |this, _, _, cx| {
                 cx.stop_propagation();

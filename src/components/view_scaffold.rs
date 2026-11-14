@@ -123,7 +123,7 @@ impl ViewScaffold {
             .justify_center()
             .opacity(0.)
             .p_8()
-            .bg(theme.primary.opacity(0.5))
+            .bg(theme.drop_target)
             .drag_over::<ExternalPaths>(|style, _, _, _| style.opacity(1.))
             .child(
                 div()
@@ -133,7 +133,7 @@ impl ViewScaffold {
                     .size_full()
                     .border_8()
                     .border_dashed()
-                    .border_color(theme.muted)
+                    .border_color(theme.drag_border)
                     .rounded_3xl()
                     .opacity(0.8)
                     .text_color(theme.muted)
@@ -174,6 +174,7 @@ impl RenderOnce for ViewScaffold {
                     .v_flex()
                     .gap_2()
                     .w_full()
+                    // .bg(theme.muted)
                     .child(
                         div()
                             .id((self.id.clone(), "header"))
@@ -222,6 +223,9 @@ impl RenderOnce for ViewScaffold {
             .child(
                 div()
                     .id((self.id.clone(), "content"))
+                    // .bg(theme.muted)
+                    .border_t_1()
+                    .border_color(theme.border)
                     .w_full()
                     .flex_1()
                     .min_h_0()

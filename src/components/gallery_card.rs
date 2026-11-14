@@ -111,10 +111,8 @@ impl RenderOnce for GalleryCard {
             .w(px(GALLERY_CARD_SIZE))
             .h(px(GALLERY_CARD_SIZE))
             .overflow_hidden()
-            .bg(gpui_kit::black().opacity(0.2))
-            .when(is_selected, |this| {
-                this.bg(gpui_kit::black().opacity(0.4)).p_4()
-            })
+            .bg(cx.theme().muted)
+            .when(is_selected, |this| this.bg(cx.theme().accent).p_4())
             .child(match self.image {
                 CardImage::Image(path) => img(ImageSource::from(path))
                     .size_full()

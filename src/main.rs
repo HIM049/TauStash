@@ -14,6 +14,7 @@ mod config;
 mod logging;
 mod menu;
 mod paths;
+mod theme;
 mod views;
 use app::MyApp;
 
@@ -124,6 +125,8 @@ fn main() {
         gpui_kit::init(cx);
         menu::update_menu(cx);
         Theme::global_mut(cx).notification.placement = Anchor::BottomLeft;
+        theme::init(cx);
+        theme::apply(config.theme_mode, None, cx);
 
         let views = cx.new(|_| ViewStore::new(&db, &rt));
         let collections = cx.new(|_| CollectionStore::new());

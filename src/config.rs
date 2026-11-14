@@ -21,6 +21,36 @@ pub struct AppConfig {
     pub store_auto: StoreAutoMode,
     pub store_path: PathBuf,
     pub locale: String,
+    pub theme_mode: ThemeMode,
+}
+
+/// Light or dark appearance, or following the system
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemeMode {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+impl ThemeMode {
+    pub const ALL: [Self; 3] = [Self::System, Self::Light, Self::Dark];
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::Light => "light",
+            Self::Dark => "dark",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|mode| mode.as_str() == value)
+            .unwrap_or_default()
+    }
 }
 
 /// How archived files are brought into the store by the schedule
@@ -68,6 +98,7 @@ impl Default for AppConfig {
             store_auto: StoreAutoMode::Off,
             store_path: paths::data_dir().join("store"),
             locale: system_locale(),
+            theme_mode: ThemeMode::System,
         }
     }
 }

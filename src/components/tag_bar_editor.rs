@@ -367,7 +367,7 @@ impl Render for TagBatchEditor {
             .pl_6()
             .py_1()
             .gap_2()
-            .bg(theme.accent.opacity(0.08))
+            // .bg(theme.secondary)
             .border_color(theme.border)
             .min_h(px(34.0))
             .overflow_x_scroll()
