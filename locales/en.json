@@ -136,6 +136,7 @@
     "appearance_system": "System",
     "appearance_light": "Light",
     "appearance_dark": "Dark",
+    "check_update": "Check for updates",
     "maintain_interval": "Metadata maintenance interval (min)",
     "page_general": "General",
     "retention_days": "Trash retention (days)",
@@ -169,5 +170,9 @@
   },
   "tag_filter": {
     "all": "All"
+  },
+  "update_dialog": {
+    "title": "Update available",
+    "description": "A new version of TauStash is available. Open the release page?"
   }
 }

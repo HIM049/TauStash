@@ -121,6 +121,23 @@ impl Render for SettingsView {
                                                     },
                                                 ),
                                             ),
+                                            SettingItem::new(
+                                                t!("settings.check_update"),
+                                                SettingField::switch(
+                                                    |cx: &App| {
+                                                        cx.global::<AppState>().config.check_update
+                                                    },
+                                                    |val: bool, cx: &mut App| {
+                                                        cx.update_global::<AppState, _>(
+                                                            |state, _| {
+                                                                state.update_config(|cfg| {
+                                                                    cfg.check_update = val;
+                                                                });
+                                                            },
+                                                        );
+                                                    },
+                                                ),
+                                            ),
                                         ]),
                                     SettingGroup::new()
                                         .pr_1()

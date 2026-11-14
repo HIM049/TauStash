@@ -15,6 +15,7 @@ mod logging;
 mod menu;
 mod paths;
 mod theme;
+mod update;
 mod views;
 use app::MyApp;
 
@@ -120,9 +121,16 @@ fn main() {
 
     services::schedule::run_schedule(&schedule, &config, &db);
 
+    let http = reqwest_client::ReqwestClient::user_agent(&format!(
+        "TauStash/{}",
+        env!("CARGO_PKG_VERSION")
+    ))
+    .expect("Failed to create HTTP client");
+
     let app = gpui_kit::application().with_assets(gpui_kit::assets::AllAssets);
     app.run(move |cx| {
         gpui_kit::init(cx);
+        cx.set_http_client(Arc::new(http));
         menu::update_menu(cx);
         Theme::global_mut(cx).notification.placement = Anchor::BottomLeft;
         theme::init(cx);
@@ -136,6 +144,9 @@ fn main() {
         let collections_store = collections.clone();
         let tags_store = tags.clone();
         let file_store = file.clone();
+
+        let check_update = config.check_update;
+        let http_client = cx.http_client();
 
         let global = AppState {
             db: db.clone(),
@@ -174,23 +185,32 @@ fn main() {
         });
 
         cx.spawn(async move |cx| {
-            cx.open_window(
-                WindowOptions {
-                    window_bounds: Some(window_bounds),
-                    titlebar: Some(TitlebarOptions {
-                        title: Some("TauStash".into()),
-                        appears_transparent: true,
-                        traffic_light_position: None,
-                    }),
-                    app_id: Some(APP_ID.into()),
-                    ..Default::default()
-                },
-                |window, cx| {
-                    let view = cx.new(|cx| MyApp::new(window, cx));
-                    cx.new(|cx| Root::new(view, window, cx))
-                },
-            )
-            .expect("Failed to open window");
+            let window = cx
+                .open_window(
+                    WindowOptions {
+                        window_bounds: Some(window_bounds),
+                        titlebar: Some(TitlebarOptions {
+                            title: Some("TauStash".into()),
+                            appears_transparent: true,
+                            traffic_light_position: None,
+                        }),
+                        app_id: Some(APP_ID.into()),
+                        ..Default::default()
+                    },
+                    |window, cx| {
+                        let view = cx.new(|cx| MyApp::new(window, cx));
+                        cx.new(|cx| Root::new(view, window, cx))
+                    },
+                )
+                .expect("Failed to open window");
+
+            if check_update {
+                match update::check_update(http_client).await {
+                    Ok(Some(url)) => update::show_update_dialog(window.into(), url, cx),
+                    Ok(None) => {}
+                    Err(e) => tracing::warn!("Failed to check for updates: {:#}", e),
+                }
+            }
         })
         .detach();
     });

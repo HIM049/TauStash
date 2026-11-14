@@ -18,6 +18,14 @@ pub use thumbnail::*;
 
 use crate::config::{AppConfig, StoreAutoMode};
 
+/// Log a failed task run and fall back to an empty report.
+fn log_failure<T: Default>(task: &str, result: anyhow::Result<T>) -> T {
+    result.unwrap_or_else(|e| {
+        tracing::error!("Scheduled task {task} failed: {e:#}");
+        T::default()
+    })
+}
+
 pub fn run_schedule(
     schedule: &ScheduleService,
     config: &AppConfig,
@@ -42,9 +50,10 @@ pub fn run_schedule(
                 let db = dbc.clone();
                 let device_id = device_id.clone();
                 async move {
-                    let report = super::scanner::scan_all_sources(&db, &device_id)
-                        .await
-                        .unwrap_or_default();
+                    let report = log_failure(
+                        "scan_all_sources",
+                        super::scanner::scan_all_sources(&db, &device_id).await,
+                    );
                     report.has_changes()
                 }
             },
@@ -67,9 +76,10 @@ pub fn run_schedule(
                 let db = dbc.clone();
                 let device_id = device_id.clone();
                 async move {
-                    let report = super::schedule::maintain_storage(&db, &device_id)
-                        .await
-                        .unwrap_or_default();
+                    let report = log_failure(
+                        "verify_replicas",
+                        super::schedule::maintain_storage(&db, &device_id).await,
+                    );
                     report.has_changes()
                 }
             },
@@ -93,9 +103,11 @@ pub fn run_schedule(
                 let db = dbc.clone();
                 let device_id = device_id.clone();
                 async move {
-                    super::schedule::cleanup_expired_replicas(&db, &device_id, retention_days)
-                        .await
-                        .unwrap_or_default();
+                    log_failure(
+                        "cleanup_expired_replicas",
+                        super::schedule::cleanup_expired_replicas(&db, &device_id, retention_days)
+                            .await,
+                    );
                     false
                 }
             },
@@ -116,9 +128,10 @@ pub fn run_schedule(
                 let db = dbc.clone();
                 let device_id = device_id.clone();
                 async move {
-                    let report = super::schedule::maintain_thumbnails(&db, &device_id)
-                        .await
-                        .unwrap_or_default();
+                    let report = log_failure(
+                        "maintain_thumbnails",
+                        super::schedule::maintain_thumbnails(&db, &device_id).await,
+                    );
                     report.has_changes()
                 }
             },
@@ -143,14 +156,16 @@ pub fn run_schedule(
                     let device_id = device_id.clone();
                     let store_path = store_path.clone();
                     async move {
-                        let report = super::schedule::store_archived_files(
-                            &db,
-                            &device_id,
-                            &store_path,
-                            mode,
-                        )
-                        .await
-                        .unwrap_or_default();
+                        let report = log_failure(
+                            "store_archived_files",
+                            super::schedule::store_archived_files(
+                                &db,
+                                &device_id,
+                                &store_path,
+                                mode,
+                            )
+                            .await,
+                        );
                         report.has_changes()
                     }
                 },

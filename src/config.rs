@@ -22,6 +22,7 @@ pub struct AppConfig {
     pub store_path: PathBuf,
     pub locale: String,
     pub theme_mode: ThemeMode,
+    pub check_update: bool,
 }
 
 /// Light or dark appearance, or following the system
@@ -99,6 +100,7 @@ impl Default for AppConfig {
             store_path: paths::data_dir().join("store"),
             locale: system_locale(),
             theme_mode: ThemeMode::System,
+            check_update: true,
         }
     }
 }

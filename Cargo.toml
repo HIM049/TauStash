@@ -40,6 +40,9 @@ infer = "0.22"
 rust-i18n = "4.2"
 dirs = "6"
 sys-locale = "0.3"
+gpui-pre-reqwest-client = "=0.3.7"
+semver = "1"
+futures = "0.3"
 migration = { path = "migration", default-features = false }
 
 [build-dependencies]

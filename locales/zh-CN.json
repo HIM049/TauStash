@@ -136,6 +136,7 @@
     "appearance_system": "跟随系统",
     "appearance_light": "浅色",
     "appearance_dark": "深色",
+    "check_update": "检查更新",
     "maintain_interval": "元数据维护间隔（分钟）",
     "page_general": "常规设置",
     "retention_days": "回收站保留时间（天）",
@@ -169,5 +170,9 @@
   },
   "tag_filter": {
     "all": "全部"
+  },
+  "update_dialog": {
+    "title": "有可用更新",
+    "description": "TauStash 有新版本可用，是否打开发布页面？"
   }
 }
