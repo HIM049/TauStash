@@ -2,6 +2,7 @@
 
 <img width="100" height="100" alt="logo" src="https://github.com/user-attachments/assets/71e06cda-4b19-41e2-9037-5c1f2804ae8a" />
 
+English | [简体中文](README.zh-CN.md)
 
 A content-indexed file library with everything in tags.
 
