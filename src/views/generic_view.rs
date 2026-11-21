@@ -395,10 +395,6 @@ impl GenericView {
             .as_ref()
             .unwrap_or(&self.config.filters);
 
-        if config_filters.is_empty() {
-            return;
-        }
-
         if self.preview_filter_tags.is_some() || !self.show_intersection {
             self.filter_bar.reset_to_base();
             cx.notify();
@@ -461,14 +457,6 @@ impl GenericView {
         } else {
             &self.current_filter_tags
         };
-
-        if config_filters.is_empty() && filter_tags.is_empty() {
-            self.content_view.update(cx, |view, cx| {
-                view.set_files(Vec::new(), cx);
-            });
-            cx.notify();
-            return;
-        }
 
         let (sort_field, is_desc) = if let BarMode::Configuring(ref editor) = self.bar_mode {
             let cfg = editor.read(cx).current_config();
@@ -534,17 +522,6 @@ impl GenericView {
 
     pub fn reload_filter_stats(&mut self, cx: &mut Context<Self>) {
         if self.filter_bar.loading() {
-            return;
-        }
-
-        let config_filters = self
-            .preview_filter_tags
-            .as_ref()
-            .unwrap_or(&self.config.filters);
-
-        if config_filters.is_empty() {
-            self.filter_bar.clear_stats();
-            cx.notify();
             return;
         }
 

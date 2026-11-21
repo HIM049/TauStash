@@ -67,7 +67,7 @@ pub async fn move_into_store(
         .await?;
         if stored.iter().any(|r| Path::new(&r.uri).is_file()) {
             fs::remove_file(&src)?;
-            storage::file::delete_replica_by_uri(db, device_id, &src_uri).await?;
+            storage::file::mark_replica_missing_by_uri(db, device_id, &src_uri).await?;
             MtagService::apply_changes(db, &[existing.id], tags, &[]).await?;
             return Ok(existing.id);
         }
@@ -79,7 +79,7 @@ pub async fn move_into_store(
     let (file_id, _) =
         importer::import_with_metadata(db, &target, metadata, device_id, &[], imported_at).await?;
     MtagService::apply_changes(db, &[file_id], tags, &[]).await?;
-    storage::file::delete_replica_by_uri(db, device_id, &src_uri).await?;
+    storage::file::mark_replica_missing_by_uri(db, device_id, &src_uri).await?;
 
     Ok(file_id)
 }

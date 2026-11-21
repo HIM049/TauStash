@@ -53,6 +53,7 @@ impl MtagService {
                 super::MacroTag::Standard(meta) => named.push(meta.id),
                 super::MacroTag::Untagged => query = query.untagged(),
                 super::MacroTag::State(s) => query = query.state(s),
+                super::MacroTag::From(source) => query = query.source(source.id),
             }
         }
 

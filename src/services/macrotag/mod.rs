@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use uuid::Uuid;
 
 pub use crate::database::entities::FileState;
-use crate::database::entities::{TagNamespace, tag};
+use crate::database::entities::{TagNamespace, scan_source, tag};
 use rust_i18n::t;
 
 pub mod tags_applier;
@@ -53,6 +54,37 @@ impl From<tag::Model> for TagMetadata {
     }
 }
 
+/// A scan source referenced by id, named after its folder.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SourceMeta {
+    pub id: i32,
+    pub name: String,
+}
+
+impl PartialEq for SourceMeta {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for SourceMeta {}
+
+impl std::hash::Hash for SourceMeta {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
+impl From<&scan_source::Model> for SourceMeta {
+    fn from(m: &scan_source::Model) -> Self {
+        let name = Path::new(&m.path)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| m.path.clone());
+        Self { id: m.id, name }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MacroTag {
@@ -62,6 +94,7 @@ pub enum MacroTag {
     MediaType(String),
     HasReplica(u32),
     State(FileState),
+    From(SourceMeta),
     // Pending,
     // Managed,
     // Ignored,
@@ -97,6 +130,7 @@ impl MacroTag {
             Self::Untagged => t!("tag.untagged").into_owned(),
             Self::HasReplica(n) => t!("tag.replica_count", count = n).into_owned(),
             Self::State(s) => s.display_name().to_string(),
+            Self::From(source) => t!("tag.from", name = source.name).into_owned(),
         }
     }
 

@@ -1,18 +1,22 @@
 use gpui_kit::*;
 
 use crate::AppState;
-use crate::database::entities::TagNamespace;
+use crate::database::entities::{TagNamespace, scan_source};
+use crate::database::storage::scan_source as scan_source_store;
 use crate::database::storage::tag as tag_store;
 use crate::services::MacroTag;
+use crate::services::macrotag::SourceMeta;
 
 pub struct TagStore {
     pub cached_tags: Vec<MacroTag>,
+    pub source_tags: Vec<MacroTag>,
 }
 
 impl TagStore {
     pub fn new() -> Self {
         Self {
             cached_tags: Vec::new(),
+            source_tags: Vec::new(),
         }
     }
 
@@ -21,9 +25,14 @@ impl TagStore {
         let rt = cx.global::<AppState>().rt.clone();
 
         cx.spawn(async move |this, cx| {
-            let items = cx
+            let (items, sources) = cx
                 .background_spawn(async move {
-                    rt.block_on(tag_store::list_candidates(&db, &[TagNamespace::User], 50))
+                    rt.block_on(async {
+                        (
+                            tag_store::list_candidates(&db, &[TagNamespace::User], 50).await,
+                            scan_source_store::list_scans(&db).await,
+                        )
+                    })
                 })
                 .await;
 
@@ -33,12 +42,24 @@ impl TagStore {
                         .into_iter()
                         .map(|t| MacroTag::Standard(t.into()))
                         .collect();
-                    cx.notify();
                 }
+                if let Ok(sources) = sources {
+                    this.set_sources(&sources, cx);
+                }
+                cx.notify();
             })
             .ok();
         })
         .detach();
+    }
+
+    /// Rebuild the `From` tags from the registered scan sources.
+    pub fn set_sources(&mut self, sources: &[scan_source::Model], cx: &mut Context<Self>) {
+        self.source_tags = sources
+            .iter()
+            .map(|s| MacroTag::From(SourceMeta::from(s)))
+            .collect();
+        cx.notify();
     }
 
     pub fn search(&self, query: &str) -> Vec<MacroTag> {

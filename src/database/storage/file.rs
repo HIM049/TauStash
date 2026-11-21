@@ -211,17 +211,16 @@ pub async fn find_replicas_by_path(
 }
 
 /// Delete a replica by uri
-pub async fn delete_replica_by_uri(
+/// Mark the replica at `uri` as Missing, keeping its record.
+pub async fn mark_replica_missing_by_uri(
     db: &DatabaseConnection,
     device_id: &str,
     uri: &str,
 ) -> anyhow::Result<()> {
     let uri = utils::standardize_path(uri.to_string());
-    file_replica::Entity::delete_many()
-        .filter(file_replica::Column::DeviceId.eq(device_id))
-        .filter(file_replica::Column::Uri.eq(uri))
-        .exec(db)
-        .await?;
+    if let Some(replica) = find_replica(db, device_id, &uri).await? {
+        mark_replica_missing(db, replica).await?;
+    }
     Ok(())
 }
 

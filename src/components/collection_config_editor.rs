@@ -88,14 +88,16 @@ pub fn group_mode_label(mode: GroupMode) -> String {
     }
 }
 
-fn preset_macro_tags() -> Vec<MacroTag> {
-    vec![
+fn preset_macro_tags(cx: &App) -> Vec<MacroTag> {
+    let mut tags = vec![
         MacroTag::State(FileState::Pending),
         MacroTag::State(FileState::Managed),
         MacroTag::State(FileState::Ignored),
         MacroTag::State(FileState::Deleted),
         MacroTag::Untagged,
-    ]
+    ];
+    tags.extend(cx.global::<AppState>().tags.read(cx).source_tags.iter().cloned());
+    tags
 }
 
 #[derive(Clone, Debug)]
@@ -187,7 +189,7 @@ impl CollectionConfigEditor {
         }
 
         // match macro tag
-        let matching_macro = preset_macro_tags().into_iter().find(|t| {
+        let matching_macro = preset_macro_tags(cx).into_iter().find(|t| {
             !this.draft_config.filters.contains(t)
                 && t.display_name().to_lowercase().contains(&q.to_lowercase())
         });
@@ -714,8 +716,10 @@ impl CollectionConfigEditor {
                                     .dropdown_menu({
                                         let editor = cx.entity().clone();
                                         let current_pinned = self.draft_config.pinned_tags.clone();
+                                        let macro_tags = preset_macro_tags(cx);
                                         move |menu, _, _| {
-                                            preset_macro_tags()
+                                            macro_tags
+                                                .clone()
                                                 .into_iter()
                                                 .filter(|t| !current_pinned.contains(t))
                                                 .fold(menu, |menu, tag| {
@@ -816,7 +820,7 @@ impl CollectionConfigEditor {
             .tag_search_results
             .iter()
             .any(|t| t.display_name().eq_ignore_ascii_case(&search_query));
-        let is_query_in_macro = preset_macro_tags()
+        let is_query_in_macro = preset_macro_tags(cx)
             .iter()
             .any(|t| t.display_name().eq_ignore_ascii_case(&search_query));
         let is_query_in_filters = self
@@ -869,7 +873,7 @@ impl CollectionConfigEditor {
             .collect();
 
         // UNSELECTED macro tags
-        let unselected_macro_tags: Vec<MacroTag> = preset_macro_tags()
+        let unselected_macro_tags: Vec<MacroTag> = preset_macro_tags(cx)
             .into_iter()
             .filter(|t| !self.draft_config.filters.contains(t))
             .filter(|t| {

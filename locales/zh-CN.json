@@ -162,6 +162,7 @@
     "updated": "更新时间"
   },
   "tag": {
+    "from": "来自：%{name}",
     "replica_count": "副本数：%{count}",
     "untagged": "未标记"
   },

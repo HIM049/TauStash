@@ -14,7 +14,8 @@ use uuid::Uuid;
 
 use super::file::DbFileRecord;
 use crate::database::entities::{
-    FileState, ReplicaState, TagNamespace, file, file_replica, file_tag, file_thumbnail, tag,
+    FileState, ReplicaState, TagNamespace, file, file_replica, file_tag, file_thumbnail,
+    scan_source, tag,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -84,6 +85,7 @@ pub struct FileQueryer {
     pub extensions: Option<Vec<String>>, // Whitelist
     pub mime_prefixes: Option<Vec<String>>,
     pub has_replica: bool,
+    pub sources: Vec<i32>,
     pub deleted_since: Option<DateTimeUtc>,
     pub size_range: (Option<i64>, Option<i64>),
     pub date_range: Option<(Option<DateTimeUtc>, Option<DateTimeUtc>)>,
@@ -136,6 +138,14 @@ impl FileQueryer {
     /// Filter files that have multiple physical replicas (duplicate copies)
     pub fn has_replica(mut self, has: bool) -> Self {
         self.has_replica = has;
+        self
+    }
+
+    /// Filter files with a replica under the scan source's folder
+    pub fn source(mut self, source_id: i32) -> Self {
+        if !self.sources.contains(&source_id) {
+            self.sources.push(source_id);
+        }
         self
     }
 
@@ -417,6 +427,27 @@ fn build_filter_conditions(spec: &FileQueryer) -> sea_orm::Condition {
             .to_owned();
 
         cond = cond.add(Expr::col(file::Column::Id).in_subquery(replica_count_subquery));
+    }
+
+    // SOURCE filter: filter by mached source
+    for source_id in &spec.sources {
+        let sep = std::path::MAIN_SEPARATOR.to_string();
+        let source_subquery = Query::select()
+            .column((file_replica::Entity, file_replica::Column::FileId))
+            .from(file_replica::Entity)
+            .inner_join(
+                scan_source::Entity,
+                Expr::col((scan_source::Entity, scan_source::Column::Id)).eq(*source_id),
+            )
+            .and_where(Expr::col((file_replica::Entity, file_replica::Column::DeletedAt)).is_null())
+            .and_where(Expr::cust_with_values(
+                r#"substr("file_replica"."uri", 1, length("scan_source"."path")) = "scan_source"."path"
+                AND (substr("scan_source"."path", -1) = ? OR substr("file_replica"."uri", length("scan_source"."path") + 1, 1) = ?)"#,
+                [sep.clone(), sep],
+            ))
+            .to_owned();
+
+        cond = cond.add(Expr::col(file::Column::Id).in_subquery(source_subquery));
     }
 
     // DELETED filter (replicas marked deleted)

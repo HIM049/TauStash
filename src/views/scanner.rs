@@ -170,6 +170,8 @@ impl ScannerView {
                 return;
             };
             this.update(cx, |this, cx| {
+                let tags = cx.global::<AppState>().tags.clone();
+                tags.update(cx, |tags, cx| tags.set_sources(&sources, cx));
                 this.sources = sources;
                 cx.notify();
             })

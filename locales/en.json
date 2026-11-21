@@ -162,6 +162,7 @@
     "updated": "Updated"
   },
   "tag": {
+    "from": "From: %{name}",
     "replica_count": "Replicas: %{count}",
     "untagged": "Untagged"
   },
