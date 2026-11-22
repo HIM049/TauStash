@@ -9,6 +9,7 @@
     "delete_count": "删除内容（%{count}）",
     "empty": "暂无合集",
     "new": "新建合集",
+    "open_in_new_window": "在新窗口中打开",
     "untitled": "未命名合集"
   },
   "common": {

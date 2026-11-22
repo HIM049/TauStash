@@ -4,6 +4,7 @@ use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Enter, Escape, InputState};
 use gpui_kit::component::menu::{ContextMenuExt, PopupMenu, PopupMenuItem};
 use gpui_kit::component::*;
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use uuid::Uuid;
 
@@ -301,7 +302,17 @@ impl CollectionExplorerView {
                     .find(|f| f.id == id)
                     .map(|f| f.name.clone())
                     .unwrap_or_default();
+                let folder = self.folders.iter().find(|f| f.id == id).cloned();
                 menu = menu
+                    .when_some(folder, |menu, folder| {
+                        menu.item(
+                            PopupMenuItem::new(t!("collection_explorer.open_in_new_window"))
+                                .icon(IconName::ExternalLink)
+                                .on_click(move |_, _, cx| {
+                                    AppState::open_view_window(&folder, cx);
+                                }),
+                        )
+                    })
                     .item(
                         PopupMenuItem::new(t!("common.rename"))
                             .icon(IconName::Replace)

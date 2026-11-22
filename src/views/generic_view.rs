@@ -189,6 +189,22 @@ impl GenericView {
         let config: CollectionConfig =
             serde_json::from_value(model.config.clone()).unwrap_or_default();
 
+        let collections = cx.global::<AppState>().collections.clone();
+        cx.observe(&collections, |this: &mut Self, store, cx| {
+            let Some(id) = this.collection_id else {
+                return;
+            };
+            let Some(model) = store.read(cx).collections.iter().find(|c| c.id == id) else {
+                return;
+            };
+            if this.title.as_ref() != model.name || this.icon.as_deref() != Some(&model.icon) {
+                this.title = model.name.clone().into();
+                this.icon = Some(model.icon.clone().into());
+                cx.notify();
+            }
+        })
+        .detach();
+
         let mut view = Self::new(model.name.clone(), config, window, cx);
         view.icon = Some(model.icon.clone().into());
         view.collection_id = Some(model.id);
@@ -572,9 +588,10 @@ impl GenericView {
             .tag_store(tag_store, cx)
         });
 
-        cx.subscribe(
+        cx.subscribe_in(
             &editor,
-            |this, editor, event: &ConfigEditorEvent, cx| match event {
+            window,
+            |this, editor, event: &ConfigEditorEvent, window, cx| match event {
                 ConfigEditorEvent::DraftChanged => {
                     let draft_config = editor.read(cx).current_config().clone();
                     this.preview_filter_tags = Some(draft_config.filters.clone());
@@ -597,7 +614,7 @@ impl GenericView {
                     this.apply_config(&name, &icon, &config, collection_type, None, cx);
                 }
                 ConfigEditorEvent::DeleteRequested => {
-                    this.delete_current_collection(cx);
+                    this.delete_current_collection(window, cx);
                 }
                 ConfigEditorEvent::ExpandToggled => {
                     cx.notify();
@@ -611,7 +628,7 @@ impl GenericView {
         cx.notify();
     }
 
-    pub fn delete_current_collection(&mut self, cx: &mut Context<Self>) {
+    pub fn delete_current_collection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(id) = self.collection_id else {
             self.bar_mode = BarMode::Normal;
             cx.notify();
@@ -638,15 +655,9 @@ impl GenericView {
         } else {
             t!("generic_view.collection_deleted")
         };
-        let on_back = self.on_back.clone();
-        if let Some(handle) = cx.windows().first().copied() {
-            cx.update_window(handle, move |_view, window, cx| {
-                window.push_notification(Notification::new().message(msg), cx);
-                if let Some(on_back) = on_back {
-                    on_back(window, cx);
-                }
-            })
-            .ok();
+        window.push_notification(Notification::new().message(msg), cx);
+        if let Some(on_back) = self.on_back.clone() {
+            on_back(window, cx);
         }
     }
 

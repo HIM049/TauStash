@@ -93,6 +93,30 @@ impl AppState {
             state.settings_window = Some(handle);
         });
     }
+
+    /// Open a collection in a new window of its own.
+    pub fn open_view_window(model: &database::entities::collection::Model, cx: &mut App) {
+        let window_bounds =
+            WindowBounds::Windowed(Bounds::centered(None, size(px(970.0), px(780.0)), cx));
+
+        let model = model.clone();
+        if let Err(e) = gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(window_bounds),
+                titlebar: Some(TitlebarOptions {
+                    title: Some(model.name.clone().into()),
+                    appears_transparent: true,
+                    traffic_light_position: None,
+                }),
+                app_id: Some(APP_ID.into()),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| views::view_window::ViewWindow::new(&model, window, cx)),
+        ) {
+            tracing::error!("Failed to open view window: {:#}", e);
+        }
+    }
 }
 
 fn main() {

@@ -9,6 +9,7 @@
     "delete_count": "Delete (%{count})",
     "empty": "No collections yet",
     "new": "New collection",
+    "open_in_new_window": "Open in new window",
     "untitled": "Untitled collection"
   },
   "common": {
