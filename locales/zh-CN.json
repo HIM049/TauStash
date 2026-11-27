@@ -4,6 +4,9 @@
     "settings": "设置…",
     "quit": "退出"
   },
+  "tray": {
+    "show": "打开 TauStash"
+  },
   "collection_explorer": {
     "delete": "删除内容",
     "delete_count": "删除内容（%{count}）",
@@ -138,6 +141,7 @@
     "appearance_light": "浅色",
     "appearance_dark": "深色",
     "check_update": "检查更新",
+    "close_to_background": "关闭窗口后在后台运行",
     "maintain_interval": "元数据维护间隔（分钟）",
     "page_general": "常规设置",
     "retention_days": "回收站保留时间（天）",

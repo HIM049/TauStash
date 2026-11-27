@@ -138,6 +138,25 @@ impl Render for SettingsView {
                                                     },
                                                 ),
                                             ),
+                                            SettingItem::new(
+                                                t!("settings.close_to_background"),
+                                                SettingField::switch(
+                                                    |cx: &App| {
+                                                        cx.global::<AppState>()
+                                                            .config
+                                                            .keep_in_background
+                                                    },
+                                                    |val: bool, cx: &mut App| {
+                                                        cx.update_global::<AppState, _>(
+                                                            |state, _| {
+                                                                state.update_config(|cfg| {
+                                                                    cfg.keep_in_background = val;
+                                                                });
+                                                            },
+                                                        );
+                                                    },
+                                                ),
+                                            ),
                                         ]),
                                     SettingGroup::new()
                                         .pr_1()

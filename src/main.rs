@@ -11,6 +11,7 @@ use std::sync::Arc;
 mod app;
 mod components;
 mod config;
+mod instance;
 mod logging;
 mod menu;
 mod paths;
@@ -18,6 +19,8 @@ mod theme;
 mod update;
 mod views;
 use app::MyApp;
+
+mod tray;
 
 use crate::{
     config::AppConfig,
@@ -41,6 +44,8 @@ pub struct AppState {
     pub tags: Entity<TagStore>,
     pub file: Entity<FileStore>,
     pub settings_window: Option<AnyWindowHandle>,
+    pub main_window: Option<AnyWindowHandle>,
+    pub tray: Option<tray::Tray>,
 }
 
 impl Global for AppState {}
@@ -94,6 +99,49 @@ impl AppState {
         });
     }
 
+    /// Activate the main window, or open it again if it was closed.
+    pub fn open_main_window(cx: &mut App) -> Option<AnyWindowHandle> {
+        tray::set_dock_visible(true, cx);
+
+        let existing = cx.global::<AppState>().main_window;
+        if let Some(handle) = existing
+            && handle
+                .update(cx, |_, window, _| window.activate_window())
+                .is_ok()
+        {
+            return Some(handle);
+        }
+
+        let window_bounds =
+            WindowBounds::Windowed(Bounds::centered(None, size(px(970.0), px(780.0)), cx));
+
+        let handle = match gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(window_bounds),
+                titlebar: Some(TitlebarOptions {
+                    title: Some("TauStash".into()),
+                    appears_transparent: true,
+                    traffic_light_position: None,
+                }),
+                app_id: Some(APP_ID.into()),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| MyApp::new(window, cx)),
+        ) {
+            Ok((handle, _)) => handle,
+            Err(e) => {
+                tracing::error!("Failed to open main window: {:#}", e);
+                return None;
+            }
+        };
+
+        cx.update_global::<AppState, _>(|state, _| {
+            state.main_window = Some(handle);
+        });
+        Some(handle)
+    }
+
     /// Open a collection in a new window of its own.
     pub fn open_view_window(model: &database::entities::collection::Model, cx: &mut App) {
         let window_bounds =
@@ -122,6 +170,15 @@ impl AppState {
 fn main() {
     logging::init();
 
+    let listener = match instance::acquire() {
+        Ok(instance::Instance::Primary(listener)) => Some(listener),
+        Ok(instance::Instance::Secondary) => return,
+        Err(e) => {
+            tracing::warn!("Single instance check failed: {:#}", e);
+            None
+        }
+    };
+
     let rt = tokio::runtime::Runtime::new().expect("Failed to start Tokio runtime");
     let _guard = rt.enter();
 
@@ -136,6 +193,11 @@ fn main() {
             .expect("Failed to initialize database")
     });
     let db = Arc::new(db);
+
+    let (activate_tx, mut activate_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<String>>();
+    if let Some(listener) = listener {
+        instance::listen(listener, activate_tx);
+    }
 
     let (file_change_tx, mut file_change_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
 
@@ -152,6 +214,9 @@ fn main() {
     .expect("Failed to create HTTP client");
 
     let app = gpui_kit::application().with_assets(gpui_kit::assets::AllAssets);
+    app.on_reopen(|cx| {
+        AppState::open_main_window(cx);
+    });
     app.run(move |cx| {
         gpui_kit::init(cx);
         cx.set_http_client(Arc::new(http));
@@ -182,6 +247,8 @@ fn main() {
             tags,
             file,
             settings_window: None,
+            main_window: None,
+            tray: None,
         };
         cx.set_global(global);
 
@@ -197,8 +264,14 @@ fn main() {
         })
         .detach();
 
-        let window_bounds =
-            WindowBounds::Windowed(Bounds::centered(None, size(px(970.0), px(780.0)), cx));
+        cx.spawn(async move |cx| {
+            while let Some(_) = activate_rx.recv().await {
+                cx.update(|cx| {
+                    AppState::open_main_window(cx);
+                });
+            }
+        })
+        .detach();
 
         cx.on_action(|_: &OpenSettings, cx| {
             AppState::open_settings_window(cx);
@@ -208,34 +281,53 @@ fn main() {
             cx.quit();
         });
 
-        cx.spawn(async move |cx| {
-            let window = cx
-                .open_window(
-                    WindowOptions {
-                        window_bounds: Some(window_bounds),
-                        titlebar: Some(TitlebarOptions {
-                            title: Some("TauStash".into()),
-                            appears_transparent: true,
-                            traffic_light_position: None,
-                        }),
-                        app_id: Some(APP_ID.into()),
-                        ..Default::default()
-                    },
-                    |window, cx| {
-                        let view = cx.new(|cx| MyApp::new(window, cx));
-                        cx.new(|cx| Root::new(view, window, cx))
-                    },
-                )
-                .expect("Failed to open window");
+        if cx.global::<AppState>().config.keep_in_background {
+            let (tray_tx, mut tray_rx) = tokio::sync::mpsc::unbounded_channel();
+            let t = tray::init(tray_tx)
+                .inspect_err(|e| tracing::error!("Failed to create tray icon: {:#}", e))
+                .ok();
 
-            if check_update {
-                match update::check_update(http_client).await {
-                    Ok(Some(url)) => update::show_update_dialog(window.into(), url, cx),
-                    Ok(None) => {}
-                    Err(e) => tracing::warn!("Failed to check for updates: {:#}", e),
+            cx.spawn(async move |cx| {
+                while let Some(command) = tray_rx.recv().await {
+                    cx.update(|cx| match command {
+                        tray::TrayCommand::Show => {
+                            AppState::open_main_window(cx);
+                        }
+                        tray::TrayCommand::Quit => cx.quit(),
+                    });
                 }
+            })
+            .detach();
+
+            cx.update_global(|g: &mut AppState, _| g.tray = t);
+        }
+
+        // Quitting is decided here, so closing every window can leave the app in the background.
+        cx.set_quit_mode(QuitMode::Explicit);
+        cx.on_window_closed(|cx, _| {
+            let g = cx.global::<AppState>();
+            if !cx.windows().is_empty() {
+                return;
+            }
+            if !g.config.keep_in_background || g.tray.is_none() {
+                cx.quit();
+            } else {
+                tray::set_dock_visible(false, cx);
             }
         })
         .detach();
+
+        let window = AppState::open_main_window(cx);
+
+        if check_update && let Some(window) = window {
+            cx.spawn(
+                async move |cx| match update::check_update(http_client).await {
+                    Ok(Some(url)) => update::show_update_dialog(window, url, cx),
+                    Ok(None) => {}
+                    Err(e) => tracing::warn!("Failed to check for updates: {:#}", e),
+                },
+            )
+            .detach();
+        }
     });
 }

@@ -4,6 +4,9 @@
     "settings": "Settings…",
     "quit": "Quit"
   },
+  "tray": {
+    "show": "Open TauStash"
+  },
   "collection_explorer": {
     "delete": "Delete",
     "delete_count": "Delete (%{count})",
@@ -138,6 +141,7 @@
     "appearance_light": "Light",
     "appearance_dark": "Dark",
     "check_update": "Check for updates",
+    "close_to_background": "Keep running in the background after closing windows",
     "maintain_interval": "Metadata maintenance interval (min)",
     "page_general": "General",
     "retention_days": "Trash retention (days)",
